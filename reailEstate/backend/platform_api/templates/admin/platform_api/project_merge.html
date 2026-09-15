@@ -1,0 +1,5 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div id="content-main"><p>This joins the source into a canonical project without deleting source evidence or history.</p>
+<form method="post">{% csrf_token %}{{ form.as_p }}<button type="submit" class="default">Join projects</button></form></div>
+{% endblock %}

@@ -1,0 +1,9 @@
+output/
+user/
+backend/.pytest_cache
+backend/.venv
+reailEstate/backend/.local/
+reailEstate/backend/.venv/
+**/__pycache__/
+
+

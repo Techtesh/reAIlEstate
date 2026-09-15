@@ -1,0 +1,1 @@
+"""Shared evidence I/O primitives; authorization belongs to callers."""

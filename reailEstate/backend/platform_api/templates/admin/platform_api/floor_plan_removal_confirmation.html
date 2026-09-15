@@ -1,0 +1,29 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+  <h1>{{ title }}</h1>
+  <p><strong>{{ original.display_title }}</strong></p>
+  <dl>
+    <dt>Project</dt><dd>{{ dashboard_project.submitted_name }}</dd>
+    <dt>Source document</dt><dd>{{ original.document.original_name }}</dd>
+    <dt>Source page</dt><dd>{{ original.page_number|default:"Unknown" }}</dd>
+    <dt>Record ID</dt><dd>{{ original.pk }}</dd>
+    <dt>Scope / current review state</dt><dd>{{ original.plan_scope }} / {{ original.review_state }}</dd>
+  </dl>
+  {% if action == "remove" %}
+    <p>Hide only this selected record from active floor-plan/layout lists and outputs. No duplicate is selected automatically.</p>
+    <p>Original documents, saved images, shared assets, other layouts and extraction provenance are preserved.
+       Pending page/crop evaluation jobs targeting this record will be cancelled, not jobs for other records.</p>
+    <p>This action is audited and reversible. To restore, open <a href="{{ record_url }}">this floor-plan record</a>
+       and choose <strong>Restore removed plan</strong>. Removed records remain in the Floor plans admin list;
+       filter by review state <strong>removed_by_user</strong>.</p>
+  {% else %}
+    <p>Restore this record's review state from its removal audit. Existing visibility rules still apply.
+       Cancelled jobs are not restarted and generated evidence is not changed.</p>
+  {% endif %}
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <input type="submit" value="{% if action == 'remove' %}Confirm removal{% else %}Confirm restore{% endif %}">
+    <a href="{{ cancel_url }}">Cancel</a>
+  </form>
+{% endblock %}

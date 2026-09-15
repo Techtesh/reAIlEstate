@@ -1,0 +1,43 @@
+{
+  "pdfCount": 65,
+  "eligiblePdfCount": 60,
+  "ignoredFileCount": 3,
+  "localities": {
+    "Ghatkopar": 9,
+    "Powai": 2,
+    "Thane": 40,
+    "Vikhroli": 14
+  },
+  "categories": {
+    "project_material": 42,
+    "brochure": 7,
+    "floor_plan": 13,
+    "elevation": 2,
+    "agreement": 1
+  },
+  "withMahaReraId": 25,
+  "withoutMahaReraId": 40,
+  "oversized": [],
+  "duplicates": [
+    {
+      "path": "Thane/Pragati floor plans-1 (1).pdf",
+      "duplicateOf": "Thane/Pragati floor plans-1.pdf"
+    },
+    {
+      "path": "Thane/Veer HIghts - Opp Doc low file (1).pdf",
+      "duplicateOf": "Thane/Veer HIghts - Opp Doc low file.pdf"
+    },
+    {
+      "path": "Thane/Veer HIghts - Opp Doc low file (2).pdf",
+      "duplicateOf": "Thane/Veer HIghts - Opp Doc low file.pdf"
+    },
+    {
+      "path": "Thane/veer hills booklet.pdf",
+      "duplicateOf": "Thane/Veer Hills .pdf"
+    },
+    {
+      "path": "Vikhroli/Mayfair hillcrest.pdf",
+      "duplicateOf": "Ghatkopar/HS_alag.pdf"
+    }
+  ]
+}

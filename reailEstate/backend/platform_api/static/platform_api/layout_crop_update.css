@@ -1,0 +1,11 @@
+.crop-update { max-width: 1150px; }
+.crop-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin: 1rem 0; }
+.crop-toolbar [aria-current="page"] { font-weight: bold; text-decoration: underline; }
+.crop-canvas-container { border: 1px solid var(--border-color, #ccc); background: #eee; padding: .5rem; }
+#crop-canvas { display: block; max-width: 100%; height: auto; margin: auto; touch-action: none; cursor: crosshair; }
+.crop-bounds { display: flex; flex-wrap: wrap; align-items: end; gap: 1rem; padding: 1rem; margin-top: 1rem; }
+.crop-bounds label { display: grid; gap: .5rem; }
+.crop-bounds input { width: 7rem; }
+.crop-update button { padding: .65rem 1rem; cursor: pointer; }
+.crop-update button:disabled { cursor: not-allowed; opacity: .6; }
+.crop-update :focus-visible { outline: 3px solid #0076db; outline-offset: 3px; }

@@ -1,0 +1,107 @@
+<div class="media-tools media-grid">
+  {% for card in cards %}
+    <article class="media-card">
+      {% if section == 'layouts' and can_remove_plans and card.plan.plan_scope == 'flat' %}
+      <label class="layout-selection" for="select-layout-{{ card.plan.pk }}">
+        <input type="checkbox" id="select-layout-{{ card.plan.pk }}" name="selected_ids" value="{{ card.plan.pk }}" form="layout-bulk-removal" data-layout-select>
+        Select {{ card.plan.display_title }} for removal
+      </label>
+      {% endif %}
+      {% if card.imageUrl %}<a href="{{ card.imageUrl }}" target="_blank" rel="noopener"><img src="{{ card.imageUrl }}" alt="{{ card.plan.display_title }}"></a>{% endif %}
+      <h2>{{ card.plan.display_title }}</h2>
+      {% if card.imageDescription %}<p>{{ card.imageDescription }}</p>{% endif %}
+      <div class="card-actions">
+        {% if can_remove_plans and card.plan.plan_scope == 'flat' and card.editCropUrl %}<a class="button media-primary" href="{{ card.editCropUrl }}">Update this unit crop</a>{% endif %}
+        {% if can_report and card.manualCropUrl %}<a class="button" href="{{ card.manualCropUrl }}">Create new crops from source</a>{% endif %}
+      </div>
+      {% if can_remove_plans %}
+      <details><summary>Edit display name</summary>
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="save_layout_name"><input type="hidden" name="floor_plan_id" value="{{ card.plan.pk }}">
+          <p><label for="name-{{ card.plan.pk }}">Display name / alias</label>
+          <input id="name-{{ card.plan.pk }}" name="display_name" value="{{ card.plan.display_name }}" placeholder="{{ card.plan.display_title }}" maxlength="160"></p>
+          <div class="card-actions"><button type="submit" class="button">Save display name</button></div>
+          <p class="help">Leave blank to use the extracted name without internal IDs. Does not rerun extraction.</p>
+        </form>
+      </details>
+      {% endif %}
+      {% if card.plan.raw_extraction.qualityWarning %}<p class="errornote"><strong>Boundary review required:</strong> {{ card.plan.raw_extraction.qualityWarning }}</p>{% endif %}
+      <dl class="facts">
+        <dt>Image type</dt><dd>{% if card.isCroppedUnit %}Cropped unit{% else %}Source image (not a cropped unit){% endif %}</dd>
+        <dt>Source</dt><dd>{{ card.sourceKind }}{% if card.isPreferredSource %} — preferred pre-cut layout{% endif %}</dd>
+        <dt>Page</dt><dd>{{ card.plan.page_number|default:"Unknown" }}</dd>
+        <dt>Configuration</dt><dd>{{ card.plan.configuration_type|default:"Unknown" }}</dd>
+        <dt>Carpet area</dt><dd>{% if card.plan.carpet_area_sqft %}{{ card.plan.carpet_area_sqft }} sq ft{% else %}Unknown{% endif %}</dd>
+        <dt>Rooms</dt><dd>{{ card.plan.room_count|default:"Unknown" }}</dd>
+        <dt>Bathrooms</dt><dd>{{ card.plan.bathroom_count|default:"Unknown" }}</dd>
+        <dt>Balconies</dt><dd>{{ card.plan.balcony_count|default:"Unknown" }}</dd>
+        <dt>Orientation</dt><dd>{{ card.plan.orientation|default:"Unknown" }}</dd>
+        <dt>Confidence</dt><dd>{{ card.plan.confidence|floatformat:2 }}</dd>
+        <dt>Review state</dt><dd>{{ card.plan.review_state }}</dd>
+        <dt>Extractor</dt><dd>{{ card.plan.extractor_version }}</dd>
+      </dl>
+      <h3>Extracted room sizes</h3>
+      {% if card.evaluation %}<p><strong>{{ card.evaluation.label }}</strong>{% if card.evaluation.error %} — {{ card.evaluation.error }}{% endif %}</p>{% endif %}
+      {% if card.dimensions %}
+        <table class="room-table"><thead><tr><th>Room</th><th>Length</th><th>Width</th><th>Area</th></tr></thead><tbody>
+        {% for room in card.dimensions %}<tr><td>{{ room.room }}</td><td>{{ room.length|default:"—" }} ft</td><td>{{ room.width|default:"—" }} ft</td><td>{% if room.area != None %}{{ room.area }} sq ft{% else %}—{% endif %}</td></tr>{% endfor %}
+        </tbody></table>
+      {% elif card.evaluation.state == 'queued' or card.evaluation.state == 'running' %}
+        <p>Room dimensions are pending extraction, not yet missing.</p>
+      {% elif card.evaluation.state == 'failed' or card.evaluation.state == 'cancelled' %}
+        <p>Room dimensions are unavailable because evaluation did not complete. Review the error or crop boundary.</p>
+      {% elif card.evaluation.state == 'not_queued' %}
+        <p>No room dimensions are saved. Queue extraction to evaluate this layout.</p>
+      {% else %}<p>No readable room dimensions were extracted. Treat this as unknown, not zero.</p>{% endif %}
+      {% if can_remove_plans and card.evaluation.canRun %}
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="run_layout_evaluation"><input type="hidden" name="floor_plan_id" value="{{ card.plan.pk }}">
+          {% if card.evaluation.state == 'failed' %}<input type="hidden" name="retry" value="true">{% endif %}
+          <div class="card-actions"><button type="submit" class="button">{{ card.evaluation.button }}</button></div>
+          <p class="help">Queues extraction for this layout only; processing happens separately. Repeated requests reuse existing work, including completed extraction.</p>
+        </form>
+      {% endif %}
+      <details><summary>Features</summary><pre>{{ card.features }}</pre></details>
+      <details><summary>Raw extraction and provenance</summary><p>Internal name: {{ card.plan.plan_name }}</p><pre>{{ card.rawExtraction }}</pre></details>
+      <div class="card-actions">
+        <a class="button" href="{% url 'admin:platform_api_floorplan_change' card.plan.pk %}">Open floor-plan record</a>
+        <a class="button" href="{% url 'media-page' card.plan.document_id card.plan.page_number|default:1 %}" target="_blank" rel="noopener">Open source PDF/document</a>
+        {% if can_remove_plans %}<a class="button media-destructive" href="{{ card.removeUrl }}">Remove duplicate plan…</a>{% endif %}
+      </div>
+      {% if can_report and card.plan.plan_scope == 'floor' %}
+      <form method="post" class="report-box">{% csrf_token %}
+        <input type="hidden" name="action" value="queue_floor_layouts">
+        <input type="hidden" name="floor_plan_id" value="{{ card.plan.pk }}">
+        <div class="card-actions"><button type="submit" class="button">Extract individual layouts / retry failed split</button></div>
+        <p class="help">Queues AI separation, then evaluates each crop. The source floor plan stays unchanged.</p>
+      </form>
+      {% endif %}
+      {% if show_report %}
+        {% if card.canNormalize %}
+        <form class="report-box" method="post">
+          {% csrf_token %}<input type="hidden" name="action" value="normalize"><input type="hidden" name="floor_plan_id" value="{{ card.plan.pk }}">
+          <label for="rotation-{{ card.plan.pk }}"><strong>Rotate and normalize crop</strong></label>
+          <div class="card-actions"><select id="rotation-{{ card.plan.pk }}" name="rotation_degrees">
+            <option value="0">Trim and normalize only</option><option value="45">45° counter-clockwise</option>
+            <option value="-45">45° clockwise</option><option value="90">90° counter-clockwise</option>
+            <option value="-90">90° clockwise</option><option value="180">180°</option>
+          </select>
+          <button type="submit" class="button">Apply to derived crop</button></div>
+          <p class="help">The source floor plan is unchanged. Rotation and the previous checksum are retained in provenance.</p>
+        </form>
+        {% endif %}
+        <form class="report-box" method="post">
+          {% csrf_token %}<input type="hidden" name="action" value="report"><input type="hidden" name="floor_plan_id" value="{{ card.plan.pk }}">
+          <label for="reason-{{ card.plan.pk }}"><strong>Report layout issue</strong></label>
+          <select id="reason-{{ card.plan.pk }}" name="reason_code" required>
+            <option value="">Select reason</option><option value="BAD_CROP">Bad or incomplete crop</option>
+            <option value="MISSING_ROOMS">Missing rooms</option><option value="WRONG_DIMENSIONS">Wrong dimensions</option>
+            <option value="WRONG_FLAT_BOUNDARY">Wrong flat boundary</option><option value="DUPLICATE">Duplicate layout</option><option value="OTHER">Other</option>
+          </select>
+          <p><label for="notes-{{ card.plan.pk }}">Reviewer notes (optional)</label><textarea id="notes-{{ card.plan.pk }}" name="notes" rows="3" maxlength="1000" placeholder="Optional reviewer notes"></textarea></p>
+          <div class="card-actions">
+            <button type="submit" class="button">Report for update</button>
+          </div>
+        </form>
+      {% endif %}
+    </article>
+  {% empty %}<p>No plans are available in this section.</p>{% endfor %}
+</div>

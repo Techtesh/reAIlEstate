@@ -1,0 +1,25 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run Django backend",
+			"type": "shell",
+			"command": "$env:FLOOR_PLAN_EXTRACTION_MODE='ai'; $env:FLOOR_PLAN_VISION_PROFILES=Get-Content -LiteralPath '${workspaceFolder}/reailEstate/backend/vision-profiles.local.json' -Raw; $env:FLOOR_PLAN_DEFAULT_VISION_PROFILE='azure-samples'; & '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' '${workspaceFolder}/reailEstate/backend/manage.py' runserver 127.0.0.1:8000",
+			"isBackground": true,
+			"options": {
+				"env": {
+					"DATABASE_BACKEND": "postgresql",
+					"PYTHONUTF8": "1"
+				}
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Run updated layout tools (SQLite 8001)",
+			"type": "shell",
+			"command": "$env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; $env:FLOOR_PLAN_EXTRACTION_MODE='ai'; $env:FLOOR_PLAN_VISION_PROFILES=Get-Content -LiteralPath '${workspaceFolder}/reailEstate/backend/vision-profiles.local.json' -Raw; $env:FLOOR_PLAN_DEFAULT_VISION_PROFILE='azure-samples'; & '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' '${workspaceFolder}/reailEstate/backend/manage.py' runserver 127.0.0.1:8001",
+			"isBackground": true,
+			"problemMatcher": []
+		}
+	]
+}

@@ -1,0 +1,24 @@
+{% extends "admin/base_site.html" %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Home</a> &rsaquo;
+  <a href="{% url 'admin:platform_api_project_changelist' %}">Projects</a> &rsaquo;
+  <a href="{{ cancel_url }}">{{ original }}</a> &rsaquo; Delete
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <h1>Delete project</h1>
+  <p>Are you sure you want to remove <strong>{{ original }}</strong> from active projects?</p>
+  <p class="help">This safely retires the project instead of deleting protected evidence, layouts, recommendation history, or audit records.</p>
+  <form method="post">
+    {% csrf_token %}
+    <div class="submit-row">
+      <button type="submit" class="deletelink" name="confirm" value="yes">Yes, delete project</button>
+      <a class="button cancel-link" href="{{ cancel_url }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

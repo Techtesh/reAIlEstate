@@ -1,0 +1,116 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrastyle %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}">
+<style>
+  .external-sources {max-width: 1200px;}
+  .external-sources section {margin-block: 24px; border-top: 1px solid var(--hairline-color); padding-top: 16px;}
+  .external-sources input:not([type=radio]):not([type=checkbox]), .external-sources textarea {max-width: 100%; box-sizing: border-box;}
+  .external-sources table {width: 100%;}
+  .external-sources td, .external-sources th {overflow-wrap: anywhere; vertical-align: top;}
+  .external-sources pre {white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto;}
+  .external-sources .table-scroll {overflow-x: auto;}
+  .external-sources .table-scroll table {min-width: 620px;}
+  .external-sources .candidate {display: block; padding: 12px 0; border-bottom: 1px solid var(--hairline-color); overflow-wrap: anywhere;}
+  .external-sources .media-actions {flex-wrap: wrap;}
+</style>{% endblock %}
+{% block breadcrumbs %}<div class="breadcrumbs">
+<a href="{% url 'admin:index' %}">Home</a> &rsaquo;
+<a href="{% url 'admin:platform_api_project_changelist' %}">Projects</a> &rsaquo;
+<a href="{% url 'admin:platform_api_project_change' original.pk %}">{{ original }}</a> &rsaquo; External sources
+</div>{% endblock %}
+{% block content %}
+<div id="content-main" class="media-tools external-sources">
+  <nav class="media-actions" aria-label="Project navigation">
+    <a class="button" href="{% url 'admin:platform_api_project_media_dashboard' original.pk %}">Media dashboard</a>
+    <a class="button" href="{% url 'admin:platform_api_project_change' original.pk %}">Project details</a>
+  </nav>
+  {% if source_error %}<p class="errornote" role="alert">{{ source_error }}</p>{% endif %}
+  <section aria-labelledby="maps-heading">
+    <h2 id="maps-heading">Google Maps project match</h2>
+    <p>Google Maps: {% if maps_configured %}Configured{% else %}<strong>Not configured</strong>{% endif %}</p>
+    <form method="post">{% csrf_token %}
+      <input type="hidden" name="draft_token" value="{{ draft_token }}">
+      {{ search_form.as_p }}
+      <button type="submit" class="default" name="action" value="search" {% if not maps_configured %}disabled{% endif %}>Find project</button>
+    </form>
+    {% if draft.places %}
+    <form method="post">{% csrf_token %}<input type="hidden" name="draft_token" value="{{ draft_token }}">
+      <fieldset><legend>Project candidates</legend>
+      {% for place in draft.places %}
+        <label class="candidate"><input type="radio" name="place_id" value="{{ place.placeId }}" required {% if draft.selected.placeId == place.placeId %}checked{% endif %}>
+          <strong>{{ place.name }}</strong> &middot; {{ place.address }}<br>
+          Latitude {{ place.location.latitude }} &middot; Longitude {{ place.location.longitude }} &middot;
+          <a href="{{ place.sourceUrl }}" target="_blank" rel="noopener noreferrer">View on Google Maps</a>
+          {% for attribution in place.attributions %}<span>{{ attribution }}</span>{% endfor %}
+        </label>
+      {% endfor %}</fieldset>
+      <p><label for="radius">Station search radius</label> <select id="radius" name="radius">
+        <option value="5000">5 km</option><option value="10000" selected>10 km</option><option value="20000">20 km</option>
+      </select></p>
+      <button type="submit" class="default" name="action" value="select">Use selected match and find routes</button>
+    </form>
+    {% endif %}
+  </section>
+  {% if draft.routes %}
+  <section aria-labelledby="routes-heading">
+    <h2 id="routes-heading">Station access from {{ draft.selected.name }}</h2>
+    <p>Google Maps &middot; Retrieved {{ draft.routes.retrievedAt }} &middot; Search radius {{ draft.routes.radiusMeters }} m</p>
+    <p>Shortest returned route among up to five Google candidates per category and five authority-catalogue candidates. Not a verified global nearest station. Distances are route lengths, not straight-line distances.</p>
+    <p>Walking routes may omit sidewalks or pedestrian paths. Driving times are estimates without live traffic. Upcoming station routes reach a proposed location on today's road network; they do not indicate metro service or public access.</p>
+    {% for error in draft.routes.errors %}<p class="errornote">{{ error }}</p>{% endfor %}
+    {% if not draft.routes.catalogueConfigured %}<p class="errornote">Authority metro catalogue not configured. Upcoming metro coverage is unavailable; Google listings do not verify operating status.</p>{% endif %}
+    {% for group in draft.routes.groups %}
+      <h3>{{ group.label }}</h3>
+      <p>Shortest returned walking route: <strong>{{ group.nearest.walking|default:"Unavailable" }}</strong>. Driving: <strong>{{ group.nearest.driving|default:"Unavailable" }}</strong>.</p>
+      <div class="table-scroll"><table>
+        <thead><tr><th scope="col">Station</th><th scope="col">Status / source</th><th scope="col">Walking route</th><th scope="col">Driving route</th></tr></thead>
+        <tbody>{% for station in group.stations %}<tr>
+          <td><a href="{{ station.sourceUrl }}" target="_blank" rel="noopener noreferrer">{{ station.name }}</a><br>{{ station.line }}{% for attribution in station.attributions %}<br>{{ attribution }}{% endfor %}</td>
+          <td>{{ station.serviceStatus }}<br>{% if station.asOf %}Evidence date: {{ station.asOf }}<br>{% endif %}<a href="{{ station.statusSourceUrl }}" target="_blank" rel="noopener noreferrer">Source</a></td>
+          <td>{% if station.walking.status == 'available' %}{{ station.walking.distanceMeters }} m &middot; {{ station.walking.minutes }} min{% else %}{{ station.walking.status }}{% endif %}<br><a href="{{ station.walking.directionsUrl }}" target="_blank" rel="noopener noreferrer">Walking directions</a></td>
+          <td>{% if station.driving.status == 'available' %}{{ station.driving.distanceMeters }} m &middot; {{ station.driving.minutes }} min{% else %}{{ station.driving.status }}{% endif %}<br><a href="{{ station.driving.directionsUrl }}" target="_blank" rel="noopener noreferrer">Driving directions</a></td>
+        </tr>{% empty %}<tr><td colspan="4">No candidates returned in this search scope.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    {% endfor %}
+  </section>
+  {% endif %}
+  <section aria-labelledby="registry-heading">
+    <h2 id="registry-heading">MahaRERA project record</h2>
+    <p>Approved adapter: {% if registry_configured %}Configured{% else %}Not configured{% endif %} &middot; <a href="{{ registry_search_url }}" target="_blank" rel="noopener noreferrer">Open official project search</a></p>
+    <form method="post">{% csrf_token %}<input type="hidden" name="draft_token" value="{{ draft_token }}">
+      <p><label for="registry-number">Registration number</label> <input id="registry-number" name="registration_number" value="{{ registry_number }}" maxlength="64" required></p>
+      <button type="submit" name="action" value="registry_lookup" {% if not registry_configured %}disabled{% endif %}>Look up registry record</button>
+    </form>
+    <details><summary>Add dated website evidence</summary>
+      <form method="post">{% csrf_token %}<input type="hidden" name="draft_token" value="{{ draft_token }}">
+        {{ registry_form.as_p }}
+        <button type="submit" name="action" value="registry_manual">Save registry evidence to draft</button>
+      </form>
+    </details>
+    {% if registry_json %}<h3>Registry draft</h3><pre>{{ registry_json }}</pre>{% endif %}
+  </section>
+  {% if draft %}
+  <section aria-labelledby="draft-heading">
+    <h2 id="draft-heading">External-source draft</h2>
+    <p>Private draft expires after 15 minutes of inactivity. Google location and route previews are temporary; only the chosen place ID and registry evidence are submitted for review. Accepted project facts remain unchanged.</p>
+    <p>Google project: <strong>{{ draft.selected.name|default:"Not selected" }}</strong> &middot; MahaRERA: <strong>{{ draft.registry.registrationNumber|default:"Not added" }}</strong></p>
+    <form method="post">{% csrf_token %}<input type="hidden" name="draft_token" value="{{ draft_token }}">
+      <p><label><input type="checkbox" name="confirm"> I confirm these references belong to this project and submit them for review.</label></p>
+      <div class="media-actions"><button type="submit" class="default" name="action" value="commit">Commit source references</button>
+      <button type="submit" name="action" value="discard">Discard draft</button></div>
+    </form>
+  </section>
+  {% endif %}
+  <section aria-labelledby="references-heading">
+    <h2 id="references-heading">Submitted source references</h2>
+    {% for reference in references %}
+      <p>{{ reference.created_at }} &middot; {{ reference.state }} &middot; {% if reference.resolution.maharera %}MahaRERA {{ reference.resolution.maharera.registrationNumber }}{% endif %}</p>
+      {% if reference.resolution.googlePlaceId %}<form method="post">{% csrf_token %}
+        <input type="hidden" name="reference_id" value="{{ reference.pk }}">
+        <button type="submit" name="action" value="refresh_saved" {% if not maps_configured %}disabled{% endif %}>Refresh saved Google location and routes</button>
+      </form>{% endif %}
+    {% empty %}<p>No submitted references.</p>{% endfor %}
+  </section>
+</div>
+{% endblock %}

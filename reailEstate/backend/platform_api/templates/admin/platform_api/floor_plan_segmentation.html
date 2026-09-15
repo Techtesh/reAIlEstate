@@ -1,0 +1,37 @@
+{% extends "admin/base_site.html" %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Home</a> &rsaquo;
+  <a href="{% url 'admin:platform_api_floorplan_changelist' %}">Floor plans</a> &rsaquo;
+  <a href="{% url 'admin:platform_api_floorplan_change' original.pk %}">{{ original }}</a> &rsaquo;
+  Separate flats
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <p>Run deterministic script separation, configured AI separation, or both independently. Generated crops always require review.</p>
+  {% if media_url %}
+    <p><a href="{{ media_url }}" target="_blank" rel="noopener">Open the full-resolution source image</a></p>
+  {% endif %}
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <fieldset class="module aligned">
+      {% for field in form %}
+        <div class="form-row">
+          {{ field.errors }}
+          {{ field.label_tag }} {{ field }}
+          {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}
+        </div>
+      {% endfor %}
+    </fieldset>
+    <div class="submit-row"><input type="submit" value="Run flat separation" class="default"></div>
+  </form>
+  {% if result %}
+    <h2>Attempt result</h2>
+    <pre>{{ result }}</pre>
+  {% endif %}
+</div>
+{% endblock %}

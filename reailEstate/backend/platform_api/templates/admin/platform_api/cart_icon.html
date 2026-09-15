@@ -1,0 +1,8 @@
+<a class="button media-primary draft-cart-link" href="{% url 'admin:platform_api_project_layout_cart' %}">
+  <svg class="draft-cart-icon" viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    <path d="M2 3h3l3 12h11l3-9H6M8 15l-1 3h12"/>
+    <circle cx="9" cy="21" r="1"/><circle cx="18" cy="21" r="1"/>
+  </svg>
+  <span>Draft cart</span>
+  <span class="draft-cart-badge"><span class="media-sr-only"> — </span>{{ count|default:0 }}<span class="media-sr-only"> drafts across all projects</span></span>
+</a>

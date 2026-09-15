@@ -1,0 +1,17 @@
+{% if image_navigation %}
+<nav aria-label="Image navigation" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:16px 0;">
+  {% if image_navigation.previous %}
+    <a class="button" href="{{ image_navigation.previous }}" rel="prev">&larr; Previous</a>
+  {% else %}
+    <span aria-disabled="true" style="opacity:0.5">&larr; Previous</span>
+  {% endif %}
+  <strong>{{ image_navigation.position }} of {{ image_navigation.total }}</strong>
+  {% if image_navigation.next %}
+    <a class="button" href="{{ image_navigation.next }}" rel="next">Next &rarr;</a>
+  {% else %}
+    <span aria-disabled="true" style="opacity:0.5">Next &rarr;</span>
+  {% endif %}
+  <a href="{{ image_navigation.list }}">Back to filtered list</a>
+  <span class="help">Save any edits before navigating.</span>
+</nav>
+{% endif %}

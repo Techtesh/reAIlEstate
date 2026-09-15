@@ -1,0 +1,25 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'platform_api/manual_layout_cropper.js' %}?v=4" defer></script>{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}">
+{% endblock %}
+{% block content %}
+<div id="content-main" class="media-tools" data-manual-cropper>
+  <p>Drag a rectangle over each dwelling. Save creates draft crops in your cart (up to 20). It does not add layouts, run evaluation, or replace existing layouts.</p>
+  <p>Draft destination: <strong>{{ destination_project.submitted_name }}</strong>. Original source ownership is preserved.</p>
+  <div class="media-actions">
+    {% include "admin/platform_api/cart_icon.html" with count=cart_count only %}
+    <span>{{ cart_count }} / 20 drafts across all projects.</span>
+    <a class="button" href="{{ source_url }}" target="_blank" rel="noopener">Open original PDF/document at source page {{ original.page_number|default:1 }}</a>
+  </div>
+  <p class="help">This tool intentionally shows the full original source page to create new crops, not to update the saved unit.</p>
+  <form method="post">{% csrf_token %}{{ form.regions_json }}{{ form.rotation_degrees }}
+    {{ form.regions_json.errors }}{{ form.rotation_degrees.errors }}
+    <div class="crop-workspace">
+      <div><div class="crop-toolbar media-actions"><button type="button" class="button" data-rotate-left>Rotate left</button><button type="button" class="button" data-rotate-right>Rotate right</button><button type="button" class="button media-destructive" data-clear-crops>Clear crops</button><span data-rotation-label>Rotation: 0°</span></div><div class="crop-stage" data-crop-stage><img src="{{ media_url }}" alt="Original source page for new crops" data-crop-source hidden><canvas data-crop-canvas aria-label="Draw rectangles around individual dwellings"></canvas><div class="crop-overlay" data-crop-overlay></div></div></div>
+      <aside><h2>Draft crops</h2><ol class="crop-list" data-crop-list></ol><hr>{{ form.non_field_errors }}<div class="crop-actions media-actions"><button type="submit" class="default">Save to cart</button><a class="button" href="{{ cancel_url }}">Cancel</a></div><p class="help">After saving, select drafts in your cart and choose Add selected to project. Cancel discards unsaved selections.</p></aside>
+    </div>
+  </form>
+</div>
+{% endblock %}

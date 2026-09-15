@@ -1,0 +1,1238 @@
+from copy import copy
+import json
+import re
+from uuid import uuid4
+from urllib.parse import urlencode
+
+from django import forms
+from django.contrib import admin, messages
+from django.contrib.admin.options import IncorrectLookupParameters
+from django.contrib.admin.views.main import ChangeList
+from django.core.exceptions import SuspiciousOperation
+from django.db import models
+from django.http import HttpResponseRedirect, QueryDict
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
+from django.utils.html import format_html, format_html_join
+
+from .models import (
+    Amenity,
+    AuditEvent,
+    Consent,
+    DocumentLayoutPage,
+    EvidenceDocument,
+    FactCandidate,
+    FeatureFlag,
+    FloorPlan,
+    FloorPlanAsset,
+    IngestionRun,
+    Organization,
+    OrganizationMembership,
+    Project,
+    ProjectMerge,
+    ProjectFact,
+    RecommendationSnapshot,
+    RequirementProfile,
+    ReviewTask,
+)
+from .floor_plan_segmentation_service import (
+    FlatSeparationFailed,
+    available_flat_separation_ai_profiles,
+    separate_floor_plan_units,
+)
+from .layout_image_normalization import normalize_layout_image
+from .layout_pages import validate_document_page
+from .layout_reanalysis import create_manual_layout_crops
+from .project_lifecycle import merge_projects, project_family_ids, retire_project
+from .reanalysis import queue_project_reanalysis
+from .workers import process_pending_outbox
+from .source_page_admin import SourcePageAdminMixin
+from .external_sources_admin import ExternalSourcesAdminMixin
+from .source_page_additions import PAGE_EVENT
+from .floor_plan_layout_jobs import UNITS_EVENT, queue_floor_plan_layouts
+from .crop_cart_admin import CropCartAdminMixin
+from .models import LayoutCropDraft
+from .floor_plan_removal import authorize_plan_removal, set_floor_plan_removed
+from .floor_plan_visibility import REMOVED_REVIEW_STATE, visible_floor_plans, visible_plan_assets
+from .ingestion_runtime import WorkAlreadyClaimed
+from .layout_crop_update_admin import LayoutCropUpdateAdminMixin
+from .layout_bulk_admin import LayoutBulkAdminMixin
+from .project_layout_health import (
+    ProjectLayoutHealthAdminMixin, NeedsBoundaryReviewFilter,
+    project_layout_health_context, project_boundary_layouts,
+)
+
+
+class PlanRemovalConfirmationForm(forms.Form):
+    confirm = forms.BooleanField(label="Confirm this action for this record only")
+    expected_updated_at = forms.DateTimeField(widget=forms.HiddenInput)
+
+
+def _asset_preview(asset):
+    if asset is None:
+        return "No saved image is associated with this plan."
+    if asset.status != "ready":
+        return "The saved image is not ready."
+    url = reverse("floor-plan-asset-media", kwargs={"asset_id": asset.id})
+    return format_html(
+        '<a href="{}" target="_blank" rel="noopener">'
+        '<img src="{}" alt="Saved plan image, source page {}" '
+        'style="max-width:100%;max-height:700px;height:auto;display:block" />'
+        'Open full-resolution image</a>',
+        url, url, asset.page_number or "unknown",
+    )
+
+
+class ImageNavigationAdminMixin:
+    change_form_template = "admin/platform_api/image_change_form.html"
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        context = dict(extra_context or {})
+        # Rebuild the originating list rather than navigating every project's images.
+        list_request = copy(request)
+        list_request.GET = QueryDict(request.GET.get("_changelist_filters", ""))
+        navigation = None
+        obj = self.get_object(request, object_id)
+        if obj is not None and self.has_view_or_change_permission(request, obj):
+            try:
+                changelist = self.get_changelist_instance(list_request)
+                ids = [str(item.pk) for item in changelist.queryset
+                       if self.has_view_or_change_permission(request, item)]
+                current = str(obj.pk)
+                if current in ids:
+                    index = ids.index(current)
+                    filters = list_request.GET.urlencode()
+                    suffix = "?" + urlencode({"_changelist_filters": filters}) if filters else ""
+                    opts = self.model._meta
+                    def change_url(pk):
+                        return reverse(f"admin:{opts.app_label}_{opts.model_name}_change",
+                                       args=[pk], current_app=self.admin_site.name) + suffix
+                    navigation = {
+                        "previous": change_url(ids[index - 1]) if index else None,
+                        "next": change_url(ids[index + 1]) if index + 1 < len(ids) else None,
+                        "position": index + 1,
+                        "total": len(ids),
+                        "list": reverse(f"admin:{opts.app_label}_{opts.model_name}_changelist",
+                                        current_app=self.admin_site.name) + ("?" + filters if filters else ""),
+                    }
+            except (IncorrectLookupParameters, SuspiciousOperation):
+                # Invalid preserved filters must not silently broaden navigation scope.
+                navigation = None
+        context["image_navigation"] = navigation
+        return super().change_view(request, object_id, form_url, context)
+
+
+class ProjectPageSizeChangeList(ChangeList):
+    def __init__(self, request, *args, **kwargs):
+        arguments = list(args)
+        requested = request.GET.get("page_size", "20")
+        self.project_page_size = requested if requested in {"10", "20", "50", "all"} else "20"
+        if self.project_page_size in {"10", "20", "50"}:
+            arguments[7] = int(self.project_page_size)
+        elif self.project_page_size == "all":
+            arguments[7] = max(1, arguments[10].get_queryset(request).count())
+        clean_request = copy(request)
+        clean_request.GET = request.GET.copy()
+        clean_request.GET.pop("page_size", None)
+        super().__init__(clean_request, *arguments, **kwargs)
+
+    def get_query_string(self, new_params=None, remove=None):
+        query = super().get_query_string(new_params, remove)
+        separator = "&" if query else "?"
+        return f"{query}{separator}page_size={self.project_page_size}"
+
+
+class FlatSeparationForm(forms.Form):
+    mode = forms.ChoiceField(choices=[("script", "Script"), ("ai", "AI"), ("both", "Script and AI")])
+    expected_count = forms.IntegerField(
+        required=False, min_value=1, max_value=40,
+        help_text="Optional quality gate. It never forces the script or AI to invent flats.",
+    )
+    vision_profile_id = forms.ChoiceField(required=False, label="AI vision profile")
+    supersede_source = forms.BooleanField(
+        required=False,
+        help_text="Only after every selected method succeeds, mark the full-floor record as superseded.",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        try:
+            catalog = available_flat_separation_ai_profiles()
+            self.profile_catalog_error = False
+        except ValueError:
+            catalog = {"profiles": []}
+            self.profile_catalog_error = True
+        self.fields["vision_profile_id"].choices = [
+            ("", "Configured default")
+        ] + [(item["id"], f'{item["label"]} — {item["model"]}') for item in catalog["profiles"]]
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("mode") == "script":
+            cleaned["vision_profile_id"] = None
+        elif self.profile_catalog_error:
+            self.add_error("vision_profile_id", "The AI vision profile catalog is invalid.")
+        elif not available_flat_separation_ai_profiles()["profiles"]:
+            self.add_error("vision_profile_id", "No enabled AI vision profile is configured.")
+        return cleaned
+
+
+class ManualCropForm(forms.Form):
+    regions_json = forms.CharField(widget=forms.HiddenInput)
+    rotation_degrees = forms.IntegerField(widget=forms.HiddenInput, initial=0)
+    queue_evaluation = forms.BooleanField(required=False, initial=True)
+    vision_profile_id = forms.ChoiceField(required=False, label="AI vision profile")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        try:
+            profiles = available_flat_separation_ai_profiles()["profiles"]
+        except ValueError:
+            profiles = []
+        self.fields["vision_profile_id"].choices = [("", "Configured default")] + [
+            (item["id"], f'{item["label"]} — {item["model"]}') for item in profiles
+        ]
+
+    def clean_regions_json(self):
+        try:
+            regions = json.loads(self.cleaned_data["regions_json"])
+        except (TypeError, ValueError):
+            raise forms.ValidationError("Draw at least one valid crop rectangle.") from None
+        if not isinstance(regions, list) or not regions:
+            raise forms.ValidationError("Draw at least one crop rectangle.")
+        return regions
+
+    def clean_rotation_degrees(self):
+        value = self.cleaned_data["rotation_degrees"]
+        if value not in {-180, -90, 0, 90, 180}:
+            raise forms.ValidationError("Invalid rotation.")
+        return value
+
+
+class ProjectMergeForm(forms.Form):
+    target_project = forms.ModelChoiceField(queryset=Project.objects.none())
+    reason_code = forms.CharField(max_length=64, initial="DUPLICATE_PROJECT")
+    notes = forms.CharField(max_length=1000, required=False, widget=forms.Textarea)
+
+    def __init__(self, source, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["target_project"].queryset = Project.objects.filter(
+            organization=source.organization
+        ).exclude(id=source.id).exclude(status__in=["merged", "retired"]).order_by("submitted_name")
+
+
+class PlanSegmentationMethodFilter(admin.SimpleListFilter):
+    title = "segmentation method"
+    parameter_name = "segmentation_method"
+
+    def lookups(self, request, model_admin):
+        return [("source", "Source"), ("script", "Script"), ("ai", "AI")]
+
+    def queryset(self, request, queryset):
+        if self.value() == "source":
+            return queryset.exclude(raw_extraction__has_key="segmentationMethod")
+        if self.value() in {"script", "ai"}:
+            return queryset.filter(raw_extraction__segmentationMethod=self.value())
+        return queryset
+
+
+@admin.register(FloorPlan)
+class FloorPlanAdmin(LayoutCropUpdateAdminMixin, ImageNavigationAdminMixin, admin.ModelAdmin):
+    list_display = ("plan_name", "project", "page_number", "record_level", "segmentation_method",
+                    "configuration_type", "review_state")
+    list_filter = ("review_state", "plan_scope", "asset__asset_type", PlanSegmentationMethodFilter)
+    search_fields = ("project__submitted_name", "plan_name", "document__original_name")
+    list_select_related = ("project", "document", "asset")
+    readonly_fields = ("saved_image", "extraction_notice", "removal_action", "review_state", "display_name")
+    ordering = ("project__submitted_name", "document_id", "page_number", "plan_name", "id")
+
+    def has_delete_permission(self, request, obj=None):
+        # Removal is reversible; the default admin delete would destroy evidence.
+        return False
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = super().get_readonly_fields(request, obj)
+        if obj and obj.review_state == REMOVED_REVIEW_STATE:
+            return tuple(dict.fromkeys((*fields, *(field.name for field in self.model._meta.fields))))
+        return fields
+
+    @admin.display(description="Remove / restore record")
+    def removal_action(self, obj):
+        if not obj or not obj.pk:
+            return "Save the record first."
+        action = "restore" if obj.review_state == REMOVED_REVIEW_STATE else "remove"
+        project_id = ProjectMerge.objects.filter(source_project_id=obj.project_id, state="applied").values_list(
+            "target_project_id", flat=True
+        ).first() or obj.project_id
+        url = reverse("admin:platform_api_floorplan_visibility", args=[obj.pk, project_id, action],
+                      current_app=self.admin_site.name)
+        return format_html('<a class="button" href="{}">{}</a>', url,
+                           "Restore removed plan…" if action == "restore" else "Remove duplicate plan…")
+
+    def visibility_view(self, request, object_id, project_id, action):
+        from django.core.exceptions import PermissionDenied
+        from django.http import Http404, HttpResponseNotAllowed
+
+        if action not in {"remove", "restore"}:
+            raise Http404
+        if request.method not in {"GET", "POST"}:
+            return HttpResponseNotAllowed(["GET", "POST"])
+        project_admin = self.admin_site._registry[Project]
+        project = project_admin.get_object(request, str(project_id))
+        obj = self.get_object(request, str(object_id))
+        if project is None or obj is None or obj.project_id not in project_family_ids(project):
+            raise Http404
+        if not project_admin.has_view_or_change_permission(request, project) or not self.has_change_permission(request, obj):
+            raise PermissionDenied
+        authorize_plan_removal(request.user, project)
+        form = PlanRemovalConfirmationForm(
+            request.POST if request.method == "POST" else None,
+            initial={"expected_updated_at": obj.updated_at.isoformat()},
+        )
+        record_url = reverse("admin:platform_api_floorplan_change", args=[obj.pk], current_app=self.admin_site.name)
+        dashboard_url = reverse("admin:platform_api_project_media_dashboard", args=[project.pk],
+                                current_app=self.admin_site.name) + (
+                                    "?section=floor-plans" if obj.plan_scope == "floor" else "?section=layouts")
+        if request.method == "POST" and form.is_valid():
+            try:
+                obj, changed = set_floor_plan_removed(
+                    project, obj.pk, request.user, removed=action == "remove",
+                    expected_updated_at=form.cleaned_data["expected_updated_at"],
+                )
+            except FloorPlan.DoesNotExist:
+                raise Http404 from None
+            except WorkAlreadyClaimed:
+                form.add_error(None, "This source or task is busy. Nothing was changed; retry after it finishes.")
+            except ValueError as exc:
+                form.add_error(None, str(exc))
+            else:
+                messages.success(request, ("Plan removed. Restore it from its floor-plan admin record."
+                                          if action == "remove" else "Plan restored. Cancelled jobs were not restarted.")
+                                 if changed else "This action was already applied; no further changes were made.")
+                return HttpResponseRedirect(dashboard_url if action == "remove" else record_url)
+        request.current_app = self.admin_site.name
+        return TemplateResponse(request, "admin/platform_api/floor_plan_removal_confirmation.html", {
+            **self.admin_site.each_context(request), "opts": self.model._meta, "original": obj,
+            "title": "Remove duplicate floor plan" if action == "remove" else "Restore removed floor plan",
+            "form": form, "action": action, "dashboard_project": project,
+            "record_url": record_url, "cancel_url": dashboard_url if action == "remove" else record_url,
+        })
+
+    def get_urls(self):
+        opts = self.model._meta
+        custom = self.layout_crop_update_urls() + [
+            path(
+                "<uuid:object_id>/visibility/<uuid:project_id>/<str:action>/",
+                self.admin_site.admin_view(self.visibility_view),
+                name=f"{opts.app_label}_{opts.model_name}_visibility",
+            ),
+            path(
+                "<path:object_id>/segment-units/",
+                self.admin_site.admin_view(self.segment_units_view),
+                name=f"{opts.app_label}_{opts.model_name}_segment_units",
+            ),
+            path(
+                "<str:object_id>/manual-crops/",
+                self.admin_site.admin_view(self.manual_crops_view),
+                name=f"{opts.app_label}_{opts.model_name}_manual_crops",
+            ),
+            path(
+                "<str:object_id>/manual-crops/change/",
+                self.admin_site.admin_view(self.manual_crops_view),
+                name=f"{opts.app_label}_{opts.model_name}_manual_crops_legacy",
+            ),
+        ]
+        return custom + super().get_urls()
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        context = dict(extra_context or {})
+        obj = self.get_object(request, object_id)
+        if obj and obj.review_state != REMOVED_REVIEW_STATE and self.has_change_permission(request, obj) and obj.asset_id \
+                and obj.asset.asset_type != "unit_crop" and obj.asset.status == "ready" \
+                and obj.document.scan_status == "clean":
+            context["flat_separation_url"] = reverse(
+                "admin:platform_api_floorplan_segment_units", args=[obj.pk],
+                current_app=self.admin_site.name,
+            )
+            context["manual_crop_url"] = reverse(
+                "admin:platform_api_floorplan_manual_crops", args=[obj.pk],
+                current_app=self.admin_site.name,
+            )
+        return super().change_view(request, object_id, form_url, context)
+
+    def manual_crops_view(self, request, object_id):
+        from .crop_cart import crop_destination
+        obj = self.get_object(request, object_id)
+        if obj is None or obj.review_state == REMOVED_REVIEW_STATE:
+            from django.http import Http404
+            raise Http404
+        if not self.has_change_permission(request, obj):
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied
+        try:
+            destination = crop_destination(obj.project)
+        except ValueError as exc:
+            from django.http import HttpResponseBadRequest
+            return HttpResponseBadRequest(str(exc))
+        if not self.admin_site._registry[Project].has_change_permission(request, destination):
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied
+        if obj.raw_extraction.get("boundingBox", {}).get("sourceDocumentId"):
+            # Page-crop drafts may have source evidence without a full-page FloorPlan.
+            return HttpResponseRedirect(reverse("admin:platform_api_project_add_source_pages", args=[destination.pk])
+                + "?" + urlencode({"category": "layouts", "document": obj.document_id, "page_number": obj.page_number}))
+        source_plan = self._manual_crop_source(obj)
+        if source_plan is None or not source_plan.asset_id:
+            messages.error(request, "No saved source page is available for this layout.")
+            return HttpResponseRedirect(reverse("admin:platform_api_floorplan_change", args=[obj.pk]))
+        obj = source_plan
+        if (crop_destination(obj.project).pk != destination.pk
+                or obj.document.project_id not in project_family_ids(destination)):
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied
+        form = ManualCropForm(request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            try:
+                result = create_manual_layout_crops(
+                    obj, form.cleaned_data["regions_json"], actor=request.user,
+                    vision_profile_id=form.cleaned_data["vision_profile_id"] or None,
+                    queue=form.cleaned_data["queue_evaluation"],
+                    rotation_degrees=form.cleaned_data["rotation_degrees"],
+                )
+            except ValueError as exc:
+                form.add_error(None, str(exc))
+            else:
+                messages.success(request, f"Saved {len(result['draftIds'])} draft crop(s) to your cart ({result['cartCount']}/20). Select drafts and Add to project when ready. Existing layouts are unchanged.")
+                return HttpResponseRedirect(reverse(
+                    "admin:platform_api_project_media_dashboard", args=[result["projectId"]],
+                    current_app=self.admin_site.name,
+                ) + "?section=layouts&sort=unit#draft-crop-cart")
+        context = {
+            **self.admin_site.each_context(request), "opts": self.model._meta, "original": obj,
+            "title": "Draw individual layout crops", "form": form, "destination_project": destination,
+            "cart_count": LayoutCropDraft.objects.filter(owner=request.user).count(),
+            "media_url": reverse("floor-plan-asset-media", kwargs={"asset_id": obj.asset_id}),
+            "source_url": reverse("admin:platform_api_project_source_document", args=[
+                destination.pk, obj.document_id,
+            ]) + f"#page={obj.page_number or 1}",
+            "cancel_url": reverse(
+                "admin:platform_api_project_media_dashboard", args=[destination.pk],
+                current_app=self.admin_site.name,
+            ) + "?section=layouts",
+        }
+        return TemplateResponse(request, "admin/platform_api/floor_plan_manual_crops.html", context)
+
+    @staticmethod
+    def _manual_crop_source(plan):
+        """Resolve any layout card back to its best saved original PDF-page image."""
+        if not plan.asset_id:
+            return None
+        source_asset_id = plan.asset.source_bounds.get("sourceAssetId")
+        candidates = FloorPlan.objects.select_related("asset", "document").filter(
+            document_id=plan.document_id,
+            page_number=plan.page_number,
+            asset__isnull=False,
+        ).exclude(review_state__in=["removed_by_user", "replaced_by_user"])
+        if source_asset_id:
+            source = candidates.filter(asset_id=source_asset_id).order_by("created_at").first()
+            if source:
+                return source
+        source = candidates.exclude(asset__asset_type="unit_crop").order_by("created_at").first()
+        return source or plan
+
+    def segment_units_view(self, request, object_id):
+        obj = self.get_object(request, object_id)
+        if obj is None or obj.review_state == REMOVED_REVIEW_STATE:
+            from django.http import Http404
+            raise Http404
+        if not self.has_change_permission(request, obj):
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied
+        form = FlatSeparationForm(request.POST or None)
+        result = None
+        if request.method == "POST" and form.is_valid():
+            try:
+                result = separate_floor_plan_units(
+                    obj.id, mode=form.cleaned_data["mode"],
+                    expected_count=form.cleaned_data["expected_count"],
+                    vision_profile_id=form.cleaned_data["vision_profile_id"] or None,
+                    supersede_source=form.cleaned_data["supersede_source"], actor=request.user,
+                )
+            except FlatSeparationFailed as exc:
+                result = exc.result
+                form.add_error(None, "No selected separation method completed. Review the method error codes below.")
+            except ValueError as exc:
+                form.add_error(None, str(exc))
+            else:
+                messages.success(request, "Flat separation completed; generated crops are awaiting review.")
+                return HttpResponseRedirect(reverse(
+                    "admin:platform_api_floorplan_change", args=[obj.pk], current_app=self.admin_site.name,
+                ))
+        context = {
+            **self.admin_site.each_context(request), "opts": self.model._meta, "original": obj,
+            "title": "Separate flats", "form": form, "result": result,
+            "media_url": reverse("floor-plan-asset-media", kwargs={"asset_id": obj.asset_id}) if obj.asset_id else None,
+        }
+        return TemplateResponse(request, "admin/platform_api/floor_plan_segmentation.html", context)
+
+    @admin.display(description="Saved plan image")
+    def saved_image(self, obj):
+        return _asset_preview(obj.asset if obj and obj.asset_id else None)
+
+    @admin.display(description="Level")
+    def record_level(self, obj):
+        return "Individual house" if obj.asset_id and obj.asset.asset_type == "unit_crop" else "Full floor / source"
+
+    @admin.display(description="Method")
+    def segmentation_method(self, obj):
+        return obj.raw_extraction.get("segmentationMethod", "source")
+
+    @admin.display(description="Extraction status")
+    def extraction_notice(self, obj):
+        if obj and isinstance(obj.raw_extraction, dict) and obj.raw_extraction.get("visionProvider") == "rules":
+            return "Identified locally without AI. This is a page-level candidate, not a verified or segmented flat layout. Review the saved image; unreadable or ambiguous measurements remain blank."
+        if obj and isinstance(obj.raw_extraction, dict) and obj.raw_extraction.get("requiresVision"):
+            return "Image saved, but visual extraction is pending. Configure a vision profile and reprocess the document; blank fields are not extracted values."
+        return "Extracted values require review against the source image."
+
+
+class AssetCategoryFilter(admin.SimpleListFilter):
+    title = "image category"
+    parameter_name = "category"
+
+    def lookups(self, request, model_admin):
+        return [("floor-plans", "Floor plans"), ("layouts", "Flat layouts"),
+                ("general", "Design / general"), ("amenities", "Amenities"),
+                ("unclassified", "Unclassified candidates"), ("legacy", "Legacy (no category)")]
+
+    def queryset(self, request, queryset):
+        if self.value() == "legacy":
+            return queryset.exclude(source_bounds__has_key="category")
+        if self.value() in {"floor-plans", "layouts", "general", "amenities", "unclassified"}:
+            return queryset.filter(source_bounds__category=self.value())
+        return queryset
+
+
+class AssetAIGenerationFilter(admin.SimpleListFilter):
+    title = "generation mode"
+    parameter_name = "generation"
+
+    def lookups(self, request, model_admin):
+        return [("ai", "AI generated — needs review"), ("script", "Script generated")]
+
+    def queryset(self, request, queryset):
+        if self.value() == "ai":
+            return queryset.filter(floor_plans__review_state="gen_with_ai_needs_review").distinct()
+        if self.value() == "script":
+            return queryset.filter(workflow_run__result__visionProvider="rules")
+        return queryset
+
+
+@admin.register(FloorPlanAsset)
+class FloorPlanAssetAdmin(ImageNavigationAdminMixin, admin.ModelAdmin):
+    list_display = ("id", "project", "page_number", "image_category", "record_level",
+                    "segmentation_method", "source_asset_link", "storage_folder", "status", "created_at")
+    search_fields = ("project__submitted_name", "document__original_name", "source_bounds__sourceAssetId")
+    list_filter = (AssetCategoryFilter, AssetAIGenerationFilter, ("project", admin.RelatedOnlyFieldListFilter), "status", "asset_type")
+    list_select_related = ("project", "document")
+    readonly_fields = ("saved_image",)
+    ordering = ("-created_at",)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        context = dict(extra_context or {})
+        obj = self.get_object(request, object_id)
+        if obj and obj.asset_type == "unit_crop" and self.has_view_or_change_permission(request, obj):
+            context["layout_dashboard_url"] = reverse(
+                "admin:platform_api_project_media_dashboard", args=[obj.project_id],
+                current_app=self.admin_site.name,
+            ) + "?section=layouts"
+        return super().change_view(request, object_id, form_url, context)
+
+    @admin.display(description="Image category")
+    def image_category(self, obj):
+        return obj.source_bounds.get("category", "legacy")
+
+    @admin.display(description="Level")
+    def record_level(self, obj):
+        return "Individual house" if obj.asset_type == "unit_crop" else "Full floor / source"
+
+    @admin.display(description="Method")
+    def segmentation_method(self, obj):
+        return obj.source_bounds.get("segmentationMethod", "source")
+
+    @admin.display(description="Source floor")
+    def source_asset_link(self, obj):
+        source_id = obj.source_bounds.get("sourceAssetId")
+        if not source_id:
+            return "—"
+        url = reverse("admin:platform_api_floorplanasset_change", args=[source_id])
+        return format_html('<a href="{}">{}</a>', url, str(source_id)[:8])
+
+    @admin.display(description="Folder")
+    def storage_folder(self, obj):
+        if obj.asset_type == "unit_crop":
+            return f"{obj.project_id}/layouts/{obj.source_bounds.get('sourceAssetId')}/{obj.source_bounds.get('segmentationMethod')}"
+        return f"{obj.project_id}/{obj.source_bounds.get('category', 'legacy')}/source"
+
+    @admin.display(description="Saved plan image")
+    def saved_image(self, obj):
+        return _asset_preview(obj)
+
+
+@admin.register(EvidenceDocument)
+class EvidenceDocumentAdmin(admin.ModelAdmin):
+    list_display = ("original_name", "project", "status", "scan_status", "error_category", "updated_at")
+    list_filter = ("status", "scan_status", "error_category")
+    search_fields = ("original_name", "project__submitted_name", "sha256")
+    readonly_fields = ("object_key", "sha256", "byte_length", "detected_media_type")
+    actions = ("retry_failed_extractions",)
+
+    @admin.action(description="Retry selected failed extractions")
+    def retry_failed_extractions(self, request, queryset):
+        count = 0
+        for document in queryset.filter(status="extraction_failed"):
+            try:
+                from .reanalysis import queue_document_reanalysis
+                result = queue_document_reanalysis(document.id, request.user, "FAILED_EXTRACTION_RETRY")
+            except ValueError:
+                continue
+            count += bool(result)
+        self.message_user(request, f"Queued {count} failed document(s) for retry.")
+
+
+@admin.register(Project)
+class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, LayoutBulkAdminMixin, CropCartAdminMixin, SourcePageAdminMixin, ImageNavigationAdminMixin, admin.ModelAdmin):
+    change_form_template = "admin/platform_api/project_change_form.html"
+    change_list_template = "admin/platform_api/project_change_list.html"
+    list_display = ("submitted_name", "created_at", "maha_rera_id", "locality", "status", "boundary_review_link", "media_dashboard_link")
+    list_filter = ("locality", NeedsBoundaryReviewFilter)
+    search_fields = ("submitted_name", "locality", "maha_rera_id")
+    readonly_fields = ("extraction_outputs", "media_dashboard_link")
+    ordering = ("submitted_name", "id")
+    actions = ("retire_selected_projects", "queue_selected_projects_for_reanalysis")
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).exclude(address__has_key="mergedIntoProjectId").exclude(
+            merge_out__state="applied"
+        )
+
+    def has_delete_permission(self, request, obj=None):
+        # The delete screen is retained as a confirmation surface, but delete_view
+        # performs a safe retirement instead of cascading evidence/history.
+        return self.has_change_permission(request, obj)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
+
+    def delete_view(self, request, object_id, extra_context=None):
+        project = self.get_object(request, object_id)
+        if project is None:
+            from django.http import Http404
+            raise Http404
+        if not self.has_delete_permission(request, project):
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied
+        cancel_url = reverse(
+            "admin:platform_api_project_change", args=[project.pk], current_app=self.admin_site.name,
+        )
+        if request.method == "POST":
+            if request.POST.get("confirm") != "yes":
+                return HttpResponseRedirect(cancel_url)
+            try:
+                retire_project(project.id, request.user, "ADMIN_DELETE_CONFIRMED")
+            except ValueError as exc:
+                messages.error(request, f"Project could not be retired: {exc}")
+                return HttpResponseRedirect(cancel_url)
+            messages.success(
+                request,
+                "Project retired. Evidence, layouts, recommendation history, and audit records were preserved.",
+            )
+            return HttpResponseRedirect(reverse(
+                "admin:platform_api_project_changelist", current_app=self.admin_site.name,
+            ))
+        context = {
+            **self.admin_site.each_context(request), "opts": self.model._meta,
+            "original": project, "object": project,
+            "title": "Delete project", "cancel_url": cancel_url,
+        }
+        return TemplateResponse(request, "admin/platform_api/project_delete_confirmation.html", context)
+
+    @admin.action(description="Retire selected projects (safe delete)")
+    def retire_selected_projects(self, request, queryset):
+        completed = 0
+        for project in queryset:
+            try:
+                retire_project(project.id, request.user)
+            except ValueError as exc:
+                self.message_user(request, f"Could not retire {project}: {exc}", level=messages.ERROR)
+            else:
+                completed += 1
+        self.message_user(request, f"Retired {completed} project(s); evidence and audit history were preserved.")
+
+    @admin.action(description="Add selected projects to reanalysis queue")
+    def queue_selected_projects_for_reanalysis(self, request, queryset):
+        count = sum(len(queue_project_reanalysis(project, request.user)) for project in queryset)
+        self.message_user(request, f"Queued {count} document(s) for reanalysis.")
+
+    def get_changelist(self, request, **kwargs):
+        return ProjectPageSizeChangeList
+
+    def changelist_view(self, request, extra_context=None):
+        selected = request.GET.get("page_size", "20")
+        if selected not in {"10", "20", "50", "all"}:
+            selected = "20"
+        context = dict(extra_context or {})
+        context["project_page_size"] = selected
+        context["run_reanalysis_cart_url"] = reverse(
+            "admin:platform_api_project_run_reanalysis_cart", current_app=self.admin_site.name,
+        )
+        return super().changelist_view(request, context)
+
+    def get_urls(self):
+        opts = self.model._meta
+        custom = self.layout_bulk_urls() + [
+            path("<uuid:object_id>/external-sources/", self.admin_site.admin_view(self.external_sources_view),
+                 name="platform_api_project_external_sources"),
+            path("layout-cart/", self.admin_site.admin_view(self.layout_cart_view),
+                 name="platform_api_project_layout_cart"),
+            path("<uuid:object_id>/crop-cart/", self.admin_site.admin_view(self.draft_crop_action),
+                 name="platform_api_project_crop_cart"),
+            path("<uuid:object_id>/crop-cart/<uuid:draft_id>/preview/", self.admin_site.admin_view(self.draft_crop_preview),
+                 name="platform_api_project_crop_draft_preview"),
+            path(
+                "<uuid:object_id>/source-document/<uuid:document_id>/",
+                self.admin_site.admin_view(self.source_document_view),
+                name="platform_api_project_source_document",
+            ),
+            path(
+                "<uuid:object_id>/add-source-pages/",
+                self.admin_site.admin_view(self.add_source_pages_view),
+                name="platform_api_project_add_source_pages",
+            ),
+            path(
+                "<uuid:object_id>/source-preview/<uuid:document_id>/<int:page_number>/",
+                self.admin_site.admin_view(self.source_preview_view),
+                name="platform_api_project_source_preview",
+            ),
+            path(
+                "reanalysis-cart/run/",
+                self.admin_site.admin_view(self.run_reanalysis_cart_view),
+                name=f"{opts.app_label}_{opts.model_name}_run_reanalysis_cart",
+            ),
+            path(
+                "<path:object_id>/media-dashboard/",
+                self.admin_site.admin_view(self.media_dashboard_view),
+                name=f"{opts.app_label}_{opts.model_name}_media_dashboard",
+            ),
+            path(
+                "<path:object_id>/merge/",
+                self.admin_site.admin_view(self.merge_project_view),
+                name=f"{opts.app_label}_{opts.model_name}_merge",
+            ),
+        ]
+        return custom + super().get_urls()
+
+    def layout_cart_view(self, request):
+        from django.core.exceptions import PermissionDenied
+        from django.db.models import Count
+        if not request.user.has_perm("platform_api.change_floorplan") or not self.has_change_permission(request):
+            raise PermissionDenied
+        groups = LayoutCropDraft.objects.filter(owner=request.user).values(
+            "project_id", "project__submitted_name"
+        ).annotate(count=Count("pk")).order_by("project__submitted_name")
+        entries = [{"name": row["project__submitted_name"], "count": row["count"],
+                    "url": reverse("admin:platform_api_project_media_dashboard", args=[row["project_id"]])
+                        + "?section=layouts#draft-crop-cart"} for row in groups]
+        response = TemplateResponse(request, "admin/platform_api/layout_cart.html", {
+            **self.admin_site.each_context(request), "opts": self.model._meta,
+            "title": "Your draft crop cart", "cart_projects": entries,
+            "cart_count": sum(row["count"] for row in entries),
+            "projects_url": reverse("admin:platform_api_project_changelist"),
+        })
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+    def run_reanalysis_cart_view(self, request):
+        if not self.has_change_permission(request):
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:platform_api_project_changelist"))
+        from .models import OutboxMessage
+        queue_ids = OutboxMessage.objects.filter(
+            event_type__in=["document.processing.requested", "floor_plan.crop_evaluation.requested", PAGE_EVENT, UNITS_EVENT],
+            published_at__isnull=True, dead_lettered_at__isnull=True,
+        ).order_by("occurred_at").values_list("id", flat=True)[:20]
+        result = process_pending_outbox(limit=20, message_ids=queue_ids)
+        messages.success(request, f"Global reanalysis cart processed: {result}.")
+        return HttpResponseRedirect(reverse("admin:platform_api_project_changelist"))
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        context = dict(extra_context or {})
+        obj = self.get_object(request, object_id)
+        if obj and self.has_view_or_change_permission(request, obj):
+            context["project_media_dashboard_url"] = reverse(
+                "admin:platform_api_project_media_dashboard", args=[obj.pk],
+                current_app=self.admin_site.name,
+            )
+            context["project_merge_url"] = reverse(
+                "admin:platform_api_project_merge", args=[obj.pk], current_app=self.admin_site.name,
+            )
+        return super().change_view(request, object_id, form_url, context)
+
+    def merge_project_view(self, request, object_id):
+        source = self.get_object(request, object_id)
+        if source is None:
+            from django.http import Http404
+            raise Http404
+        if not self.has_change_permission(request, source):
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied
+        form = ProjectMergeForm(source, request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            try:
+                merge_projects(
+                    source.id, form.cleaned_data["target_project"].id, request.user,
+                    form.cleaned_data["reason_code"], form.cleaned_data["notes"],
+                )
+            except ValueError as exc:
+                form.add_error(None, str(exc))
+            else:
+                messages.success(request, "Projects joined. Source evidence remains auditable under the canonical project dashboard.")
+                return HttpResponseRedirect(reverse(
+                    "admin:platform_api_project_change", args=[form.cleaned_data["target_project"].id],
+                    current_app=self.admin_site.name,
+                ))
+        return TemplateResponse(request, "admin/platform_api/project_merge.html", {
+            **self.admin_site.each_context(request), "opts": self.model._meta, "original": source,
+            "title": f"Join {source.submitted_name} into a canonical project", "form": form,
+        })
+
+    @admin.display(description="Project media")
+    def media_dashboard_link(self, obj):
+        if not obj or not obj.pk:
+            return "Save the project first."
+        url = reverse(
+            "admin:platform_api_project_media_dashboard", args=[obj.pk],
+            current_app=self.admin_site.name,
+        )
+        return format_html('<a class="button" href="{}">Open media dashboard</a>', url)
+
+    @staticmethod
+    def _layout_card(plan, dashboard_project=None):
+        from .floor_plan_rules import plan_source_kind
+        source_kind = plan_source_kind(plan)
+        dimensions = []
+        for item in plan.dimensions if isinstance(plan.dimensions, list) else []:
+            if not isinstance(item, dict):
+                continue
+            length, width = item.get("lengthFt"), item.get("widthFt")
+            try:
+                area = round(float(length) * float(width), 2)
+            except (TypeError, ValueError):
+                area = None
+            dimensions.append({
+                "room": item.get("room") or item.get("name") or "Room",
+                "length": length, "width": width, "area": area,
+                "raw": json.dumps(item, indent=2, default=str),
+            })
+        manual_crop_url = reverse(
+            "admin:platform_api_floorplan_manual_crops", args=[plan.pk],
+        )
+        return {
+            "plan": plan,
+            "editCropUrl": reverse("admin:platform_api_floorplan_crop_update", args=[plan.pk]) if plan.plan_scope == "flat" and plan.asset_id else None,
+            "isCroppedUnit": bool(plan.asset_id and plan.asset.asset_type == "unit_crop"),
+            "imageDescription": "Saved unit crop" if plan.asset_id and plan.asset.asset_type == "unit_crop" else (
+                "Pre-cut layout source" if source_kind == "precut_source" else "Source page — no individual crop saved yet"),
+            "sourceKind": source_kind,
+            "isPreferredSource": plan.plan_scope == "flat" and source_kind == "precut_source",
+            "canNormalize": source_kind == "generated_unit_crop",
+            "manualCropUrl": manual_crop_url,
+            "removeUrl": reverse("admin:platform_api_floorplan_visibility", args=[
+                plan.pk, dashboard_project.pk if dashboard_project else plan.project_id, "remove",
+            ]),
+            "imageUrl": reverse("floor-plan-asset-media", kwargs={"asset_id": plan.asset_id}) if plan.asset_id else None,
+            "dimensions": dimensions,
+            "features": json.dumps(plan.features, indent=2, default=str),
+            "rawExtraction": json.dumps(plan.raw_extraction, indent=2, default=str),
+        }
+
+    def media_dashboard_view(self, request, object_id):
+        project = self.get_object(request, object_id)
+        if project is None:
+            from django.http import Http404
+            raise Http404
+        if not self.has_view_or_change_permission(request, project):
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied
+
+        section = request.GET.get("section", "layouts")
+        include_candidates = request.GET.get("include_candidates") == "1"
+        if section not in {"amenities", "floor-plans", "layouts"}:
+            section = "layouts"
+        if request.method == "POST":
+            if not self.has_change_permission(request, project):
+                from django.core.exceptions import PermissionDenied
+                raise PermissionDenied
+            action = request.POST.get("action", "report")
+            if action == "save_layout_name":
+                from django.core.exceptions import ValidationError
+                from .layout_names import save_layout_name
+                try:
+                    save_layout_name(project, request.POST.get("floor_plan_id"), request.POST.get("display_name", ""), request.user)
+                except ValidationError as exc:
+                    messages.error(request, " ".join(exc.messages))
+                else:
+                    messages.success(request, "Display name saved. Extraction identity and provenance are unchanged.")
+                return HttpResponseRedirect(request.path + f"?section={section}")
+            if action == "run_layout_evaluation":
+                from django.core.exceptions import ValidationError
+                from .layout_evaluation_status import queue_single_layout
+                try:
+                    result = queue_single_layout(project, request.POST.get("floor_plan_id"), request.user,
+                                                 retry=request.POST.get("retry") == "true")
+                except (ValueError, ValidationError, OSError, WorkAlreadyClaimed):
+                    messages.error(request, "Could not queue this layout. Check that its source is clean and the layout is active.")
+                else:
+                    if result["status"] in {"queued", "running"}:
+                        messages.success(request, "Extraction queued (or existing queued/running task reused). Continue selecting other layouts; process jobs from the evaluation queue.")
+                    elif result["status"] == "completed":
+                        messages.info(request, "This image has already been extracted. Its completed result was retained; no duplicate job was created.")
+                    else:
+                        messages.warning(request, f"Existing extraction is {result['status']}. Review its status before retrying.")
+                return HttpResponseRedirect(request.path + "?section=layouts")
+            if action == "queue_amenity_pages":
+                from .source_page_additions import queue_saved_amenity_pages
+                try:
+                    jobs = queue_saved_amenity_pages(project, request.user)
+                except (ValueError, OSError, WorkAlreadyClaimed):
+                    messages.error(request, "Could not queue saved amenity pages. Check the profile and clean source, then retry when not busy.")
+                else:
+                    pending = sum(not job.published_at and not job.dead_lettered_at for job in jobs)
+                    messages.success(request, f"{pending} saved amenity page(s) awaiting extraction. Completed results were preserved.")
+                return HttpResponseRedirect(request.path + "?section=amenities")
+            if action == "queue_floor_layouts":
+                try:
+                    plan = FloorPlan.objects.get(pk=request.POST.get("floor_plan_id"), project_id__in=project_family_ids(project))
+                    job = queue_floor_plan_layouts(plan, request.user, retry=True)
+                except (FloorPlan.DoesNotExist, ValueError, TypeError):
+                    messages.error(request, "Choose an active full-floor source with a configured AI profile.")
+                else:
+                    messages.success(request, "Individual-layout extraction queued (or existing task retained). Run queued evaluations; the original floor plan is preserved.")
+                return HttpResponseRedirect(request.path + "?section=floor-plans")
+            if action in {"queue_project_reanalysis", "queue_failed_reanalysis"}:
+                queued = queue_project_reanalysis(project, request.user, failed_only=action == "queue_failed_reanalysis")
+                messages.success(request, f"Added {len(queued)} document(s) to the reanalysis queue.")
+                return HttpResponseRedirect(request.path + f"?section={section}")
+            if action == "run_reanalysis_cart":
+                family_ids = project_family_ids(project)
+                message_ids = list(EvidenceDocument.objects.filter(project_id__in=family_ids).values_list("id", flat=True))
+                from .models import OutboxMessage
+                queue_ids = OutboxMessage.objects.filter(
+                    event_type__in=["document.processing.requested", "floor_plan.crop_evaluation.requested", PAGE_EVENT, UNITS_EVENT],
+                    published_at__isnull=True, dead_lettered_at__isnull=True,
+                ).filter(
+                    models.Q(payload__documentId__in=[str(value) for value in message_ids])
+                    | models.Q(payload__floorPlanId__in=[str(value) for value in FloorPlan.objects.filter(
+                        project_id__in=family_ids
+                    ).values_list("id", flat=True)])
+                ).values_list("id", flat=True)[:20]
+                result = process_pending_outbox(limit=20, message_ids=queue_ids)
+                messages.success(request, f"Reanalysis cart processed: {result}.")
+                return HttpResponseRedirect(request.path + f"?section={section}")
+            if action == "mark_layout_page":
+                try:
+                    document = EvidenceDocument.objects.get(
+                        project_id__in=project_family_ids(project), id=request.POST.get("document_id")
+                    )
+                    page_number = int(request.POST.get("page_number", "0"))
+                    if page_number < 1:
+                        raise ValueError("Invalid page")
+                except (EvidenceDocument.DoesNotExist, TypeError, ValueError):
+                    messages.error(request, "Choose a valid source document and page to crop.")
+                else:
+                    return HttpResponseRedirect(reverse("admin:platform_api_project_add_source_pages", args=[project.pk])
+                        + "?" + urlencode({"category": "layouts", "document": document.pk, "page_number": page_number}))
+                return HttpResponseRedirect(request.path + "?section=layouts")
+            plan_id = request.POST.get("floor_plan_id", "")
+            if action == "normalize":
+                try:
+                    rotation = int(request.POST.get("rotation_degrees", "0"))
+                    normalize_layout_image(plan_id, rotation, actor=request.user)
+                except (FloorPlan.DoesNotExist, TypeError, ValueError) as exc:
+                    messages.error(request, f"Layout normalization failed: {exc}")
+                else:
+                    messages.success(request, "Layout image rotated, trimmed, and normalized consistently.")
+                return HttpResponseRedirect(reverse(
+                    "admin:platform_api_project_media_dashboard", args=[project.pk],
+                    current_app=self.admin_site.name,
+                ) + "?section=layouts")
+            reason_code = request.POST.get("reason_code", "").strip()
+            notes = request.POST.get("notes", "").strip()[:1000]
+            allowed_reasons = {
+                "BAD_CROP", "MISSING_ROOMS", "WRONG_DIMENSIONS", "WRONG_FLAT_BOUNDARY", "DUPLICATE", "OTHER",
+            }
+            plan = visible_floor_plans(FloorPlan.objects.filter(
+                project_id__in=project_family_ids(project), id=plan_id, plan_scope="flat"
+            )).first()
+            if plan is None or reason_code not in allowed_reasons:
+                messages.error(request, "Select a valid layout and report reason.")
+            else:
+                existing = ReviewTask.objects.filter(
+                    project=project, task_type="layout_quality", state="open",
+                    resolution__floorPlanId=str(plan.id),
+                ).first()
+                if existing:
+                    messages.warning(request, "This layout already has an open quality report.")
+                else:
+                    task = ReviewTask.objects.create(
+                        project=project, task_type="layout_quality", priority=1, state="open",
+                        resolution={
+                            "floorPlanId": str(plan.id), "sourceAssetId": str(plan.asset_id) if plan.asset_id else None,
+                            "reasonCode": reason_code, "notes": notes, "reportedBy": request.user.id,
+                            "reportedFrom": "project_media_dashboard",
+                        },
+                    )
+                    AuditEvent.objects.create(
+                        actor=request.user, action="floor_plan.layout_quality_reported",
+                        entity_type="FloorPlan", entity_id=plan.id, correlation_id=uuid4(),
+                        reason_code=reason_code,
+                        metadata={"projectId": str(project.id), "reviewTaskId": str(task.id)},
+                    )
+                    messages.success(request, "Layout reported. A high-priority review task was created.")
+            return HttpResponseRedirect(reverse(
+                "admin:platform_api_project_media_dashboard", args=[project.pk],
+                current_app=self.admin_site.name,
+            ) + "?section=layouts")
+
+        family_ids = project_family_ids(project)
+        from .models import OutboxMessage
+        family_plan_ids = [str(value) for value in FloorPlan.objects.filter(
+            project_id__in=family_ids
+        ).exclude(review_state=REMOVED_REVIEW_STATE).values_list("id", flat=True)]
+        update_cart = OutboxMessage.objects.filter(
+            event_type__in=["floor_plan.crop_evaluation.requested", PAGE_EVENT, UNITS_EVENT],
+            published_at__isnull=True,
+        ).filter(models.Q(payload__floorPlanId__in=family_plan_ids)
+                 | models.Q(payload__projectId__in=[str(pk) for pk in family_ids])).order_by("occurred_at")
+        update_cart_count = update_cart.filter(dead_lettered_at__isnull=True).count()
+        failed_cart_count = update_cart.filter(dead_lettered_at__isnull=False).count()
+        assets = visible_plan_assets(FloorPlanAsset.objects.filter(
+            project_id__in=family_ids, status="ready"
+        )).order_by("page_number", "created_at")
+        amenities = assets.filter(source_bounds__category="amenities").select_related("workflow_run")
+        amenity_claims = project.project_amenities.select_related("amenity").order_by(
+            "amenity__category", "amenity__display_name"
+        )
+        plans = visible_floor_plans(FloorPlan.objects.filter(project_id__in=family_ids)).select_related("asset", "document", "workflow_run").order_by(
+            "page_number", "plan_name", "created_at"
+        )
+        floor_plans = plans.filter(plan_scope="floor")
+        all_layouts = list(plans.filter(plan_scope="flat"))
+        added_layouts = [plan for plan in all_layouts if plan.workflow_run.workflow_type == "manual_source_page"]
+        all_layouts = [plan for plan in all_layouts if plan.workflow_run.workflow_type != "manual_source_page"]
+        # Human additions never advance the automatic document's latest-workflow pointer,
+        # and a later manual addition never hides an earlier manual addition.
+        manual_layouts = [plan for plan in all_layouts if plan.raw_extraction.get("segmentationMethod") == "manual"]
+        all_layouts = [plan for plan in all_layouts if plan.raw_extraction.get("segmentationMethod") != "manual"]
+        from .floor_plan_rules import plan_display_priority, plan_source_kind
+        latest_document_workflows = {}
+        for plan in all_layouts:
+            if plan.asset_id and plan.asset.asset_type == "unit_crop":
+                continue  # Adding split crops must not hide existing document-page layouts.
+            current = latest_document_workflows.get(plan.document_id)
+            if current is None or plan.workflow_run.created_at > current.created_at:
+                latest_document_workflows[plan.document_id] = plan.workflow_run
+        current_source_layouts = [
+            plan for plan in all_layouts
+            if plan_source_kind(plan) == "precut_source"
+            and plan.workflow_run == latest_document_workflows.get(plan.document_id)
+        ]
+        current_page_layouts = [
+            plan for plan in all_layouts
+            if plan.asset_id and plan.asset.asset_type != "unit_crop"
+            and plan_source_kind(plan) == "document_page"
+            and plan.workflow_run == latest_document_workflows.get(plan.document_id)
+        ]
+        generated_layouts = [plan for plan in all_layouts if plan.asset_id and plan.asset.asset_type == "unit_crop"]
+        source_assets = {
+            str(asset.id): asset for asset in project.floor_plan_assets.filter(
+                id__in={plan.asset.source_bounds.get("sourceAssetId") for plan in generated_layouts}
+            )
+        }
+        latest_workflows = {}
+        for plan in generated_layouts:
+            source_id = str(plan.asset.source_bounds.get("sourceAssetId", ""))
+            source = source_assets.get(source_id)
+            canonical_id = str(source.source_bounds.get("sourceAssetId", source_id)) if source else source_id
+            method = plan.asset.source_bounds.get("segmentationMethod", "unknown")
+            key = (canonical_id, method)
+            current = latest_workflows.get(key)
+            if current is None or plan.workflow_run.created_at > current.created_at:
+                latest_workflows[key] = plan.workflow_run
+        active_workflow_ids = {workflow.id for workflow in latest_workflows.values()}
+        current_generated = [plan for plan in generated_layouts if plan.workflow_run_id in active_workflow_ids]
+        layout_sort = request.GET.get("sort", "priority")
+        def natural_unit_key(plan):
+            return [int(value) if value.isdigit() else value.casefold() for value in re.split(r"(\d+)", plan.display_title)]
+        layouts = sorted(
+            current_source_layouts + current_generated + current_page_layouts + added_layouts + manual_layouts,
+            key=natural_unit_key if layout_sort == "unit" else plan_display_priority,
+        )
+        page_candidates = [
+            plan for plan in all_layouts
+            if plan not in current_source_layouts and plan not in current_page_layouts and plan not in generated_layouts
+        ]
+        if include_candidates:
+            layouts += sorted(page_candidates, key=plan_display_priority)
+        boundary_only = request.GET.get("issues") == "boundaries" or request.GET.get("boundary_only") == "1"
+        if boundary_only:
+            # Match the project-list count, including flagged historical visible records.
+            layouts = list(project_boundary_layouts(project).select_related("asset", "document", "workflow_run").order_by("page_number", "plan_name"))
+        floor_plans = list(floor_plans)
+        from .layout_evaluation_status import layout_evaluation_states
+        evaluation_states = layout_evaluation_states([*floor_plans, *layouts])
+        carousel_assets = []
+        carousel_labels = {}
+        seen_hashes = set()
+        if section == "layouts":
+            preview_plans = [plan for plan in layouts if plan.asset_id and (
+                plan.asset.asset_type == "unit_crop" or plan_source_kind(plan) == "precut_source")]
+            preview_assets = [plan.asset for plan in preview_plans]
+            carousel_labels = {plan.asset_id: plan.display_title for plan in preview_plans}
+        elif section == "floor-plans":
+            preview_assets = [plan.asset for plan in floor_plans if plan.asset_id]
+            carousel_labels = {plan.asset_id: plan.display_title for plan in floor_plans}
+        else:
+            preview_assets = amenities
+        for asset in preview_assets:
+            if asset.sha256 in seen_hashes:
+                continue
+            seen_hashes.add(asset.sha256)
+            carousel_assets.append(asset)
+        project_ids = list(Project.objects.exclude(address__has_key="mergedIntoProjectId").exclude(
+            merge_out__state="applied"
+        ).order_by(
+            "submitted_name", "id"
+        ).values_list("id", flat=True))
+        position = project_ids.index(project.id)
+        def dashboard_url(project_id):
+            return reverse(
+                "admin:platform_api_project_media_dashboard", args=[project_id],
+                current_app=self.admin_site.name,
+            ) + f"?section={section}"
+        context = {
+            **self.admin_site.each_context(request), "opts": self.model._meta, "original": project,
+            **project_layout_health_context(project, admin_site_name=self.admin_site.name),
+            "boundary_only": boundary_only,
+            "bulk_remove_url": reverse("admin:platform_api_project_layout_bulk_remove", args=[project.pk]),
+            "project_location": project.locality.strip() or "Location not recorded",
+            "title": f"Project media — {project.submitted_name}", "section": section,
+            "include_candidates": include_candidates,
+            "layout_sort": layout_sort,
+            "update_cart_count": update_cart_count,
+            "failed_cart_count": failed_cart_count,
+            "draft_crop_count": LayoutCropDraft.objects.filter(owner=request.user).count(),
+            "draft_crops": LayoutCropDraft.objects.filter(owner=request.user, project=project).defer("image").select_related("source_plan__document", "document"),
+            "draft_cart_action_url": reverse("admin:platform_api_project_crop_cart", args=[project.pk]),
+            "replacement_layouts": [plan for plan in layouts if plan.project_id == project.pk],
+            "draft_evaluation_form": ManualCropForm(),
+            "update_cart_items": [{"kind": item.event_type, "assetId": item.payload.get("assetId"),
+                                   "attempts": item.attempts, "error": item.last_error_code,
+                                   "stopped": bool(item.dead_lettered_at), "retryAt": item.available_after}
+                                  for item in update_cart[:100]],
+            "add_source_pages_url": reverse("admin:platform_api_project_add_source_pages", args=[project.pk]),
+            "project_change_url": reverse(
+                "admin:platform_api_project_change", args=[project.pk], current_app=self.admin_site.name,
+            ),
+            "project_navigation": {
+                "previous": dashboard_url(project_ids[position - 1]) if position else None,
+                "next": dashboard_url(project_ids[position + 1]) if position + 1 < len(project_ids) else None,
+                "position": position + 1, "total": len(project_ids),
+            },
+            "counts": {"amenities": amenities.count(), "floorPlans": len(floor_plans), "layouts": len(layouts)},
+            "hidden_layout_count": max(0, len(all_layouts) + len(added_layouts) + len(manual_layouts) - len(layouts)) if not boundary_only else 0,
+            "carousel": [{
+                "imageUrl": reverse("floor-plan-asset-media", kwargs={"asset_id": asset.id}),
+                "label": carousel_labels.get(asset.pk, f"Page {asset.page_number or 'unknown'} — {asset.source_bounds.get('category', 'image')}"),
+            } for asset in carousel_assets],
+            "amenity_claims": amenity_claims,
+            "amenities": [{
+                "asset": asset,
+                "imageUrl": reverse("floor-plan-asset-media", kwargs={"asset_id": asset.id}),
+                "extractionStatus": asset.workflow_run.status,
+                "metadata": json.dumps({"source": asset.source_bounds, "extraction": asset.workflow_run.result}, indent=2, default=str),
+            } for asset in amenities],
+            "floor_plans": [self._layout_card(plan, project) | {"evaluation": evaluation_states[str(plan.pk)]} for plan in floor_plans],
+            "layouts": [self._layout_card(plan, project) | {"evaluation": evaluation_states[str(plan.pk)]} for plan in layouts],
+            "documents": [{
+                "document": document,
+                "sourceUrl": reverse("media-page", kwargs={"document_id": document.id, "page_number": 1}),
+                "decisions": list(document.layout_page_decisions.all()),
+            } for document in EvidenceDocument.objects.filter(project_id__in=family_ids).prefetch_related(
+                "layout_page_decisions"
+            ).order_by("original_name")],
+            "can_report": self.has_change_permission(request, project),
+            "can_remove_plans": request.user.has_perm("platform_api.change_floorplan") and (
+                request.user.has_perm("platform_api.view_project") or request.user.has_perm("platform_api.change_project")
+            ),
+        }
+        return TemplateResponse(request, "admin/platform_api/project_media_dashboard.html", context)
+
+    @admin.display(description="Structured extraction outputs")
+    def extraction_outputs(self, obj):
+        if not obj:
+            return "Save a project and process a document first."
+        url = reverse("project-extraction-output", kwargs={"project_id": obj.id})
+        return format_html('<a href="{}" target="_blank" rel="noopener">View latest project outputs (JSON)</a>', url)
+
+
+@admin.register(IngestionRun)
+class IngestionRunAdmin(admin.ModelAdmin):
+    list_display = ("id", "project", "document", "status", "created_at")
+    list_filter = ("status",)
+    search_fields = ("project__submitted_name", "document__original_name")
+    readonly_fields = ("output_files",)
+
+    @admin.display(description="Download output files")
+    def output_files(self, obj):
+        if not obj or not obj.summary.get("outputs"):
+            return "No outputs yet; reprocess older documents to generate the expanded report."
+        return format_html_join(" | ", '<a href="{}">{}</a>', [
+            (reverse("ingestion-output-download", kwargs={"run_id": obj.id, "output_name": name}), name)
+            for name in obj.summary["outputs"] if name in {"project", "layout-metrics", "layout-metrics-csv"}
+        ])
+
+
+@admin.register(ProjectMerge)
+class ProjectMergeAdmin(admin.ModelAdmin):
+    list_display = ("source_project", "target_project", "state", "reason_code", "merged_by", "applied_at")
+    list_filter = ("state", "reason_code")
+    search_fields = ("source_project__submitted_name", "target_project__submitted_name")
+    readonly_fields = ("source_project", "target_project", "state", "reason_code", "notes", "merged_by", "applied_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+for model in [
+    Amenity,
+    AuditEvent,
+    Consent,
+    FactCandidate,
+    FeatureFlag,
+    Organization,
+    OrganizationMembership,
+    ProjectFact,
+    RecommendationSnapshot,
+    RequirementProfile,
+    ReviewTask,
+    DocumentLayoutPage,
+]:
+    admin.site.register(model)

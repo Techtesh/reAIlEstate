@@ -1,0 +1,44 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+  <h1>{{ title }}</h1>
+  <p>Project: <strong>{{ original.submitted_name }}</strong></p>
+  {% if selection_error %}<p class="errornote" role="alert">{{ selection_error }}</p>{% endif %}
+  {% if selected_layouts %}
+    <p><strong>{{ selected_count }}</strong> selected layout(s); currently
+      <strong>{{ pending_job_count }}</strong> pending per-layout job(s).</p>
+    <p>Only these records will be hidden. Original documents, saved images, shared assets,
+      child layouts and extraction provenance are retained. Only pending jobs targeting each
+      selected record are cancelled; unrelated and document-wide jobs are left alone.</p>
+    <p>This removal is audited and reversible. Restore each layout from its Floor plans admin
+      record (review state <strong>removed_by_user</strong>). Restore does not restart cancelled jobs.</p>
+    <table>
+      <caption>Review the exact selection before continuing</caption>
+      <thead><tr><th>Layout</th><th>Document / page</th><th>Review state</th><th>Record ID</th></tr></thead>
+      <tbody>
+      {% for plan in selected_layouts %}
+        <tr><td>{{ plan.display_title }}</td><td>{{ plan.document.original_name }} / {{ plan.page_number|default:"Unknown" }}</td>
+          <td>{{ plan.review_state }}</td><td>{{ plan.pk }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% elif not form %}
+    <p>No layouts are selected here. Return to layouts and select cards (up to {{ max_layouts }}).
+      Selecting all visible cards selects only the IDs displayed there, not every layout in the database.</p>
+  {% endif %}
+  {% if form %}
+    {% if form.errors %}
+      <div class="errornote" role="alert">Nothing was removed. Return to layouts to review a fresh selection.</div>
+      {{ form.non_field_errors }}
+      {% for field in form %}{{ field.errors }}{% endfor %}
+    {% else %}
+      <form method="post" action="{{ request.path }}">
+        {% csrf_token %}
+        <input type="hidden" name="stage" value="confirm">
+        {{ form.as_p }}
+        <p>Confirmation expires after 30 minutes. If any layout changes, the entire removal is rejected.</p>
+        <input type="submit" value="Confirm removal of selected layouts">
+      </form>
+    {% endif %}
+  {% endif %}
+  <p><a href="{{ cancel_url }}">Cancel / return to project layouts</a></p>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "admin/change_form.html" %}
+
+{% block object-tools-items %}
+  {{ block.super }}
+  {% if project_media_dashboard_url %}
+    <li><a href="{{ project_media_dashboard_url }}">Media dashboard</a></li>
+    {% if has_change_permission %}<li><a href="{% url 'admin:platform_api_project_external_sources' original.pk %}">External sources</a></li>{% endif %}
+  {% endif %}
+  {% if project_merge_url %}
+    <li><a href="{{ project_merge_url }}">Join duplicate project</a></li>
+  {% endif %}
+{% endblock %}
+
+{% block form_top %}
+  {% include "admin/platform_api/image_navigation.html" %}
+  {{ block.super }}
+{% endblock %}
+
+{% block submit_buttons_bottom %}
+  {% include "admin/platform_api/image_navigation.html" %}
+  {{ block.super }}
+{% endblock %}

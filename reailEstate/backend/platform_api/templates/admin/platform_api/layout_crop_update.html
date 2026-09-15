@@ -1,0 +1,54 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrastyle %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}">
+{% endblock %}
+{% block content %}
+<div class="crop-update media-tools">
+  <div class="media-actions">{% include "admin/platform_api/cart_icon.html" with count=cart_count only %}<a class="button" href="{{ cancel_url }}">Back to project layouts</a></div>
+  <p>Update target: <strong>{{ original.display_title }}</strong>. ID: <strong>{{ original.pk }}</strong>.</p>
+  <nav aria-label="Crop source" class="crop-toolbar media-actions">
+    <a class="button" href="{{ current_url }}" data-crop-navigate {% if source_mode == 'current' %}aria-current="page"{% endif %}>Current cropped unit (trim inward)</a>
+    <a class="button" href="{{ original_url }}" data-crop-navigate {% if source_mode == 'original' %}aria-current="page"{% endif %}>Original source (redraw a larger/correct boundary)</a>
+  </nav>
+  {% if source_error %}
+    <p role="alert" class="errornote">{{ source_error }}</p>
+    {{ form.non_field_errors }}
+    {% for field in form %}{{ field.errors }}{% endfor %}
+    <div class="media-actions"><a class="button" href="{{ reload_url }}">Reload this source</a><a class="button" href="{{ cancel_url }}">Cancel without saving</a></div>
+  {% else %}
+  <form method="post" id="crop-update-form">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    {% for hidden in form.hidden_fields %}{{ hidden }}{{ hidden.errors }}{% endfor %}
+    <p id="crop-help">Drag a rectangle on the image, or enter percentages below and choose “Use these bounds”. No area is selected automatically. Rotating clears the selection; bounds refer to the rotated image.</p>
+    <div class="crop-toolbar media-actions">
+      <button type="button" id="crop-rotate-left">Rotate left 90°</button>
+      <button type="button" id="crop-rotate-right">Rotate right 90°</button>
+      <button type="button" id="crop-undo" disabled>Undo selection</button>
+      <button type="button" class="media-destructive" id="crop-clear" disabled>Clear selection</button>
+    </div>
+    <div class="crop-canvas-container">
+      <canvas id="crop-canvas" aria-label="Crop preview; select with pointer or use the numeric bounds below" aria-describedby="crop-help" tabindex="0">Use the percentage controls below to select a crop.</canvas>
+    </div>
+    <fieldset class="crop-bounds">
+      <legend>Accessible selection — percentages of displayed image</legend>
+      <label for="crop-x">Left (%) <input id="crop-x" type="number" min="0" max="100" step="any" value="0"></label>
+      <label for="crop-y">Top (%) <input id="crop-y" type="number" min="0" max="100" step="any" value="0"></label>
+      <label for="crop-width">Width (%) <input id="crop-width" type="number" min="0" max="100" step="any" value="100"></label>
+      <label for="crop-height">Height (%) <input id="crop-height" type="number" min="0" max="100" step="any" value="100"></label>
+      <button type="button" id="crop-apply">Use these bounds</button>
+    </fieldset>
+    <p id="crop-status" role="status" aria-live="polite">Loading the selected source…</p>
+    <p>{{ form.confirm }} {{ form.confirm.label_tag }} {{ form.confirm.errors }}</p>
+    <div class="crop-toolbar media-actions">
+      <button type="submit" class="media-primary" id="crop-save" disabled>Save to cart</button>
+      <a class="button" href="{{ cancel_url }}" data-crop-navigate>Cancel without saving</a>
+    </div>
+    <noscript><p role="alert">JavaScript is required to preview and deliberately select a crop. Nothing has been saved.</p></noscript>
+  </form>
+  {{ crop_config|json_script:"crop-update-config" }}
+  <script src="{% static 'platform_api/layout_crop_update.js' %}" defer></script>
+  {% endif %}
+</div>
+{% endblock %}

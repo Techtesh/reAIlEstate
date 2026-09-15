@@ -1,0 +1,1 @@
+"""Shared job contracts for workers and adapters; importing these runs no jobs."""
