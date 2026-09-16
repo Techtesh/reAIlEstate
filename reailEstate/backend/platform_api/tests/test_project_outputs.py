@@ -41,6 +41,55 @@ def stub_run():
     return SimpleNamespace(id=uuid4(), project_id=uuid4(), document_id=uuid4(), project=SimpleNamespace(submitted_name="Test Gardens"))
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize("adding", [False, True])
+def test_project_admin_columns_preserve_fields_and_links(client, django_user_model, adding):
+    from django.urls import reverse
+
+    actor = django_user_model.objects.create_superuser(username="project-form-editor", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Form tests"),
+                                     submitted_name="Test Gardens")
+    client.force_login(actor)
+    url = reverse("admin:platform_api_project_add") if adding else reverse("admin:platform_api_project_change", args=[project.pk])
+    before = Project.objects.values().get(pk=project.pk)
+    response = client.get(url)
+    assert response.status_code == 200
+    assert b"project-details-grid" in response.content and b"platform_api/project_form.css" in response.content
+    assert list(response.context["adminform"].form.fields) == [
+        "organization", "status", "maha_rera_id", "submitted_name", "address", "locality", "latitude", "longitude",
+        "published_fact_set_version", "processing_attested", "verification_status", "verification_checked_at",
+    ]
+    assert b"field-extraction_outputs" in response.content and b"field-media_dashboard_link" in response.content
+    assert b'name="_save"' in response.content
+    if not adding:
+        assert reverse("admin:platform_api_project_media_dashboard", args=[project.pk]).encode() in response.content
+    assert Project.objects.values().get(pk=project.pk) == before
+
+
+@pytest.mark.django_db
+def test_project_admin_columns_preserve_validation_and_saving(client, django_user_model):
+    from django.urls import reverse
+
+    actor = django_user_model.objects.create_superuser(username="project-form-save", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Form saves"),
+                                     submitted_name="Original name")
+    client.force_login(actor)
+    url = reverse("admin:platform_api_project_change", args=[project.pk])
+    data = {"organization": str(project.organization_id), "status": project.status, "submitted_name": "",
+            "address": json.dumps({"city": "Thane"}), "locality": "Thane", "published_fact_set_version": 0,
+            "verification_status": project.verification_status, "_save": "Save"}
+    response = client.post(url, data)
+    assert response.status_code == 200
+    assert "submitted_name" in response.context["adminform"].form.errors
+    assert b"project-details-grid" in response.content
+    project.refresh_from_db()
+    assert project.submitted_name == "Original name"
+    response = client.post(url, dict(data, submitted_name="Updated name"))
+    assert response.status_code == 302, response.context["adminform"].form.errors
+    project.refresh_from_db()
+    assert project.submitted_name == "Updated name" and project.locality == "Thane"
+
+
 def test_structured_fields_and_units_preserve_unknown_enrichment(settings):
     output = build_project_output(stub_run(), [SourcePage(1, TEXT, {})], [])
     assert output["name"]["value"] == "Test Gardens"

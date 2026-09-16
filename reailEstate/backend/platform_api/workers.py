@@ -311,9 +311,25 @@ def enqueue_recommendation(requirement_version, snapshot, operation, correlation
 def process_outbox_message(message_id, scanner=None, extractor=None):
     try:
         with work_lock("outbox", message_id), ExitStack() as locks:
-            message = OutboxMessage.objects.get(id=message_id)
+            message = OutboxMessage.objects.filter(id=message_id).first()
+            if message is None:
+                return "not_ready"
             if message.published_at or InboxMessage.objects.filter(consumer="platform-worker", message_id=message.id).exists():
                 return "already_processed"
+            if message.attempts > 2 and not message.dead_lettered_at:
+                with transaction.atomic():
+                    message = _locked_outbox(message.pk)
+                    if message.attempts > 2 and not message.published_at:
+                        message.dead_lettered_at = timezone.now()
+                        message.available_after = None
+                        message.last_error_code = message.last_error_code or "RETRY_LIMIT_EXCEEDED"
+                        message.save(update_fields=["dead_lettered_at", "available_after", "last_error_code"])
+                        operation = Operation.objects.select_for_update().filter(pk=message.payload.get("operationId")).first()
+                        if operation and operation.state not in {"completed", "cancelled"}:
+                            operation.state = "failed"
+                            operation.error_code = message.last_error_code
+                            operation.result = operation.result | {"retryable": False}
+                            operation.save(update_fields=["state", "error_code", "result", "updated_at"])
             if message.dead_lettered_at or (message.available_after and message.available_after > timezone.now()):
                 return "not_ready"
             if message.event_type == "floor_plan.crop_evaluation.requested":
@@ -430,14 +446,21 @@ def _record_outbox_failure(message_id, exc, outcome="failed", expected_attempts=
                 terminal = True
             operation.state = "failed"
             operation.error_code = code
-            operation.result = operation.result | {"retryable": not terminal and message.attempts < 5}
+            operation.result = operation.result | {"retryable": not terminal and message.attempts <= 2}
             if code == "MANUAL_CROP_NOT_SINGLE_LAYOUT":
                 operation.result = operation.result | {"failureCategory": "BAD_BOUNDARY"}
             operation.save(update_fields=["state", "error_code", "result", "updated_at"])
     message.last_error_code = code
-    message.available_after = None if terminal else timezone.now() + timedelta(seconds=min(300, 2 ** min(message.attempts, 9)))
-    if terminal or message.attempts >= 5:
+    exhausted = terminal or message.attempts > 2
+    message.available_after = None if exhausted else timezone.now() + timedelta(seconds=min(300, 2 ** min(message.attempts, 9)))
+    if exhausted:
         message.dead_lettered_at = timezone.now()
+        operation = Operation.objects.select_for_update().filter(pk=message.payload.get("operationId")).first()
+        if operation and operation.state not in {"completed", "cancelled"}:
+            operation.state = "failed"
+            operation.error_code = code
+            operation.result = operation.result | {"retryable": False}
+            operation.save(update_fields=["state", "error_code", "result", "updated_at"])
     message.save(update_fields=["last_error_code", "available_after", "dead_lettered_at"])
     return outcome
 
@@ -487,6 +510,7 @@ def _process_transactional_outbox(message_id, scanner=None, extractor=None):
 
 
 def process_pending_outbox(limit=20, scanner=None, extractor=None, message_ids=None, event_type=None):
+    from .queue_monitor import tracked_job
     now = timezone.now()
     if message_ids is None:
         messages = OutboxMessage.objects.filter(published_at__isnull=True, dead_lettered_at__isnull=True)
@@ -503,7 +527,8 @@ def process_pending_outbox(limit=20, scanner=None, extractor=None, message_ids=N
     results = {"processed": 0, "retry": 0, "failed": 0}
     for message_id in message_ids:
         try:
-            outcome = process_outbox_message(message_id, scanner=scanner, extractor=extractor)
+            with tracked_job(message_id):
+                outcome = process_outbox_message(message_id, scanner=scanner, extractor=extractor)
             if outcome in results:
                 results[outcome] += 1
         except Exception:

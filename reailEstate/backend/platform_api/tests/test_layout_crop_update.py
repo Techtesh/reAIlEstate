@@ -34,7 +34,9 @@ pytestmark = pytest.mark.django_db(transaction=True)
 class CropTestSite(AdminSite):
     def get_urls(self):
         return [path("project/<uuid:object_id>/media/", lambda request, object_id: HttpResponse("Dashboard"),
-                     name="platform_api_project_media_dashboard"), *super().get_urls()]
+                     name="platform_api_project_media_dashboard"),
+                path("project/layout-cart/", lambda request: HttpResponse("Cart"),
+                     name="platform_api_project_layout_cart"), *super().get_urls()]
 
 
 class CropTestAdmin(LayoutCropUpdateAdminMixin, ModelAdmin):
@@ -119,6 +121,31 @@ def sibling(plan):
     )
 
 
+def test_five_degree_rotation_validation():
+    for rotation in range(0, 360, 5):
+        assert crops.validate_rotation(rotation) == rotation
+        assert LayoutCropUpdateForm.base_fields["rotation_degrees"].clean(str(rotation)) == rotation
+    for rotation in (-5, 1, 89, 360, 365, 5.0, True, "5", None):
+        with pytest.raises(ValueError, match="multiple of 5"):
+            crops.validate_rotation(rotation)
+
+
+@pytest.mark.parametrize("rotation", [5, 45, 85, 90, 95, 180, 185, 270, 355])
+def test_five_degree_rotation_render_uses_expanded_image(rotation):
+    source = png((121, 100), "red")
+    rectangle = {"x": 0, "y": 0, "width": 1, "height": 1}
+    data, size, bounds = crops._render_crop(source, rectangle, rotation)
+    with Image.open(io.BytesIO(source)) as original:
+        expected = original.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC, fillcolor="white")
+        with Image.open(io.BytesIO(data)) as rendered:
+            assert size == expected.size
+            assert bounds == [0, 0, *expected.size]
+            assert rendered.tobytes() == expected.tobytes()
+            if rotation % 90:
+                assert rendered.getpixel((0, 0)) == (255, 255, 255)
+        expected.close()
+
+
 def test_saved_identity_immutable_asset_and_extraction_snapshot(layout):
     plan, actor, _ = layout
     other = sibling(plan)
@@ -157,13 +184,35 @@ def test_saved_identity_immutable_asset_and_extraction_snapshot(layout):
     layout_reanalysis.get_floor_plan_vision_provider.assert_not_called()
 
 
-def test_crop_update_is_draft_only_until_explicit_commit(layout):
+def test_floor_crop_preserves_identity_and_queues_floor_analysis(layout):
+    plan, actor, source = layout
+    plan.plan_scope = "floor"
+    plan.asset = source
+    plan.crop_remaining = True
+    plan.save()
+    result = crops.update_layout_crop(plan.pk, actor, **edit_args(plan, actor))
+    plan.refresh_from_db()
+    assert plan.plan_scope == "floor"
+    assert plan.asset.asset_type == "plan_crop"
+    assert not plan.crop_remaining
+    assert FloorPlanAsset.objects.filter(pk=source.pk).exists()
+    assert OutboxMessage.objects.get(pk=result["messageId"]).event_type == "floor_plan.units_evaluation.requested"
+
+
+@pytest.mark.parametrize("scope", ["flat", "floor"])
+@pytest.mark.parametrize("rotation", [0, 5, 355])
+def test_crop_update_is_draft_only_until_explicit_commit(layout, scope, rotation):
     from platform_api.crop_cart import commit_saved_draft, stage_crop_update
 
-    plan, actor, _ = layout
+    plan, actor, source = layout
+    if scope == "floor":
+        plan.plan_scope = scope
+        plan.asset = source
+        plan.save()
     before = FloorPlan.objects.values().get(pk=plan.pk)
     asset_count = FloorPlanAsset.objects.count()
-    draft = stage_crop_update(plan.pk, actor, **edit_args(plan, actor))
+    draft = stage_crop_update(plan.pk, actor, **dict(edit_args(plan, actor), rotation_degrees=rotation))
+    assert draft.bounds["parameters"]["rotation_degrees"] == rotation
     assert FloorPlan.objects.values().get(pk=plan.pk) == before
     assert FloorPlanAsset.objects.count() == asset_count
     assert not OutboxMessage.objects.exists()
@@ -192,16 +241,19 @@ def test_stale_crop_update_draft_is_retained(layout):
     assert not OutboxMessage.objects.exists()
 
 
-def test_admin_crop_save_stages_without_queueing(layout, client):
+@pytest.mark.parametrize("rotation", [0, 5, 355])
+def test_admin_crop_save_stages_without_queueing(layout, client, rotation):
     import json
 
     plan, actor, _ = layout
     client.force_login(actor)
     args = edit_args(plan, actor)
+    args["rotation_degrees"] = rotation
     response = client.post(editor_url(plan), {**args, "regions": json.dumps(args["regions"]), "confirm": "on"})
     assert response.status_code == 302
     assert response.url.endswith("#draft-crop-cart")
     assert LayoutCropDraft.objects.get().bounds["draftAction"] == "update"
+    assert LayoutCropDraft.objects.get().bounds["parameters"]["rotation_degrees"] == rotation
     assert not OutboxMessage.objects.exists()
 
 
@@ -225,6 +277,32 @@ def test_cancels_old_jobs_for_target_only_and_reconciles_scoped_reviews(layout):
     assert boundary.state == "resolved" and boundary.resolution["previousAssetId"] == str(plan.asset_id)
     assert duplicate.state == sibling_review.state == "open"
     assert ReviewTask.objects.filter(task_type="floor_plan", state="open", resolution={"floorPlanId": str(plan.pk)}).count() == 1
+
+
+@pytest.mark.parametrize("scope", ["flat", "floor"])
+def test_reset_crop_opens_full_page_without_mutation(layout, client, settings, scope):
+    settings.ROOT_URLCONF = "config.urls"
+    plan, actor, source = layout
+    plan.plan_scope = scope
+    plan.save()
+    before = FloorPlan.objects.values().get(pk=plan.pk)
+    asset_count = FloorPlanAsset.objects.count()
+    client.force_login(actor)
+    url = reverse("admin:platform_api_floorplan_crop_update", args=[plan.pk])
+    response = client.get(url + "?source_mode=original")
+    assert response.status_code == 200
+    assert response.context_data["source_mode"] == "original"
+    assert response.context_data["crop_config"]["width"] == source.pixel_width
+    assert response.context_data["crop_config"]["height"] == source.pixel_height
+    assert response.context_data["form"].initial["regions"] == []
+    assert b"Reset crop" in response.content
+    preview = client.get(response.context_data["preview_url"])
+    assert preview.status_code == 200
+    assert hashlib.sha256(preview.content).hexdigest() == source.sha256
+    assert FloorPlan.objects.values().get(pk=plan.pk) == before
+    assert FloorPlanAsset.objects.count() == asset_count
+    assert not LayoutCropDraft.objects.exists()
+    assert not OutboxMessage.objects.exists()
 
 
 def test_default_preview_is_current_and_original_is_explicit(layout, monkeypatch):
@@ -278,6 +356,40 @@ def test_direct_plan_crop_without_original_asset_uses_document_only_when_request
     _, _, original, _ = crops.prepare_crop_edit(plan.pk, actor, source_mode="original")
     assert current["source_asset_id"] == str(plan.asset_id) and current["width"] == 120
     assert original["source_asset_id"] is None and original["width"] == 300
+
+
+def test_reset_from_intermediate_crop_recovers_full_document_page(layout):
+    plan, actor, source = layout
+    source.asset_type = "plan_crop"
+    source.save()
+    _, _, state, token = crops.prepare_crop_edit(plan.pk, actor, source_mode="original")
+    assert state["source_asset_id"] is None
+    assert (state["width"], state["height"]) == (300, 180)
+    assert hashlib.sha256(crops.crop_edit_preview(plan.pk, actor, token)).hexdigest() == plan.document.sha256
+
+
+@pytest.mark.parametrize("scope", ["flat", "floor"])
+def test_reset_crop_draft_can_expand_beyond_old_crop(layout, scope):
+    from platform_api.crop_cart import commit_saved_draft, stage_crop_update
+
+    plan, actor, source = layout
+    plan.plan_scope = scope
+    plan.save()
+    before = FloorPlan.objects.values().get(pk=plan.pk)
+    old_asset = plan.asset
+    draft = stage_crop_update(plan.pk, actor, **edit_args(plan, actor, "original"))
+    assert FloorPlan.objects.values().get(pk=plan.pk) == before
+    assert not OutboxMessage.objects.exists()
+    commit_saved_draft(plan.project, actor, draft.pk)
+    plan.refresh_from_db()
+    assert plan.pk == before["id"] and plan.display_name == before["display_name"]
+    assert (plan.asset.pixel_width, plan.asset.pixel_height) == (270, 162)
+    assert plan.asset.pixel_width > old_asset.pixel_width
+    assert plan.asset.pixel_height > old_asset.pixel_height
+    assert storage.exists(source.object_key) and storage.exists(old_asset.object_key)
+    _, _, state, _ = crops.prepare_crop_edit(plan.pk, actor, source_mode="original")
+    assert state["source_asset_id"] == str(source.pk)
+    assert OutboxMessage.objects.count() == 1
 
 
 def test_repeat_trim_keeps_linear_history_and_original_ancestry(layout):
@@ -447,7 +559,7 @@ def test_invalid_rectangles_fail_closed(regions):
         crops.validate_rectangle(regions)
 
 
-@pytest.mark.parametrize("rotation", [45, -90, 360, True, 90.0, "90"])
+@pytest.mark.parametrize("rotation", [44, -90, 360, True, 90.0, "90"])
 def test_invalid_rotations(rotation):
     with pytest.raises(ValueError):
         crops.validate_rotation(rotation)
@@ -538,7 +650,7 @@ def test_admin_preview_auth_private_headers_and_read_only_get(layout, client):
     client.force_login(actor)
     response = client.get(url, {"token": token})
     assert response.status_code == 200
-    assert response["Cache-Control"] == "private, no-store"
+    assert {"private", "no-store"}.issubset(response["Cache-Control"].split(", "))
     assert response["X-Content-Type-Options"] == "nosniff"
     assert hashlib.sha256(response.content).hexdigest() == plan.asset.sha256
     assert client.post(url, {"token": token}).status_code == 405

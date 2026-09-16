@@ -59,6 +59,8 @@ def work_lock(namespace, identifier):
 
 
 def event(stage, **details):
+    from .queue_monitor import report_progress
+    report_progress(stage, details)
     progress = _progress.get()
     if progress:
         progress.emit(stage, **details)

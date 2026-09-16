@@ -282,6 +282,15 @@ Staff administrators can open a clean full-floor record under **Admin → Floor 
 
 Each project also has a **Media dashboard** link in Django admin with project-scoped Amenities, Floor plans, and Layouts tabs. Layout cards expose extracted room sizes, calculated rectangular areas, counts, confidence, features, and provenance. **Report for update** creates a deduplicated high-priority review task; it does not silently mutate or rerun extraction.
 
+Automatic AI/script segmentation creates cropped layouts and preserves the source
+floor plan. On a layout or floor-plan card, **Reset crop** opens the full original
+page in the existing crop editor, with no rectangle preselected. Draw a replacement
+boundary, choose **Save to cart**, then explicitly commit the update from the cart.
+Opening or cancelling Reset crop leaves the saved crop and evaluation queue unchanged.
+Committing retains the plan ID and alias, preserves the previous image/history, and
+queues evaluation for the new crop. Missing historical page images are recovered
+from the verified source document; unavailable or invalid sources fail explicitly.
+
 The project admin list has a **Projects per page** selector for 10, 20, 50, or all records. The selected size is retained while moving between list pages, together with active admin filters.
 
 Project records and media dashboards include previous/next project controls. The media dashboard also includes a back-to-project action and a simple carousel of the project's saved images. Local administrators can generate missing script layouts across all eligible projects with `python manage.py separate_all_floor_plan_units --report <new-report.json>`; existing script segmentation is not replaced and ambiguous sources are reported for follow-up.
@@ -289,6 +298,31 @@ Project records and media dashboards include previous/next project controls. The
 The equivalent staff-only API is `POST /api/v1/admin/floor-plans/{floorPlanId}:segment-units` with an `Idempotency-Key`. `GET /api/v1/admin/floor-plan-segmentation` discovers safe mode/profile metadata. For local development, `isolate_floor_plan_units` exposes the same service and is rejected unless `DEBUG=true` and `ENVIRONMENT` is `local` or `development`. See [SKILLS.md](SKILLS.md) for portal, API, CLI, and AI-query-skill usage.
 
 For a timer, schedule `python manage.py process_outbox --once --event-type documents --limit 5` with Windows Task Scheduler or cron using the backend virtual environment and backend working directory. Set the same catalog/credential environment variables as the API. Do not overlap scheduled runs; use one worker for SQLite. For periodic processing in a supervised worker, use `python manage.py process_outbox --event-type documents --poll-seconds 300 --limit 5`. The legacy default `--event-type all` still processes both event types. No OS timer is installed or enabled automatically.
+
+The media dashboard's **Run evaluations for this project** processes pending extraction
+jobs for that project, including child jobs created while processing. It does not
+commit drafts or restart completed/dead-letter jobs. Local development launches are
+bounded by `INGESTION_MAX_WORKERS`; busy slots leave a durable waiting request and
+show a queued warning. Queue workers dispatch waiting requests when capacity frees.
+The equivalent command is `python manage.py process_outbox --event-type extraction --project-id <project-uuid> --owner-id <staff-user-id> --drain`.
+On the global evaluation jobs page, **Run all my queued evaluations** retains its
+user-wide scope. Production uses managed workers rather than browser process launch.
+
+Outbox jobs stop automatic retries after their third failed attempt (`attempts > 2`)
+and become **Dead letter**. Explicit retry actions may reset the attempt count.
+The evaluation jobs page offers confirmed deletion for unpublished dead-letter
+messages to staff with queue-view, project/layout-change, and outbox-delete
+permissions. Deletion checks the current dead-letter version and worker ownership;
+it removes the queue message, not project assets, operations, or audit history.
+Restart existing worker processes after deploying worker-code changes.
+
+Dashboard evaluation actions warn about earlier failures before submitting retries
+or starting project work. The in-page dialog identifies affected layouts/documents,
+error codes, and recorded attempts; **Cancel** changes nothing and **Continue**
+confirms only that action. The server checks a five-minute signed confirmation bound
+to the user, project, submitted action, and failure history. Changed failures require
+confirmation again. Retained failed operations still warn after a dead-letter message
+is deleted. Completed jobs and the three-attempt automatic retry limit are unchanged.
 
 The existing worker uses database transactions spanning document extraction; use PostgreSQL and reassess transaction/worker isolation before multi-worker production scaling. Configure ClamAV independently: selecting a working LLM never bypasses the malware scan. No live model endpoint is contacted just to enumerate the catalog.
 

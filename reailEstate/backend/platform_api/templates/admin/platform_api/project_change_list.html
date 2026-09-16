@@ -2,7 +2,8 @@
 
 {% block object-tools-items %}
   {{ block.super }}
-  <li><form method="post" action="{{ run_reanalysis_cart_url }}">{% csrf_token %}<button type="submit">Run reanalysis cart (20)</button></form></li>
+  <li><a href="{% url 'admin:platform_api_project_jobs' %}">Evaluation jobs</a></li>
+  {% if perms.platform_api.change_project and perms.platform_api.change_floorplan %}<li><form method="post" action="{{ run_reanalysis_cart_url }}">{% csrf_token %}<button type="submit">Run my queued evaluations</button></form></li>{% endif %}
 {% endblock %}
 
 {% block search %}

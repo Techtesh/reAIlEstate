@@ -3,7 +3,7 @@
 
 {% block extrahead %}
 {{ block.super }}
-<script src="{% static 'platform_api/project_media_dashboard.js' %}?v=20260915-media-tools" defer></script>
+<script src="{% static 'platform_api/project_media_dashboard.js' %}?v=20260916-resizable-layouts" defer></script>
 {% endblock %}
 
 {% block breadcrumbs %}
@@ -17,11 +17,24 @@
 
 {% block extrastyle %}
 {{ block.super }}
-<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}">
+<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}?v=20260916-resizable-layouts">
 {% endblock %}
 
 {% block content %}
 <div id="content-main" class="media-tools">
+  <dialog id="evaluation-retry-dialog" class="evaluation-retry-dialog" aria-labelledby="evaluation-retry-title" aria-describedby="evaluation-retry-description">
+    <h2 id="evaluation-retry-title">Previous evaluation failed</h2>
+    <p id="evaluation-retry-description"><strong data-retry-project></strong> has previous evaluation failures. Continuing may fail again and use additional model requests.</p>
+    <ul data-retry-failures></ul>
+    <p data-retry-overflow hidden></p>
+    <p data-retry-error role="alert" hidden></p>
+    <div class="media-actions">
+      <button type="button" data-retry-cancel autofocus>Cancel</button>
+      <button type="button" class="default" data-retry-continue>Continue</button>
+    </div>
+  </dialog>
+  <p data-evaluation-error role="alert" hidden></p>
+  {% if original.status == 'retired' %}<div class="retired-warning" role="alert"><strong>Retired project.</strong> These records are retained for reference and must not be treated as an active project.</div>{% endif %}
   <div class="media-byline">
     <p class="help">Layout tools v7 — crop-first additions, extraction status and display names</p>
     <p><strong>Location:</strong> {{ project_location|default:"Unknown" }}</p>
@@ -35,7 +48,7 @@
     {% if can_report %}{% include "admin/platform_api/cart_icon.html" with count=draft_crop_count only %}{% endif %}
   </nav>
 
-  {% if carousel %}
+  {% if carousel and section != 'layouts' %}
     <section class="carousel" data-carousel aria-labelledby="media-preview-heading">
       <h2 id="media-preview-heading">{% if section == 'layouts' %}Layout previews{% elif section == 'floor-plans' %}Floor-plan previews{% else %}Amenity previews{% endif %}</h2>
       {% for slide in carousel %}
@@ -111,10 +124,10 @@
     <form method="post" class="media-actions">{% csrf_token %}
       <button class="button" name="action" value="queue_failed_reanalysis">Add failed documents</button>
       <button class="button" name="action" value="queue_project_reanalysis">Add all project documents</button>
-      <button class="default" name="action" value="run_reanalysis_cart">Run queued evaluations (up to 20)</button>
+      <button class="default" name="action" value="run_project_evaluations">Run evaluations for this project</button>
+      <a class="button" href="{% url 'admin:platform_api_project_jobs' %}">Evaluation jobs</a>
       {% if section == 'amenities' %}<button class="button" name="action" value="queue_amenity_pages">Queue saved amenity pages / retry failed</button>{% endif %}
     </form>
-    <p class="help">Page extraction may add split jobs; splitting adds crop-evaluation jobs. Run the queue again while tasks remain. Completed jobs are not repeated.</p>
     {% if section == 'layouts' %}<h3>Crop a missed layout from its source page</h3>
     <form method="post" class="media-actions media-actions--fields">{% csrf_token %}<input type="hidden" name="action" value="mark_layout_page">
       <label>Document <select name="document_id" required>{% for item in documents %}<option value="{{ item.document.id }}">{{ item.document.original_name }}</option>{% endfor %}</select></label>
@@ -147,8 +160,7 @@
   {% elif section == 'floor-plans' %}
     {% include "admin/platform_api/project_plan_cards.html" with cards=floor_plans show_report=False %}
   {% else %}
-    <p>The preview shows the saved image type described on each card. <strong>Update this unit crop</strong> edits the current unit; <strong>Create new crops from source</strong> intentionally opens the original full source page to create new drafts.</p>
-    <p><strong>Sort layouts:</strong> <a href="?section=layouts&amp;sort=priority{% if boundary_only %}&amp;boundary_only=1{% endif %}{% if include_candidates %}&amp;include_candidates=1{% endif %}">preferred source</a> | <a href="?section=layouts&amp;sort=unit{% if boundary_only %}&amp;boundary_only=1{% endif %}{% if include_candidates %}&amp;include_candidates=1{% endif %}">unit/name</a></p>
+    <noscript><p><strong>Sort layouts:</strong> <a href="?section=layouts&amp;sort=priority{% if boundary_only %}&amp;boundary_only=1{% endif %}{% if include_candidates %}&amp;include_candidates=1{% endif %}">preferred source</a> | <a href="?section=layouts&amp;sort=unit{% if boundary_only %}&amp;boundary_only=1{% endif %}{% if include_candidates %}&amp;include_candidates=1{% endif %}">unit/name</a></p></noscript>
     {% if hidden_layout_count %}
       <p class="help">
         {{ hidden_layout_count }} older, duplicate, or page-level layout record{{ hidden_layout_count|pluralize }} hidden to keep this view manageable. Pre-cut source layouts are shown first.
@@ -165,7 +177,7 @@
         <button type="submit" class="button media-destructive">Remove selected…</button>
       </div>
       <p class="help">Select individual layouts below, then review the removal confirmation. Up to 200 per request. Source floor plans are not selected.</p>
-      <noscript><p>Select the checkbox on each layout card; select-all and the live count require JavaScript.</p></noscript>
+      <noscript><p>JavaScript is required for the layout list and bulk selection. Individual removal is available on each layout.</p></noscript>
     </form>
     {% endif %}
     {% include "admin/platform_api/project_plan_cards.html" with cards=layouts show_report=can_report %}

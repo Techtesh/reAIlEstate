@@ -1,0 +1,61 @@
+#project_form .project-details-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-areas:
+    "organization organization status status"
+    "registration registration name name"
+    "address address locality locality"
+    "address address latitude longitude"
+    "published published . ."
+    "attested attested attested attested"
+    "verification verification checked checked"
+    "outputs outputs outputs outputs"
+    "media media media media";
+  column-gap: 24px;
+  margin-block: 16px;
+  border: 0;
+}
+#project_form .project-details-grid > .form-row { min-width: 0; padding: 14px 0; overflow: visible; }
+#project_form .project-details-grid > .field-organization { grid-area: organization; }
+#project_form .project-details-grid > .field-status { grid-area: status; }
+#project_form .project-details-grid > .field-maha_rera_id { grid-area: registration; }
+#project_form .project-details-grid > .field-submitted_name { grid-area: name; }
+#project_form .project-details-grid > .field-address { grid-area: address; }
+#project_form .project-details-grid > .field-locality { grid-area: locality; }
+#project_form .project-details-grid > .field-latitude { grid-area: latitude; }
+#project_form .project-details-grid > .field-longitude { grid-area: longitude; }
+#project_form .project-details-grid > .field-published_fact_set_version { grid-area: published; }
+#project_form .project-details-grid > .field-processing_attested { grid-area: attested; }
+#project_form .project-details-grid > .field-verification_status { grid-area: verification; }
+#project_form .project-details-grid > .field-verification_checked_at { grid-area: checked; }
+#project_form .project-details-grid > .field-extraction_outputs { grid-area: outputs; }
+#project_form .project-details-grid > .field-media_dashboard_link { grid-area: media; }
+#project_form .project-details-grid .form-row > div,
+#project_form .project-details-grid .flex-container { width: 100%; max-width: 100%; box-sizing: border-box; }
+#project_form .project-details-grid .flex-container { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 0; }
+#project_form .project-details-grid label,
+#project_form .project-details-grid legend { float: none; width: auto; padding: 0; margin: 0; }
+#project_form .project-details-grid input:not([type="checkbox"]):not([type="hidden"]),
+#project_form .project-details-grid select,
+#project_form .project-details-grid textarea { box-sizing: border-box; max-width: 100%; min-height: 36px; }
+#project_form .project-details-grid .vTextField,
+#project_form .project-details-grid input[type="number"] { width: 100%; max-width: 400px; }
+#project_form .project-details-grid .vLargeTextField { width: 100%; max-width: 560px; min-height: 176px; resize: vertical; }
+#project_form .project-details-grid .related-widget-wrapper { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; float: none; min-width: 0; }
+#project_form .project-details-grid .related-widget-wrapper select { max-width: min(100%, 320px); }
+#project_form .project-details-grid .related-widget-wrapper-link { margin: 0; }
+#project_form .project-details-grid .checkbox-row { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; }
+#project_form .project-details-grid .checkbox-row label { padding: 0; }
+#project_form .project-details-grid .help,
+#project_form .project-details-grid .readonly,
+#project_form .project-details-grid .errorlist { margin-left: 0; padding-left: 0; overflow-wrap: anywhere; }
+#project_form .project-details-grid .datetime { margin: 0; padding: 0; line-height: 2; }
+#project_form .project-details-grid .datetimeshortcuts { display: inline-block; white-space: nowrap; }
+#project_form .project-details-grid .timezonewarning { display: block; white-space: normal; }
+@media (max-width: 900px) {
+  #project_form .project-details-grid { display: block; }
+  #project_form .project-details-grid > .form-row { padding: 14px 0; }
+  #project_form .project-details-grid .vTextField,
+  #project_form .project-details-grid input[type="number"],
+  #project_form .project-details-grid .vLargeTextField { max-width: 100%; }
+}

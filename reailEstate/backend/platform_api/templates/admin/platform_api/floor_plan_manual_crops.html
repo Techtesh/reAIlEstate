@@ -16,9 +16,10 @@
   <p class="help">This tool intentionally shows the full original source page to create new crops, not to update the saved unit.</p>
   <form method="post">{% csrf_token %}{{ form.regions_json }}{{ form.rotation_degrees }}
     {{ form.regions_json.errors }}{{ form.rotation_degrees.errors }}
+    {% if form.non_field_errors %}<div role="alert">{{ form.non_field_errors }}</div>{% endif %}
     <div class="crop-workspace">
       <div><div class="crop-toolbar media-actions"><button type="button" class="button" data-rotate-left>Rotate left</button><button type="button" class="button" data-rotate-right>Rotate right</button><button type="button" class="button media-destructive" data-clear-crops>Clear crops</button><span data-rotation-label>Rotation: 0°</span></div><div class="crop-stage" data-crop-stage><img src="{{ media_url }}" alt="Original source page for new crops" data-crop-source hidden><canvas data-crop-canvas aria-label="Draw rectangles around individual dwellings"></canvas><div class="crop-overlay" data-crop-overlay></div></div></div>
-      <aside><h2>Draft crops</h2><ol class="crop-list" data-crop-list></ol><hr>{{ form.non_field_errors }}<div class="crop-actions media-actions"><button type="submit" class="default">Save to cart</button><a class="button" href="{{ cancel_url }}">Cancel</a></div><p class="help">After saving, select drafts in your cart and choose Add selected to project. Cancel discards unsaved selections.</p></aside>
+      <aside><h2>Draft crops</h2><ol class="crop-list" data-crop-list></ol><hr><div class="crop-actions media-actions"><button type="submit" class="default">Save to cart</button><a class="button" href="{{ cancel_url }}">Cancel</a></div><p class="help">After saving, select drafts in your cart and choose Add selected to project. Cancel discards unsaved selections.</p></aside>
     </div>
   </form>
 </div>

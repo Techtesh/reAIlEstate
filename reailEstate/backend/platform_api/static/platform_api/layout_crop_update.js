@@ -21,16 +21,28 @@
   function draw() {
     if (!loaded) return;
     const sideways = rotation % 180 !== 0;
-    const width = sideways ? image.naturalHeight : image.naturalWidth;
-    const height = sideways ? image.naturalWidth : image.naturalHeight;
+    let width = sideways ? image.naturalHeight : image.naturalWidth;
+    let height = sideways ? image.naturalWidth : image.naturalHeight;
+    const radians = rotation * Math.PI / 180;
+    if (rotation % 90) {
+      const cosine = Math.abs(Number(Math.cos(radians).toFixed(15)));
+      const sine = Math.abs(Number(Math.sin(radians).toFixed(15)));
+      const halfWidth = (image.naturalWidth * cosine + image.naturalHeight * sine) / 2;
+      const halfHeight = (image.naturalWidth * sine + image.naturalHeight * cosine) / 2;
+      width = Math.ceil(image.naturalWidth / 2 + halfWidth) - Math.floor(image.naturalWidth / 2 - halfWidth);
+      height = Math.ceil(image.naturalHeight / 2 + halfHeight) - Math.floor(image.naturalHeight / 2 - halfHeight);
+    }
     const scale = Math.min(1, 1200 / Math.max(width, height));
     canvas.width = Math.max(1, Math.round(width * scale));
     canvas.height = Math.max(1, Math.round(height * scale));
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingQuality = "high";
     ctx.save();
     ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.rotate(rotation * Math.PI / 180);
-    ctx.drawImage(image, -image.naturalWidth * scale / 2, -image.naturalHeight * scale / 2,
-      image.naturalWidth * scale, image.naturalHeight * scale);
+    ctx.scale(canvas.width / width, canvas.height / height);
+    ctx.rotate(radians);
+    ctx.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
     ctx.restore();
     if (selection) {
       const {x, y, width: w, height: h} = selection;
@@ -120,8 +132,8 @@
     field("confirm").checked = false;
     sync();
   }
-  document.getElementById("crop-rotate-left").addEventListener("click", () => rotate(-90));
-  document.getElementById("crop-rotate-right").addEventListener("click", () => rotate(90));
+  document.getElementById("crop-rotate-left").addEventListener("click", () => rotate(-5));
+  document.getElementById("crop-rotate-right").addEventListener("click", () => rotate(5));
   field("confirm").addEventListener("change", sync);
   form.addEventListener("submit", event => {
     if (!loaded || !valid(selection) || drag || !field("confirm").checked) {

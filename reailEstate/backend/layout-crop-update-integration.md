@@ -14,8 +14,10 @@
    Do not call `_manual_crop_source`, `create_manual_layout_crops`, the draft-cart
    action, or source-page addition endpoints for this operation.
 4. Link to the route without query parameters for the default saved-unit trim.
-   Only an explicit **Original source** link uses `?source_mode=original`.
-   The dedicated editor already provides both links.
+  The explicit **Reset crop** link uses `?source_mode=original` to open the full
+  verified floor-plan page with no selection. Both the plan cards and the editor
+  expose this link. Opening it does not change the saved crop; saving stages a
+  draft and the cart's explicit commit replaces the crop for the same plan.
 
 ### Exact route names and callbacks
 

@@ -70,8 +70,8 @@ def validate_rectangle(regions):
 
 
 def validate_rotation(rotation):
-    if type(rotation) is not int or rotation not in (0, 90, 180, 270):
-        raise ValueError("Rotation must be 0, 90, 180 or 270 degrees clockwise.")
+    if type(rotation) is not int or not 0 <= rotation < 360 or rotation % 5:
+        raise ValueError("Rotation must be a multiple of 5 degrees from 0 to 355 clockwise.")
     return rotation
 
 
@@ -95,7 +95,7 @@ def editable_layout(plan_id, actor, project_id=None):
     if (plan.project_id not in family or plan.document.project_id not in family
             or plan.document.project.organization_id != destination.organization_id
             or plan.document.project.status == "retired"
-            or plan.plan_scope != "flat" or plan.review_state in HIDDEN_REVIEW_STATES
+            or plan.plan_scope not in {"flat", "floor"} or plan.review_state in HIDDEN_REVIEW_STATES
             or not plan.asset_id or plan.asset.status != "ready"
             or plan.document.scan_status != "clean"
             or plan.asset.document_id != plan.document_id or plan.asset.project_id not in family
@@ -146,7 +146,7 @@ def _source(plan, destination, mode):
                 raise ValueError("Original source must belong to this layout's evidence document.")
         source_id = next((hint.get("sourceAssetId") for hint in hints if hint.get("sourceAssetId")), None)
         if not source_id:
-            if asset.asset_type == "page_render" or (asset.pk != plan.asset_id and asset.asset_type != "unit_crop"):
+            if asset.asset_type == "page_render":
                 return asset, asset.page_number or page
             break
         source_id = _reference(source_id)
@@ -274,7 +274,7 @@ def _render_crop(data, rectangle, rotation):
         image = original.convert("RGB")
     try:
         if rotation:
-            rotated = image.rotate(-rotation, expand=True)
+            rotated = image.rotate(-rotation, expand=True, resample=Image.Resampling.BICUBIC, fillcolor="white")
             image.close()
             image = rotated
         x, y, width, height = (rectangle[key] for key in ("x", "y", "width", "height"))
@@ -445,7 +445,7 @@ def _persist(plan, destination, actor, state, rectangle, rotation, crop, size, p
         "sourceSha256": state["document_sha256"], "sourceImageSha256": state["source_sha256"],
         "pageNumber": state["page_number"], "sourceMode": state["source_mode"],
         "rotationDegreesClockwise": rotation, "segmentationMethod": "manual",
-        "evidence": "reviewer_revised_boundary", "category": "layouts",
+        "evidence": "reviewer_revised_boundary", "category": "floor-plans" if plan.plan_scope == "floor" else "layouts",
     }
     run = IngestionRun.objects.create(
         project=destination, document=plan.document, status="needs_review", pipeline_version=VERSION,
@@ -459,7 +459,7 @@ def _persist(plan, destination, actor, state, rectangle, rotation, crop, size, p
     )
     asset = FloorPlanAsset.objects.create(
         id=asset_id, project=destination, document=plan.document, workflow_run=workflow,
-        page_number=state["page_number"], asset_type="unit_crop", object_key=key,
+        page_number=state["page_number"], asset_type="plan_crop" if plan.plan_scope == "floor" else "unit_crop", object_key=key,
         sha256=hashlib.sha256(crop).hexdigest(), byte_length=len(crop), pixel_width=size[0], pixel_height=size[1],
         source_bounds=bounds, detector_version=VERSION, detection_confidence=0,
     )
@@ -489,11 +489,17 @@ def _persist(plan, destination, actor, state, rectangle, rotation, crop, size, p
         current_raw["resolvedBoundaryWarning"] = {"assetId": str(old_asset_id), "reason": "image_revised"}
     plan.asset = asset
     plan.raw_extraction = current_raw
+    plan.crop_remaining = False
     for field, default in FACT_DEFAULTS.items():
         setattr(plan, field, deepcopy(default))
-    plan.save(update_fields=["asset", "raw_extraction", *FACT_DEFAULTS, "updated_at"])
+    plan.save(update_fields=["asset", "raw_extraction", "crop_remaining", *FACT_DEFAULTS, "updated_at"])
     reconciled = _reconcile_reviews(plan, old_asset_id, asset.pk)
-    job, operation = queue_layout_evaluation(plan, actor=actor)
+    if plan.plan_scope == "floor":
+        from .floor_plan_layout_jobs import queue_floor_plan_layouts
+        job = queue_floor_plan_layouts(plan, actor=actor)
+        operation = Operation.objects.get(pk=job.payload["operationId"])
+    else:
+        job, operation = queue_layout_evaluation(plan, actor=actor)
     AuditEvent.objects.create(
         actor=actor, action="floor_plan.crop_updated", entity_type="FloorPlan", entity_id=plan.pk,
         correlation_id=job.correlation_id, reason_code="USER_REVISED_BOUNDARY",

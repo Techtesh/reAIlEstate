@@ -1,3 +1,25 @@
+def test_floor_analysis_runs_with_existing_image_layout_and_inactive_source(source, monkeypatch):
+    plan, _ = source
+    plan.active = False
+    plan.save()
+    existing = FloorPlan.objects.create(project=plan.project, document=plan.document,
+        workflow_run=plan.workflow_run, asset=plan.asset, plan_name="Existing image layout",
+        page_number=1, plan_scope="flat", extractor_version="test")
+    provider = Mock()
+    provider.code = "test-provider"
+    provider.analyze_classified_plan.return_value = {}
+    agent = FloorPlanAgent(provider)
+    candidate = FloorPlanCandidate(page_number=1, plan_name=plan.plan_name,
+        configuration_type="", carpet_area_sqft=None, dimensions=[], confidence=0.9,
+        evidence_text="", asset=plan.asset, plan_scope="floor")
+    monkeypatch.setattr(agent, "_vision_candidates", lambda *_args: [candidate])
+    monkeypatch.setattr(agent, "_provider_metadata", lambda: {"extractionMode": "script"})
+    candidates = agent._extract(plan.workflow_run.ingestion_run, [], [plan.asset])
+    provider.analyze_classified_plan.assert_called_once()
+    saved = agent._persist(plan.workflow_run, candidates)
+    assert saved[0].pk == plan.pk and not saved[0].active
+    assert FloorPlan.objects.filter(pk=existing.pk).exists()
+
 """A repeated extraction must not resurrect hidden records or review tasks."""
 
 from unittest.mock import Mock

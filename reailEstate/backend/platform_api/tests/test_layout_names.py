@@ -26,6 +26,146 @@ from .test_floor_plan_layout_jobs import source  # Isolated database/image fixtu
 GENERATED_ID = "12345678-1234-4321-8765-123456789abc"
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize("alias", ["", "Garden home", '<Example & "alias">'])
+def test_dashboard_alias_editor_starts_with_displayed_title(source, client, alias):
+    from django.urls import reverse
+    from django.utils.html import escape
+
+    plan, actor = source
+    save_layout_name(plan.project, plan.pk, alias, actor)
+    plan.refresh_from_db()
+    client.force_login(actor)
+    response = client.get(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]),
+                          {"section": "floor-plans"})
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert f'value="{escape(plan.display_title)}" aria-label="Display name / alias"' in html
+    assert "data-alias-cancel" in html
+    assert "data-active-form" in html
+    assert 'title="Save active state"' not in html
+
+
+@pytest.mark.django_db
+def test_active_toggle_is_audited_and_rejects_stale_version(source, client):
+    from django.urls import reverse
+    plan, actor = source
+    client.force_login(actor)
+    url = reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id])
+    version = plan.updated_at.isoformat()
+    response = client.post(url, {"action": "set_plan_active", "floor_plan_id": str(plan.pk), "version": version})
+    assert response.status_code == 302
+    plan.refresh_from_db()
+    assert not plan.active
+    assert AuditEvent.objects.filter(action="floor_plan.active_changed", entity_id=plan.pk).count() == 1
+    client.post(url, {"action": "set_plan_active", "floor_plan_id": str(plan.pk), "version": version, "active": "true"})
+    plan.refresh_from_db()
+    assert not plan.active
+    response = client.post(url + "?section=floor-plans", {"action": "set_plan_active", "floor_plan_id": str(plan.pk),
+                           "version": plan.updated_at.isoformat(), "active": "true"})
+    assert response.status_code == 302 and response.url.endswith("?section=floor-plans")
+    plan.refresh_from_db()
+    assert plan.active
+    assert AuditEvent.objects.filter(action="floor_plan.active_changed", entity_id=plan.pk).count() == 2
+
+
+@pytest.mark.django_db
+def test_active_toggle_ajax_returns_versions_and_inherited_inactivity(source, client):
+    from django.urls import reverse
+
+    plan, actor = source
+    child = FloorPlan.objects.create(project=plan.project, document=plan.document,
+        workflow_run=plan.workflow_run, asset=plan.asset, page_number=plan.page_number,
+        plan_scope="flat", plan_name="Unit 01", extractor_version="test")
+    removed = FloorPlan.objects.create(project=plan.project, document=plan.document,
+        workflow_run=plan.workflow_run, asset=plan.asset, page_number=plan.page_number,
+        plan_scope="floor", plan_name="Removed source", extractor_version="test",
+        active=False, review_state="removed_by_user")
+    client.force_login(actor)
+    url = reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id])
+    version = plan.updated_at.isoformat()
+    response = client.post(url, {"action": "set_plan_active", "floor_plan_id": str(plan.pk), "version": version},
+                           HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+    assert response.status_code == 200
+    assert {"private", "no-store"} <= set(response["Cache-Control"].split(", "))
+    states = {item["id"]: item for item in response.json()["plans"]}
+    assert str(removed.pk) not in states
+    assert not states[str(plan.pk)]["active"] and states[str(plan.pk)]["inactive"]
+    assert states[str(child.pk)]["active"] and states[str(child.pk)]["inactive"]
+    assert states[str(plan.pk)]["version"] != version
+    child.refresh_from_db()
+    assert child.active
+    response = client.post(url, {"action": "set_plan_active", "floor_plan_id": str(plan.pk), "version": version,
+                                "active": "true"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+    assert response.status_code == 409 and response.json()["status"] == 409
+    assert response["Content-Type"].startswith("application/problem+json")
+    assert AuditEvent.objects.filter(action="floor_plan.active_changed").count() == 1
+    response = client.post(url, {"action": "set_plan_active", "floor_plan_id": str(plan.pk),
+                                "version": states[str(plan.pk)]["version"], "active": "true"},
+                           HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+    assert response.status_code == 200
+    assert all(item["active"] and not item["inactive"] for item in response.json()["plans"])
+    assert AuditEvent.objects.filter(action="floor_plan.active_changed").count() == 2
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("restriction,expected", [("retired", 409), ("permission", 403), ("other_project", 404)])
+def test_active_toggle_ajax_rejects_unauthorized_changes(source, client, django_user_model, restriction, expected):
+    from django.urls import reverse
+
+    plan, actor = source
+    project = plan.project
+    if restriction == "retired":
+        project.status = "retired"
+        project.save(update_fields=["status"])
+    elif restriction == "permission":
+        actor = django_user_model.objects.create_user(username="no-plan-changes", is_staff=True)
+        actor.user_permissions.add(Permission.objects.get(codename="change_project", content_type__app_label="platform_api"))
+    else:
+        project = Project.objects.create(organization=project.organization, submitted_name="Unrelated")
+    client.force_login(actor)
+    response = client.post(reverse("admin:platform_api_project_media_dashboard", args=[project.pk]),
+        {"action": "set_plan_active", "floor_plan_id": str(plan.pk), "version": plan.updated_at.isoformat()},
+        HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+    assert response.status_code == expected
+    plan.refresh_from_db()
+    assert plan.active
+    assert not AuditEvent.objects.filter(action="floor_plan.active_changed").exists()
+
+
+@pytest.mark.django_db
+def test_dashboard_layout_explorer_names_only_and_preserves_controls(source, client):
+    from django.urls import reverse
+    from django.utils.html import escape
+
+    plan, actor = source
+    plan.plan_scope = "flat"
+    plan.display_name = '<East & "garden">'
+    plan.save()
+    client.force_login(actor)
+    url = reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id])
+    response = client.get(url, {"section": "layouts", "include_candidates": "1"})
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert "data-layout-explorer" in html and "data-carousel" not in html
+    assert 'data-layout-divider role="separator"' in html
+    assert 'aria-controls="layout-directory"' in html
+    assert 'id="layout-directory"' in html
+    assert 'data-layout-sort aria-label="Sort layouts"' in html
+    assert '<option value="name">Name (A-Z)</option>' in html
+    assert '<option value="name-desc">Name (Z-A)</option>' in html
+    directory = html.split('class="layout-name-list"', 1)[1].split('class="layout-list-status"', 1)[0]
+    assert '<img' not in directory
+    assert escape(plan.display_title) in directory
+    assert f'aria-controls="layout-detail-{plan.pk}"' in directory
+    assert f'id="layout-detail-{plan.pk}"' in html
+    assert directory.count("data-layout-select") == 1
+    assert "data-active-status" in html and "data-active-error" in html
+    assert "Update this unit crop" in html and "Raw extraction and provenance" in html
+    assert "data-layout-explorer" not in client.get(url, {"section": "floor-plans"}).content.decode()
+    assert "data-layout-explorer" not in client.get(url, {"section": "amenities"}).content.decode()
+
+
 @pytest.mark.parametrize("suffix", [
     f" [AI {GENERATED_ID}]", f" [manual {GENERATED_ID}]",
     " [ai segment a0b1c2d3]", " [script segment A0B1C2D3]", " [manual segment a0b1c2d3]",

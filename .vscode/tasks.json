@@ -2,13 +2,38 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Run Django backend",
+			"label": "Ingest samples (PostgreSQL, 5 workers)",
 			"type": "shell",
-			"command": "$env:FLOOR_PLAN_EXTRACTION_MODE='ai'; $env:FLOOR_PLAN_VISION_PROFILES=Get-Content -LiteralPath '${workspaceFolder}/reailEstate/backend/vision-profiles.local.json' -Raw; $env:FLOOR_PLAN_DEFAULT_VISION_PROFILE='azure-samples'; & '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' '${workspaceFolder}/reailEstate/backend/manage.py' runserver 127.0.0.1:8000",
-			"isBackground": true,
+			"command": "& '${workspaceFolder}/reailEstate/backend/run_sample_refresh.ps1' -Workers 5 -TrustedSamples -ReportName 'sample-corpus-refresh-20260915.json'",
 			"options": {
+				"cwd": "${workspaceFolder}",
 				"env": {
 					"DATABASE_BACKEND": "postgresql",
+					"WORKSPACE_DATA_ROOT": "${workspaceFolder}",
+					"INGESTION_MAX_WORKERS": "5",
+					"VISION_MAX_CONCURRENT_REQUESTS": "5",
+					"FLOOR_PLAN_VISION_PROFILES": "{\"azure-samples\":{\"label\":\"Azure samples\",\"provider\":\"azure_foundry\",\"model\":\"gpt-4.1\",\"base_url\":\"https://hjetwani-test-resource.openai.azure.com/openai/v1/\",\"response_format\":\"json_schema\"}}"
+				}
+			},
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
+			"label": "Run Django backend",
+			"type": "shell",
+			"command": "& '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' '${workspaceFolder}/reailEstate/backend/manage.py' runserver 127.0.0.1:8002",
+			"isBackground": true,
+			"options": {
+				"cwd": "${workspaceFolder}",
+				"env": {
+					"DATABASE_BACKEND": "postgresql",
+					"WORKSPACE_DATA_ROOT": "${workspaceFolder}",
+					"FLOOR_PLAN_EXTRACTION_MODE": "ai",
+					"FLOOR_PLAN_DEFAULT_VISION_PROFILE": "azure-samples",
+					"FLOOR_PLAN_VISION_PROFILES": "{\"azure-samples\":{\"label\":\"Azure samples\",\"provider\":\"azure_foundry\",\"model\":\"gpt-4.1\",\"base_url\":\"https://hjetwani-test-resource.openai.azure.com/openai/v1/\",\"response_format\":\"json_schema\"}}",
 					"PYTHONUTF8": "1"
 				}
 			},
@@ -20,6 +45,21 @@
 			"command": "$env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; $env:FLOOR_PLAN_EXTRACTION_MODE='ai'; $env:FLOOR_PLAN_VISION_PROFILES=Get-Content -LiteralPath '${workspaceFolder}/reailEstate/backend/vision-profiles.local.json' -Raw; $env:FLOOR_PLAN_DEFAULT_VISION_PROFILE='azure-samples'; & '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' '${workspaceFolder}/reailEstate/backend/manage.py' runserver 127.0.0.1:8001",
 			"isBackground": true,
 			"problemMatcher": []
+		},
+		{
+			"label": "Test media inline controls",
+			"type": "shell",
+			"command": "& { $env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; & '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' -m pytest -c '${workspaceFolder}/reailEstate/backend/pytest.ini' '${workspaceFolder}/reailEstate/backend/platform_api/tests/test_layout_names.py' -k 'dashboard_alias_editor or active_toggle' --tb=short; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "test"
+		},
+		{
+			"label": "Test project form and sidebar",
+			"type": "shell",
+			"command": "& { $env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; & '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' -m pytest -c '${workspaceFolder}/reailEstate/backend/pytest.ini' '${workspaceFolder}/reailEstate/backend/platform_api/tests/test_project_outputs.py' '${workspaceFolder}/reailEstate/backend/platform_api/tests/test_layout_names.py' -k 'project_admin_columns or dashboard_layout_explorer or dashboard_alias or active_toggle' --tb=short; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }",
+			"isBackground": false,
+			"group": "test"
 		}
 	]
 }

@@ -29,7 +29,7 @@ class LayoutCropUpdateForm(forms.Form):
                                     widget=forms.HiddenInput)
     regions = forms.JSONField(widget=forms.HiddenInput, initial=list)
     rotation_degrees = forms.TypedChoiceField(
-        choices=[(value, str(value)) for value in (0, 90, 180, 270)], coerce=int,
+        choices=[(value, str(value)) for value in range(0, 360, 5)], coerce=int,
         widget=forms.HiddenInput, initial=0,
     )
     confirm = forms.BooleanField(
@@ -96,7 +96,7 @@ class LayoutCropUpdateAdminMixin:
         obj, destination = self._crop_target(request, object_id)
         editor_url = reverse("admin:platform_api_floorplan_crop_update", args=[obj.pk], current_app=self.admin_site.name)
         cancel_url = reverse("admin:platform_api_project_media_dashboard", args=[destination.pk],
-                             current_app=self.admin_site.name) + "?section=layouts"
+                             current_app=self.admin_site.name) + ("?section=floor-plans" if obj.plan_scope == "floor" else "?section=layouts")
         status = 200
         source_error = None
         state = None

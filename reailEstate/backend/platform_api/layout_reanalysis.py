@@ -45,6 +45,8 @@ def _locked_layout(plan_id):
 
 
 def _validate_layout(plan, payload=None):
+    if plan.crop_remaining:
+        raise ValueError("LAYOUT_CROP_REQUIRED")
     if plan.review_state in HIDDEN_REVIEW_STATES:
         raise ValueError("LAYOUT_REMOVED")
     if plan.project.status == "retired":

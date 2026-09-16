@@ -239,8 +239,8 @@ class PlanSegmentationMethodFilter(admin.SimpleListFilter):
 @admin.register(FloorPlan)
 class FloorPlanAdmin(LayoutCropUpdateAdminMixin, ImageNavigationAdminMixin, admin.ModelAdmin):
     list_display = ("plan_name", "project", "page_number", "record_level", "segmentation_method",
-                    "configuration_type", "review_state")
-    list_filter = ("review_state", "plan_scope", "asset__asset_type", PlanSegmentationMethodFilter)
+                    "configuration_type", "active", "crop_remaining", "review_state")
+    list_filter = ("active", "crop_remaining", "review_state", "plan_scope", "asset__asset_type", PlanSegmentationMethodFilter)
     search_fields = ("project__submitted_name", "plan_name", "document__original_name")
     list_select_related = ("project", "document", "asset")
     readonly_fields = ("saved_image", "extraction_notice", "removal_action", "review_state", "display_name")
@@ -399,6 +399,10 @@ class FloorPlanAdmin(LayoutCropUpdateAdminMixin, ImageNavigationAdminMixin, admi
                     queue=form.cleaned_data["queue_evaluation"],
                     rotation_degrees=form.cleaned_data["rotation_degrees"],
                 )
+            except WorkAlreadyClaimed:
+                form.add_error(None, "The source PDF/document or your crop cart is being processed. "
+                    "Nothing was saved. Your crop selections and rotation are still here; "
+                    "try Save to cart again shortly.")
             except ValueError as exc:
                 form.add_error(None, str(exc))
             else:
@@ -608,6 +612,12 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
     list_filter = ("locality", NeedsBoundaryReviewFilter)
     search_fields = ("submitted_name", "locality", "maha_rera_id")
     readonly_fields = ("extraction_outputs", "media_dashboard_link")
+    fieldsets = ((None, {
+        "classes": ("project-details-grid",),
+        "fields": ("organization", "status", "maha_rera_id", "submitted_name", "address", "locality",
+                   "latitude", "longitude", "published_fact_set_version", "processing_attested",
+                   "verification_status", "verification_checked_at", "extraction_outputs", "media_dashboard_link"),
+    }),)
     ordering = ("submitted_name", "id")
     actions = ("retire_selected_projects", "queue_selected_projects_for_reanalysis")
 
@@ -693,6 +703,8 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
     def get_urls(self):
         opts = self.model._meta
         custom = self.layout_bulk_urls() + [
+            path("jobs/", self.admin_site.admin_view(self.jobs_view), name="platform_api_project_jobs"),
+            path("jobs/status/", self.admin_site.admin_view(self.jobs_status_view), name="platform_api_project_jobs_status"),
             path("<uuid:object_id>/external-sources/", self.admin_site.admin_view(self.external_sources_view),
                  name="platform_api_project_external_sources"),
             path("layout-cart/", self.admin_site.admin_view(self.layout_cart_view),
@@ -760,19 +772,75 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
             raise PermissionDenied
         if request.method != "POST":
             return HttpResponseRedirect(reverse("admin:platform_api_project_changelist"))
-        from .models import OutboxMessage
-        queue_ids = OutboxMessage.objects.filter(
-            event_type__in=["document.processing.requested", "floor_plan.crop_evaluation.requested", PAGE_EVENT, UNITS_EVENT],
-            published_at__isnull=True, dead_lettered_at__isnull=True,
-        ).order_by("occurred_at").values_list("id", flat=True)[:20]
-        result = process_pending_outbox(limit=20, message_ids=queue_ids)
-        messages.success(request, f"Global reanalysis cart processed: {result}.")
-        return HttpResponseRedirect(reverse("admin:platform_api_project_changelist"))
+        from .queue_monitor import start_user_queue
+        try:
+            worker = start_user_queue(request.user)
+        except (OSError, ValueError) as exc:
+            messages.error(request, str(exc) if isinstance(exc, ValueError) else "Could not start the local worker.")
+        except WorkAlreadyClaimed:
+            messages.warning(request, "The queue launcher is busy. Your jobs remain queued; try again shortly.")
+        else:
+            self._queue_launch_message(request, worker, "Your evaluations across all projects")
+        return HttpResponseRedirect(reverse("admin:platform_api_project_jobs"))
+
+    @staticmethod
+    def _queue_launch_message(request, worker, scope):
+        if worker is None or worker.state == "stopped":
+            messages.info(request, "No pending evaluations to run. Completed and dead-letter jobs are unchanged.")
+        elif worker.state == "queued":
+            messages.warning(request, f"{scope} had to be queued because all worker slots are busy. They will start when a slot becomes available.")
+        elif worker.state == "failed":
+            messages.error(request, "Could not start a worker. Evaluation jobs remain queued; check worker logs and retry.")
+        else:
+            messages.success(request, f"{scope} are starting or already running in the background.")
+
+    @staticmethod
+    def _evaluation_redirect(request, target):
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            from django.http import JsonResponse
+            response = JsonResponse({"redirectUrl": target})
+            response["Cache-Control"] = "private, no-store"
+            return response
+        return HttpResponseRedirect(target)
+
+    def jobs_view(self, request):
+        from django.core.exceptions import ValidationError
+        from .queue_monitor import delete_dead_letter, queue_snapshot
+        if request.method == "POST":
+            if request.POST.get("action") != "delete_dead_letter":
+                from django.http import HttpResponseBadRequest
+                return HttpResponseBadRequest("Unknown queue action.")
+            try:
+                delete_dead_letter(request.user, request.POST.get("message_id"), request.POST.get("version"),
+                                  confirmed=request.POST.get("confirm_delete") == "yes")
+            except ValidationError as exc:
+                messages.error(request, " ".join(exc.messages))
+            except WorkAlreadyClaimed:
+                messages.warning(request, "A worker has claimed this job. Reload before deleting it.")
+            else:
+                messages.success(request, "Dead-letter job deleted. Project data and audit history were retained.")
+            return HttpResponseRedirect(reverse("admin:platform_api_project_jobs"))
+        response = TemplateResponse(request, "admin/platform_api/queue_monitor.html", {
+            **self.admin_site.each_context(request), "opts": self.model._meta,
+            "title": "Evaluation jobs", "snapshot": queue_snapshot(request.user),
+            "can_run": request.user.has_perms(["platform_api.change_project", "platform_api.change_floorplan"]),
+        })
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+    def jobs_status_view(self, request):
+        from django.http import JsonResponse
+        from .queue_monitor import queue_snapshot
+        response = JsonResponse(queue_snapshot(request.user))
+        response["Cache-Control"] = "private, no-store"
+        return response
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         context = dict(extra_context or {})
         obj = self.get_object(request, object_id)
         if obj and self.has_view_or_change_permission(request, obj):
+            if obj.status == "retired":
+                messages.warning(request, "Retired project: these records are retained for reference, not active use.")
             context["project_media_dashboard_url"] = reverse(
                 "admin:platform_api_project_media_dashboard", args=[obj.pk],
                 current_app=self.admin_site.name,
@@ -843,7 +911,8 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
         )
         return {
             "plan": plan,
-            "editCropUrl": reverse("admin:platform_api_floorplan_crop_update", args=[plan.pk]) if plan.plan_scope == "flat" and plan.asset_id else None,
+            "inactive": not plan.active or getattr(plan, "inactive_source", False),
+            "editCropUrl": reverse("admin:platform_api_floorplan_crop_update", args=[plan.pk]) if plan.plan_scope in {"flat", "floor"} and plan.asset_id else None,
             "isCroppedUnit": bool(plan.asset_id and plan.asset.asset_type == "unit_crop"),
             "imageDescription": "Saved unit crop" if plan.asset_id and plan.asset.asset_type == "unit_crop" else (
                 "Pre-cut layout source" if source_kind == "precut_source" else "Source page — no individual crop saved yet"),
@@ -878,6 +947,57 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                 from django.core.exceptions import PermissionDenied
                 raise PermissionDenied
             action = request.POST.get("action", "report")
+            from .reanalysis import evaluation_retry_warning
+            warning = evaluation_retry_warning(project, request.user, request.POST)
+            if warning:
+                if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+                    from django.http import JsonResponse
+                    response = JsonResponse({"requiresConfirmation": True, **warning}, status=409)
+                else:
+                    response = TemplateResponse(request, "admin/platform_api/evaluation_retry_confirmation.html", {
+                        **self.admin_site.each_context(request), "opts": self.model._meta,
+                        "title": "Confirm evaluation retry", "warning": warning,
+                        "cancel_url": request.get_full_path(),
+                        "submitted_fields": [(key, value) for key, values in request.POST.lists()
+                            if key not in {"csrfmiddlewaretoken", "retry_confirmation"} for value in values],
+                    }, status=409)
+                response["Cache-Control"] = "private, no-store"
+                return response
+            if action == "set_plan_active":
+                from django.db import transaction
+                from django.http import JsonResponse
+                from django.shortcuts import get_object_or_404
+                from django.core.exceptions import PermissionDenied
+                asynchronous = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+                if not request.user.has_perm("platform_api.change_floorplan"):
+                    raise PermissionDenied
+                with transaction.atomic():
+                    plan = get_object_or_404(FloorPlan.objects.select_for_update(),
+                        pk=request.POST.get("floor_plan_id"), project_id__in=project_family_ids(project))
+                    if project.status == "retired" or plan.updated_at.isoformat() != request.POST.get("version"):
+                        if asynchronous:
+                            response = JsonResponse({"type": "about:blank", "title": "Plan cannot be changed",
+                                "status": 409, "detail": "The plan changed or the project is retired. Reload before saving."},
+                                status=409, content_type="application/problem+json")
+                            response["Cache-Control"] = "private, no-store"
+                            return response
+                        messages.error(request, "The plan changed or the project is retired. Reload before saving.")
+                    else:
+                        plan.active = request.POST.get("active") == "true"
+                        plan.save(update_fields=["active", "updated_at"])
+                        AuditEvent.objects.create(actor=request.user, action="floor_plan.active_changed",
+                            entity_type="FloorPlan", entity_id=plan.pk, correlation_id=uuid4(),
+                            metadata={"active": plan.active})
+                        if asynchronous:
+                            related = list(visible_floor_plans(FloorPlan.objects.filter(project_id__in=project_family_ids(project),
+                                document_id=plan.document_id, page_number=plan.page_number)))
+                            inactive_source = any(item.plan_scope == "floor" and not item.active for item in related)
+                            response = JsonResponse({"plans": [{"id": str(item.pk), "active": item.active,
+                                "inactive": not item.active or (item.plan_scope != "floor" and inactive_source),
+                                "version": item.updated_at.isoformat()} for item in related]})
+                            response["Cache-Control"] = "private, no-store"
+                            return response
+                return HttpResponseRedirect(request.path + f"?section={section}")
             if action == "save_layout_name":
                 from django.core.exceptions import ValidationError
                 from .layout_names import save_layout_name
@@ -903,7 +1023,7 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                         messages.info(request, "This image has already been extracted. Its completed result was retained; no duplicate job was created.")
                     else:
                         messages.warning(request, f"Existing extraction is {result['status']}. Review its status before retrying.")
-                return HttpResponseRedirect(request.path + "?section=layouts")
+                return self._evaluation_redirect(request, request.path + "?section=layouts")
             if action == "queue_amenity_pages":
                 from .source_page_additions import queue_saved_amenity_pages
                 try:
@@ -913,7 +1033,7 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                 else:
                     pending = sum(not job.published_at and not job.dead_lettered_at for job in jobs)
                     messages.success(request, f"{pending} saved amenity page(s) awaiting extraction. Completed results were preserved.")
-                return HttpResponseRedirect(request.path + "?section=amenities")
+                return self._evaluation_redirect(request, request.path + "?section=amenities")
             if action == "queue_floor_layouts":
                 try:
                     plan = FloorPlan.objects.get(pk=request.POST.get("floor_plan_id"), project_id__in=project_family_ids(project))
@@ -922,27 +1042,24 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                     messages.error(request, "Choose an active full-floor source with a configured AI profile.")
                 else:
                     messages.success(request, "Individual-layout extraction queued (or existing task retained). Run queued evaluations; the original floor plan is preserved.")
-                return HttpResponseRedirect(request.path + "?section=floor-plans")
+                return self._evaluation_redirect(request, request.path + "?section=floor-plans")
             if action in {"queue_project_reanalysis", "queue_failed_reanalysis"}:
                 queued = queue_project_reanalysis(project, request.user, failed_only=action == "queue_failed_reanalysis")
                 messages.success(request, f"Added {len(queued)} document(s) to the reanalysis queue.")
-                return HttpResponseRedirect(request.path + f"?section={section}")
+                return self._evaluation_redirect(request, request.path + f"?section={section}")
             if action == "run_reanalysis_cart":
-                family_ids = project_family_ids(project)
-                message_ids = list(EvidenceDocument.objects.filter(project_id__in=family_ids).values_list("id", flat=True))
-                from .models import OutboxMessage
-                queue_ids = OutboxMessage.objects.filter(
-                    event_type__in=["document.processing.requested", "floor_plan.crop_evaluation.requested", PAGE_EVENT, UNITS_EVENT],
-                    published_at__isnull=True, dead_lettered_at__isnull=True,
-                ).filter(
-                    models.Q(payload__documentId__in=[str(value) for value in message_ids])
-                    | models.Q(payload__floorPlanId__in=[str(value) for value in FloorPlan.objects.filter(
-                        project_id__in=family_ids
-                    ).values_list("id", flat=True)])
-                ).values_list("id", flat=True)[:20]
-                result = process_pending_outbox(limit=20, message_ids=queue_ids)
-                messages.success(request, f"Reanalysis cart processed: {result}.")
-                return HttpResponseRedirect(request.path + f"?section={section}")
+                return self.run_reanalysis_cart_view(request)
+            if action == "run_project_evaluations":
+                from .queue_monitor import start_user_queue
+                try:
+                    worker = start_user_queue(request.user, project=project)
+                except (OSError, ValueError) as exc:
+                    messages.error(request, str(exc) if isinstance(exc, ValueError) else "Could not start the local worker. Jobs remain queued.")
+                except WorkAlreadyClaimed:
+                    messages.warning(request, "The queue launcher is busy. Project jobs remain queued; try again shortly.")
+                else:
+                    self._queue_launch_message(request, worker, "Evaluations for this project")
+                return self._evaluation_redirect(request, request.path + f"?section={section}")
             if action == "mark_layout_page":
                 try:
                     document = EvidenceDocument.objects.get(
@@ -1041,7 +1158,7 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
         from .floor_plan_rules import plan_display_priority, plan_source_kind
         latest_document_workflows = {}
         for plan in all_layouts:
-            if plan.asset_id and plan.asset.asset_type == "unit_crop":
+            if plan.crop_remaining or (plan.asset_id and plan.asset.asset_type == "unit_crop"):
                 continue  # Adding split crops must not hide existing document-page layouts.
             current = latest_document_workflows.get(plan.document_id)
             if current is None or plan.workflow_run.created_at > current.created_at:
@@ -1053,11 +1170,11 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
         ]
         current_page_layouts = [
             plan for plan in all_layouts
-            if plan.asset_id and plan.asset.asset_type != "unit_crop"
+            if not plan.crop_remaining and plan.asset_id and plan.asset.asset_type != "unit_crop"
             and plan_source_kind(plan) == "document_page"
             and plan.workflow_run == latest_document_workflows.get(plan.document_id)
         ]
-        generated_layouts = [plan for plan in all_layouts if plan.asset_id and plan.asset.asset_type == "unit_crop"]
+        generated_layouts = [plan for plan in all_layouts if plan.asset_id and (plan.asset.asset_type == "unit_crop" or plan.crop_remaining)]
         source_assets = {
             str(asset.id): asset for asset in project.floor_plan_assets.filter(
                 id__in={plan.asset.source_bounds.get("sourceAssetId") for plan in generated_layouts}
@@ -1065,10 +1182,10 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
         }
         latest_workflows = {}
         for plan in generated_layouts:
-            source_id = str(plan.asset.source_bounds.get("sourceAssetId", ""))
+            source_id = str(plan.raw_extraction.get("sourceAssetId", plan.asset.source_bounds.get("sourceAssetId", "")))
             source = source_assets.get(source_id)
             canonical_id = str(source.source_bounds.get("sourceAssetId", source_id)) if source else source_id
-            method = plan.asset.source_bounds.get("segmentationMethod", "unknown")
+            method = plan.raw_extraction.get("segmentationMethod", plan.asset.source_bounds.get("segmentationMethod", "unknown"))
             key = (canonical_id, method)
             current = latest_workflows.get(key)
             if current is None or plan.workflow_run.created_at > current.created_at:
@@ -1079,7 +1196,7 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
         def natural_unit_key(plan):
             return [int(value) if value.isdigit() else value.casefold() for value in re.split(r"(\d+)", plan.display_title)]
         layouts = sorted(
-            current_source_layouts + current_generated + current_page_layouts + added_layouts + manual_layouts,
+            list({plan.pk: plan for plan in current_source_layouts + current_generated + current_page_layouts + added_layouts + manual_layouts}.values()),
             key=natural_unit_key if layout_sort == "unit" else plan_display_priority,
         )
         page_candidates = [
@@ -1093,6 +1210,9 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
             # Match the project-list count, including flagged historical visible records.
             layouts = list(project_boundary_layouts(project).select_related("asset", "document", "workflow_run").order_by("page_number", "plan_name"))
         floor_plans = list(floor_plans)
+        inactive_pages = {(plan.document_id, plan.page_number) for plan in floor_plans if not plan.active}
+        for plan in layouts:
+            plan.inactive_source = (plan.document_id, plan.page_number) in inactive_pages
         from .layout_evaluation_status import layout_evaluation_states
         evaluation_states = layout_evaluation_states([*floor_plans, *layouts])
         carousel_assets = []

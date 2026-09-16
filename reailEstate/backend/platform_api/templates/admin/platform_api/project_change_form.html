@@ -1,4 +1,10 @@
 {% extends "admin/change_form.html" %}
+{% load static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'platform_api/project_form.css' %}?v=20260916-project-columns">
+{% endblock %}
 
 {% block object-tools-items %}
   {{ block.super }}

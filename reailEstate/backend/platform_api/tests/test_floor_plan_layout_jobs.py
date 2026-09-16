@@ -1,3 +1,35 @@
+def test_dashboard_keeps_cropped_layouts_from_multiple_sources(source, provider, client):
+    from django.urls import reverse
+    plan, actor = source
+    _, _, regions, _ = provider
+    first, _ = replace_unit_segments(plan, regions, "ai", actor=actor)
+    second_asset = FloorPlanAsset.objects.get(pk=plan.asset_id)
+    second_asset.pk = None
+    second_asset.page_number = 2
+    with storage.open(plan.asset.object_key, "rb") as stream:
+        second_asset.object_key = storage.save("images/second-page.png", ContentFile(stream.read()))
+    second_asset.workflow_run = AgentWorkflowRun.objects.create(project=plan.project, document=plan.document,
+        ingestion_run=plan.workflow_run.ingestion_run, status="completed")
+    second_asset.save()
+    second_source = FloorPlan.objects.create(project=plan.project, document=plan.document,
+        workflow_run=plan.workflow_run, asset=second_asset, page_number=2, plan_scope="floor",
+        plan_name="Second floor", extractor_version="test")
+    second, _ = replace_unit_segments(second_source, regions, "ai", actor=actor)
+    plan.active = False
+    plan.save()
+    client.force_login(actor)
+    response = client.get(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]), {"section": "layouts"})
+    assert response.status_code == 200
+    cards = {card["plan"].pk: card for card in response.context["layouts"]}
+    assert set(cards) == {item.pk for item in first + second}
+    assert all(cards[item.pk]["inactive"] for item in first)
+    assert not any(cards[item.pk]["inactive"] for item in second)
+    for item in first + second:
+        reset_url = reverse("admin:platform_api_floorplan_crop_update", args=[item.pk]) + "?source_mode=original"
+        assert reset_url.encode() in response.content
+    assert b"Reset crop" in response.content
+
+
 """Offline regression coverage; all model responses are mocked."""
 
 import hashlib
@@ -73,6 +105,37 @@ def source(settings, tmp_path, django_user_model):
     return plan, actor
 
 
+@pytest.mark.parametrize("scope,section", [("floor", "floor-plans"), ("flat", "layouts")])
+def test_dashboard_crop_actions_use_full_page_for_floor_plans(source, client, scope, section):
+    from django.urls import reverse
+
+    plan, actor = source
+    plan.plan_scope = scope
+    plan.save()
+    client.force_login(actor)
+    response = client.get(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]),
+                          {"section": section})
+    assert response.status_code == 200
+    html = response.content.decode()
+    crop_url = reverse("admin:platform_api_floorplan_crop_update", args=[plan.pk])
+    assert html.count(f'href="{crop_url}?source_mode=original"') == 1
+    assert "Create new layouts from floor plan" in html
+    assert "Create new crops from source" not in html
+    if scope == "floor":
+        assert "Fix floor plan crop" in html
+        assert "Crop floor plan" not in html
+        assert "Reset crop" not in html
+        assert f'href="{crop_url}"' not in html
+        assert html.count('value="queue_floor_layouts"') == 1
+        assert ">Extract individual layouts</button>" in html
+    else:
+        assert "Update this unit crop" in html
+        assert "Reset crop" in html
+        assert f'href="{crop_url}"' in html
+        assert "Fix floor plan crop" not in html
+        assert 'value="queue_floor_layouts"' not in html
+
+
 @pytest.fixture
 def provider(monkeypatch):
     regions = [
@@ -94,6 +157,38 @@ def provider(monkeypatch):
 
 def operation_for(message):
     return Operation.objects.get(pk=message.payload["operationId"])
+
+
+@pytest.mark.parametrize("method", ["ai", "script"])
+def test_system_crops_reset_to_full_source_page(source, provider, method):
+    from platform_api.layout_crop_update import crop_edit_preview, prepare_crop_edit
+
+    plan, actor = source
+    _, _, regions, _ = provider
+    layouts, _ = replace_unit_segments(plan, regions, method, actor=actor)
+    for layout in layouts:
+        assert layout.asset.asset_type == "unit_crop" and not layout.crop_remaining
+        assert layout.asset.pixel_width < plan.asset.pixel_width
+        _, _, state, token = prepare_crop_edit(layout.pk, actor, source_mode="original")
+        assert state["source_asset_id"] == str(plan.asset_id)
+        assert (state["width"], state["height"]) == (200, 100)
+        assert hashlib.sha256(crop_edit_preview(layout.pk, actor, token)).hexdigest() == plan.asset.sha256
+
+
+def test_automatic_layouts_crop_and_retain_full_page_for_reset(source, provider):
+    plan, actor = source
+    message = jobs.queue_floor_plan_layouts(plan, actor)
+    count = FloorPlanAsset.objects.count()
+    operation = jobs.evaluate_floor_plan_layouts(message.payload)
+    layouts = list(FloorPlan.objects.filter(pk__in=operation.result["planIds"]))
+    assert len(layouts) == 2
+    assert all(not layout.crop_remaining and layout.asset.asset_type == "unit_crop" for layout in layouts)
+    assert all(layout.asset.source_bounds["sourceAssetId"] == str(plan.asset_id) for layout in layouts)
+    assert FloorPlanAsset.objects.count() == count + 2
+    assert len(operation.result["cropJobIds"]) == 2
+    assert operation.result["sourceRetained"]
+    assert storage.exists(plan.asset.object_key)
+    assert OutboxMessage.objects.filter(event_type="floor_plan.crop_evaluation.requested").count() == 2
 
 
 def test_queue_inside_source_worker_lock_is_durable_deduplicated_and_pinned(source, provider, monkeypatch):
@@ -360,30 +455,26 @@ def test_cancelled_dead_letter_is_not_rearmed_even_after_restore(source):
     assert operation_for(message).state == "cancelled"
 
 
-def test_crop_enqueue_failure_rolls_back_replacement_jobs_completion_and_files(source, provider, monkeypatch):
+def test_layout_persistence_failure_rolls_back_new_records_and_preserves_source(source, provider, monkeypatch):
     plan, actor = source
-    mock, _, regions, _ = provider
-    old_plans, old_workflow = replace_unit_segments(plan, regions, "ai", actor=actor)
-    old_ids = {crop.pk for crop in old_plans}
-    old_keys = [crop.asset.object_key for crop in old_plans]
+    mock, _, _, _ = provider
     message = jobs.queue_floor_plan_layouts(plan, actor)
-    real_queue = jobs.queue_layout_evaluation
-    attempted_keys = []
+    real_create = FloorPlan.objects.create
+    attempts = []
 
-    def fail_second(crop, **kwargs):
+    def fail_second(**kwargs):
         assert connection.in_atomic_block
-        attempted_keys.append(crop.asset.object_key)
-        if len(attempted_keys) == 2:
-            raise RuntimeError("crop enqueue failed")
-        return real_queue(crop, **kwargs)
+        attempts.append(kwargs)
+        if len(attempts) == 2:
+            raise RuntimeError("layout persistence failed")
+        return real_create(**kwargs)
 
-    monkeypatch.setattr(jobs, "queue_layout_evaluation", fail_second)
-    with pytest.raises(RuntimeError, match="crop enqueue failed"):
+    monkeypatch.setattr(FloorPlan.objects, "create", fail_second)
+    with pytest.raises(RuntimeError, match="layout persistence failed"):
         jobs.evaluate_floor_plan_layouts(message.payload)
-    assert set(FloorPlan.objects.exclude(pk=plan.pk).values_list("pk", flat=True)) == old_ids
-    assert AgentWorkflowRun.objects.filter(pk=old_workflow.pk).exists()
-    assert all(storage.exists(key) for key in old_keys)
-    assert not any(storage.exists(key) for key in attempted_keys)
+    assert FloorPlan.objects.count() == FloorPlanAsset.objects.count() == 1
+    assert not AgentWorkflowRun.objects.filter(workflow_type="unit_segmentation").exists()
+    assert storage.exists(plan.asset.object_key)
     assert OutboxMessage.objects.count() == Operation.objects.count() == 1
     assert operation_for(message).state == "failed"
     mock.close.assert_called_once()

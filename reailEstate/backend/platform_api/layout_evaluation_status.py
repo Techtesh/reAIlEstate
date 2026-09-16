@@ -34,6 +34,9 @@ def layout_evaluation_states(plans):
         job = latest.get(str(plan.pk))
         op = operations.get(job.payload.get("operationId")) if job else None
         state = op.state if op else "not_queued"
+        if plan.crop_remaining:
+            states[str(plan.pk)] = {"state": "crop_remaining", "label": "Crop remaining", "canRun": False}
+            continue
         if job and not op:
             state = "completed" if job.published_at else "failed" if job.dead_lettered_at else "pending"
         if not job and str(plan.pk) not in historical_ids and (plan.dimensions or plan.raw_extraction.get("cropEvaluation")):

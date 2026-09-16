@@ -300,6 +300,8 @@ class FloorPlan(TimestampedModel):
     plan_name = models.CharField(max_length=255, blank=True)
     # Reviewer-owned presentation only; never part of extraction identity/defaults.
     display_name = models.CharField(max_length=160, blank=True)
+    active = models.BooleanField(default=True)
+    crop_remaining = models.BooleanField(default=False)
     configuration_type = models.CharField(max_length=32, blank=True)
     carpet_area_sqft = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     room_count = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -581,6 +583,17 @@ class Operation(TimestampedModel):
     state = models.CharField(max_length=32, default="pending")
     result = models.JSONField(default=dict)
     error_code = models.CharField(max_length=64, blank=True)
+
+
+class QueueWorker(TimestampedModel):
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
+    project = models.ForeignKey(Project, null=True, blank=True, on_delete=models.SET_NULL)
+    pid = models.PositiveIntegerField(default=0)
+    event_group = models.CharField(max_length=32, default="extraction")
+    state = models.CharField(max_length=32, default="starting")
+    heartbeat_at = models.DateTimeField(auto_now_add=True)
+    message_id = models.UUIDField(null=True, blank=True)
+    progress = models.JSONField(default=dict)
 
 
 class OutboxMessage(UUIDModel):

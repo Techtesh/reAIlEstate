@@ -19,4 +19,5 @@ OUTBOX_EVENT_GROUPS = {
     "documents": (DOCUMENT_EVENT,),
     "recommendations": (RECOMMENDATION_EVENT,),
     "media": MEDIA_EVENTS,
+    "extraction": EXTRACTION_EVENTS,
 }
