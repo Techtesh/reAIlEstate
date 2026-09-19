@@ -178,7 +178,7 @@
   const retryDialog = page.querySelector('#evaluation-retry-dialog');
   if (retryDialog) {
     const guardedActions = new Set(['queue_project_reanalysis', 'queue_failed_reanalysis',
-      'run_project_evaluations', 'run_layout_evaluation', 'queue_floor_layouts', 'queue_amenity_pages']);
+      'run_project_evaluations', 'run_queued_project_evaluations', 'run_layout_evaluation', 'queue_floor_layouts', 'queue_amenity_pages']);
     const cancelRetry = retryDialog.querySelector('[data-retry-cancel]');
     const continueRetry = retryDialog.querySelector('[data-retry-continue]');
     const retryError = retryDialog.querySelector('[data-retry-error]');
@@ -278,6 +278,21 @@
     });
   });
 
+  const floorPlanSortForm = page.querySelector('[data-floor-plan-sort-form]');
+  const floorPlanGrid = page.querySelector('[data-floor-plan-grid]');
+  const floorPlanNameOrder = floorPlanGrid
+    ? Array.from(floorPlanGrid.querySelectorAll('[data-plan-id]')).sort((first, second) => {
+      const order = first.querySelector('h2').textContent.trim().localeCompare(
+        second.querySelector('h2').textContent.trim(), undefined, {numeric: true, sensitivity: 'base'});
+      return floorPlanSortForm.elements.namedItem('sort').value === 'name-desc' ? -order : order;
+    }) : [];
+  floorPlanSortForm?.querySelector('select').addEventListener('change', () => floorPlanSortForm.requestSubmit());
+  const orderFloorPlans = () => {
+    [...floorPlanNameOrder].sort((first, second) =>
+      Number(first.classList.contains('inactive-plan')) - Number(second.classList.contains('inactive-plan'))
+    ).forEach(card => floorPlanGrid.appendChild(card));
+  };
+
   page.querySelectorAll('[data-active-form]').forEach(form => {
     const checkbox = form.elements.namedItem('active');
     let savedActive = checkbox.checked;
@@ -308,6 +323,11 @@
           if (card) {
             card.classList.toggle('inactive-plan', plan.inactive);
             card.querySelector('[data-plan-inactive]').hidden = !plan.inactive;
+            const priceForm = card.querySelector('[data-layout-price-form]');
+            if (priceForm) {
+              priceForm.elements.namedItem('expected_updated_at').value = plan.version;
+              priceForm.hidden = plan.inactive;
+            }
             const activeForm = card.querySelector('[data-active-form]');
             if (activeForm) {
               activeForm.elements.namedItem('version').value = plan.version;
@@ -322,6 +342,9 @@
             tab.title = `${tab.textContent}${plan.inactive ? ' (Inactive)' : ''}`;
           }
         });
+        const projectPrice = page.querySelector('[data-project-price]');
+        if (projectPrice && typeof result.projectPrice === 'string') projectPrice.textContent = result.projectPrice;
+        orderFloorPlans();
         status.textContent = 'Saved';
       } catch (failure) {
         checkbox.checked = savedActive;

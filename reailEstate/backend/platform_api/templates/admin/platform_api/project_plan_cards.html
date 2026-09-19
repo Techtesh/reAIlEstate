@@ -24,7 +24,7 @@
   </div>
   <div class="layout-divider" data-layout-divider role="separator" aria-label="Resize layout sidebar" aria-orientation="vertical" aria-controls="layout-directory" aria-valuemin="180" aria-valuemax="480" aria-valuenow="260" tabindex="0" title="Drag to resize; arrow keys adjust width; double-click to reset" hidden></div>
 {% endif %}
-<div class="media-tools {% if section == 'layouts' %}layout-details{% else %}media-grid{% endif %}">
+<div class="media-tools {% if section == 'layouts' %}layout-details{% else %}media-grid{% endif %}"{% if section == 'floor-plans' %} data-floor-plan-grid{% endif %}>
   {% for card in cards %}
     <article class="media-card{% if card.inactive %} inactive-plan{% endif %}" data-plan-id="{{ card.plan.pk }}"{% if section == 'layouts' %} id="layout-detail-{{ card.plan.pk }}"{% endif %}>
       {% if card.imageUrl %}<a class="plan-preview" href="{{ card.imageUrl }}" target="_blank" rel="noopener"><img src="{{ card.imageUrl }}" alt="{{ card.plan.display_title }}" loading="lazy"></a>{% elif section == 'layouts' %}<div class="layout-preview-empty">No preview available</div>{% endif %}
@@ -81,6 +81,7 @@
         <dt>Page</dt><dd>{{ card.plan.page_number|default:"Unknown" }}</dd>
         <dt>Configuration</dt><dd>{{ card.plan.configuration_type|default:"Unknown" }}</dd>
         <dt>Carpet area</dt><dd>{% if card.plan.carpet_area_sqft %}{{ card.plan.carpet_area_sqft }} sq ft{% else %}Unknown{% endif %}</dd>
+        {% if card.plan.plan_scope == 'flat' %}<dt>Total price (INR)</dt><dd>{% if card.plan.price is not None %}INR {{ card.plan.price|floatformat:2 }}{% else %}contact to know{% endif %}</dd>{% endif %}
         <dt>Rooms</dt><dd>{{ card.plan.room_count|default:"Unknown" }}</dd>
         <dt>Bathrooms</dt><dd>{{ card.plan.bathroom_count|default:"Unknown" }}</dd>
         <dt>Balconies</dt><dd>{{ card.plan.balcony_count|default:"Unknown" }}</dd>
@@ -89,8 +90,19 @@
         <dt>Review state</dt><dd>{{ card.plan.review_state }}</dd>
         <dt>Extractor</dt><dd>{{ card.plan.extractor_version }}</dd>
       </dl>
+      {% if can_edit_prices and card.priceForm %}
+      <form method="post" data-layout-price-form{% if card.inactive %} hidden{% endif %}>
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save_layout_price">
+        {{ card.priceForm.floor_plan_id }}{{ card.priceForm.expected_updated_at }}
+        {{ card.priceForm.price.label_tag }}{{ card.priceForm.price }}
+        <p class="help" id="{{ card.priceForm.price.auto_id }}_helptext">{{ card.priceForm.price.help_text }}</p>
+        <button type="submit" class="button">Save price</button>
+      </form>
+      {% endif %}
       <h3>Extracted room sizes</h3>
       {% if card.evaluation %}<p><strong>{{ card.evaluation.label }}</strong>{% if card.evaluation.error %} — {{ card.evaluation.error }}{% endif %}</p>{% endif %}
+      {% if can_remove_plans and card.editExtractionUrl %}<p><a class="button" href="{{ card.editExtractionUrl }}">Manually update room sizes</a></p>{% endif %}
       {% if card.dimensions %}
         <table class="room-table"><thead><tr><th>Room</th><th>Length</th><th>Width</th><th>Area</th></tr></thead><tbody>
         {% for room in card.dimensions %}<tr><td>{{ room.room }}</td><td>{{ room.length|default:"—" }} ft</td><td>{{ room.width|default:"—" }} ft</td><td>{% if room.area != None %}{{ room.area }} sq ft{% else %}—{% endif %}</td></tr>{% endfor %}

@@ -56,10 +56,13 @@
     for (const counter of root.querySelectorAll("[data-count]")) counter.textContent = snapshot.counts[counter.dataset.count];
     document.getElementById("queue-availability").textContent = `(${snapshot.capacity.available} slots available of ${snapshot.capacity.limit})`;
     fill("queue-workers", snapshot.workers.map(worker => [worker.pid || (worker.state === "queued" ? "Waiting" : "Starting"), worker.group, worker.project, worker.state, time(worker.heartbeatAt)]), 5);
-    const pending = snapshot.jobs.filter(job => !["completed", "dead_letter"].includes(job.state));
-    fill("queue-pending", pending.map(job => [job.project, `${job.label} (${job.kind})`, stateLabel(job),
-      Object.entries(job.progress).map(([key, value]) => `${key}: ${value}`).join(", "), job.attempts,
-      [time(job.retryAt), job.error].filter(Boolean).join(" / ")]), 6);
+    const pendingBody = document.getElementById("queue-pending");
+    if (pendingBody) {
+      const pending = snapshot.jobs.filter(job => !["completed", "dead_letter"].includes(job.state));
+      fill("queue-pending", pending.map(job => [job.project, `${job.label} (${job.kind})`, stateLabel(job),
+        Object.entries(job.progress).map(([key, value]) => `${key}: ${value}`).join(", "), job.attempts,
+        [time(job.retryAt), job.error].filter(Boolean).join(" / ")]), 6);
+    }
     fill("queue-recent", snapshot.jobs.filter(job => ["completed", "dead_letter"].includes(job.state))
       .map(job => [job.project, `${job.label} (${job.kind})`, stateLabel(job), time(job.updatedAt), job.attempts, job.error, jobActions(job)]), 7);
     status.textContent = `Updated ${time(snapshot.updatedAt)}`;

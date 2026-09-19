@@ -20,6 +20,10 @@ class FloorPlanFlatSeparationAISkill:
     def invoke(image_bytes, media_type, expected_count=None, vision_profile_id=None):
         selection = resolve_ai_vision_selection(vision_profile_id)
         provider = get_floor_plan_vision_provider(selection)
-        regions, metadata = provider.analyze_unit_regions(image_bytes, media_type, expected_count)
-        return regions, metadata | {"skill": FloorPlanFlatSeparationAISkill.name,
-                                    "visionSelection": selection}
+        try:
+            regions, metadata = provider.analyze_unit_regions(image_bytes, media_type, expected_count)
+            return regions, metadata | {"skill": FloorPlanFlatSeparationAISkill.name,
+                                        "visionSelection": selection}
+        finally:
+            if hasattr(provider, "close"):
+                provider.close()

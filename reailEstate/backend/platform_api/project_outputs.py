@@ -221,21 +221,21 @@ def build_project_output(run, pages, image_manifest, visual=None):
 
 
 def layout_metrics(plan, parcel):
+    from .domain.room_dimensions import calculate_room_areas, room_rectangle_sum_sqft
+
     rooms = []
-    for dimension in plan.dimensions:
-        if not isinstance(dimension, dict):
-            continue
+    for dimension in calculate_room_areas(plan.dimensions):
         length, width = numeric(dimension.get("lengthFt")), numeric(dimension.get("widthFt"))
-        if length and width:
+        if dimension["areaSqFt"] is not None:
             rooms.append({"room": str(dimension.get("room", "")), "lengthFt": length, "widthFt": width,
-                          "areaSqFt": round(length * width, 2)})
+                          "areaSqFt": dimension["areaSqFt"]})
     master = next((room["areaSqFt"] for room in rooms if "master" in room["room"].lower()), None)
     bedroom2 = next((room["areaSqFt"] for room in rooms if re.search(r"bed(?:room)?\s*[- ]?2\b", room["room"], re.I)), None)
     # Neither rectangle sums nor carpet-minus-room-sums establish unused space.
     return {"floorPlanId": str(plan.id), "pageNumber": plan.page_number, "scope": plan.plan_scope,
             "planName": plan.display_title, "displayName": plan.display_name, "displayTitle": plan.display_title,
             "configuration": plan.configuration_type or None, "carpetAreaSqFt": numeric(plan.carpet_area_sqft),
-            "rooms": rooms, "roomRectangleSumSqFt": round(sum(room["areaSqFt"] for room in rooms), 2) if rooms else None,
+            "rooms": rooms, "roomRectangleSumSqFt": room_rectangle_sum_sqft(plan.dimensions),
             "Master_Bedroom_sqft_adj": master, "Bedroom2_sqft_adj": bedroom2,
             "PSF": None, "Locn_PSF": None, "Metro_walk_min": None, "Local_walk_min": None,
             "Density": parcel["effectiveParcel"]["value"], "lift": None, "Unused_Space": None,

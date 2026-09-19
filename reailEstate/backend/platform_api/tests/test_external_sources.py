@@ -355,6 +355,102 @@ def test_project_transit_maps_preview_manual_pin_without_approval(client, django
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("route_storage", ["database", "report"])
+def test_transit_pre_renders_saved_google_routes_without_applied_coordinates(
+    client, django_user_model, monkeypatch, settings, tmp_path, route_storage,
+):
+    import json
+    from urllib.parse import parse_qs, urlsplit
+    from django.urls import reverse
+    from platform_api import external_sources_admin as sources
+
+    settings.GOOGLE_MAPS_API_KEY = ""
+    settings.WORKSPACE_DATA_ROOT = tmp_path
+    actor = django_user_model.objects.create_superuser(username="saved-google-routes")
+    project = Project.objects.create(
+        organization=Organization.objects.create(legal_name="Saved Google routes"),
+        submitted_name="Google reference project",
+    )
+    routes = {
+        "origin": {"latitude": 19.15, "longitude": 72.95},
+        "originPlaceId": "saved-project",
+        "retrievedAt": "2026-09-19T08:00:00Z",
+        "groups": [{"stations": [
+            {"name": "Nearby metro", "kind": "metro", "serviceStatus": "operational",
+             "location": {"latitude": 19.16, "longitude": 72.96},
+             "walking": {"status": "available", "distanceMeters": 700}},
+            {"name": "Nearby railway", "kind": "railway", "serviceStatus": "operational",
+             "location": {"latitude": 19.17, "longitude": 72.97},
+             "walking": {"status": "available", "distanceMeters": 1400}},
+        ]}],
+    }
+    task = ReviewTask.objects.create(
+        project=project, task_type="external_sources", state="open",
+        resolution={"googlePlaceId": "saved-project", "reviewState": "unreviewed",
+                    **({"stationRoutes": routes} if route_storage == "database" else {})},
+    )
+    if route_storage == "report":
+        report = tmp_path / "output" / "reports" / "google-project-routes.json"
+        report.parent.mkdir(parents=True)
+        report.write_text(json.dumps({"projects": [{
+            "projectId": str(project.pk), "reviewTaskId": str(task.pk),
+            "status": "enriched", "routes": routes,
+        }]}), encoding="utf-8")
+    provider = Mock(side_effect=AssertionError("Rendering must not call Google"))
+    monkeypatch.setattr(sources, "GoogleProjectMaps", provider)
+    monkeypatch.setattr(sources, "station_routes", provider)
+    before_project = Project.objects.values().get(pk=project.pk)
+    before_task = ReviewTask.objects.values().get(pk=task.pk)
+
+    panel = sources.project_transit_maps(project)
+    assert panel["has_location"]
+    assert "not applied" in panel["location_label"]
+    assert [view["distance_meters"] for view in panel["views"]] == [700, 1400]
+    assert parse_qs(urlsplit(panel["views"][0]["embed_url"]).query)["saddr"] == ["19.15,72.95"]
+    client.force_login(actor)
+    response = client.get(reverse("admin:platform_api_project_change", args=[project.pk]))
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert "700 m" in html and "1400 m" in html
+    assert "not applied" in html and "No saved project location" not in html
+    assert "Google Maps API is not configured" in html
+    provider.assert_not_called()
+    assert Project.objects.values().get(pk=project.pk) == before_project
+    assert ReviewTask.objects.values().get(pk=task.pk) == before_task
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("invalid", ["mismatched", "invalid_origin", "rejected", "newer_reference"])
+def test_transit_does_not_use_invalid_or_superseded_google_origin(invalid):
+    from platform_api import external_sources_admin as sources
+
+    project = Project.objects.create(
+        organization=Organization.objects.create(legal_name="Invalid origin"),
+        submitted_name="Invalid origin",
+    )
+    ReviewTask.objects.create(
+        project=project, task_type="external_sources", state="open",
+        resolution={
+            "googlePlaceId": "project-place",
+            "reviewState": "rejected" if invalid == "rejected" else "unreviewed",
+            "stationRoutes": {
+                "origin": {"latitude": 99 if invalid == "invalid_origin" else 19.1, "longitude": 72.9},
+                "originPlaceId": "another-place" if invalid == "mismatched" else "project-place",
+                "groups": [],
+            },
+        },
+    )
+    if invalid == "newer_reference":
+        ReviewTask.objects.create(
+            project=project, task_type="external_sources", state="open",
+            resolution={"googlePlaceId": "new-place", "reviewState": "unreviewed"},
+        )
+    panel = sources.project_transit_maps(project)
+    assert not panel["has_location"]
+    assert all(view["station"] is None for view in panel["views"])
+
+
+@pytest.mark.django_db
 def test_manual_pin_route_generation_preserves_review_and_rejects_changed_reference(monkeypatch, django_user_model):
     from platform_api import external_sources_admin as sources
 
@@ -1006,6 +1102,46 @@ def test_route_command_five_project_cap_persists_reviews_and_resumes(google_refe
 
 
 @pytest.mark.django_db
+def test_route_prefetch_preserves_approval_and_includes_manual_pins(google_reference, settings, monkeypatch, tmp_path):
+    from django.core.management import call_command
+    from platform_api import external_sources_admin as sources
+    from platform_api.management.commands import enrich_google_project_routes as command
+
+    project, actor, task = google_reference
+    project.latitude = None
+    project.longitude = None
+    project.save()
+    task.resolution = task.resolution | {"submittedBy": actor.pk, "reviewState": "unreviewed"}
+    task.save()
+    manual_project = Project.objects.create(organization=project.organization, submitted_name="Manual pin")
+    manual_task = ReviewTask.objects.create(project=manual_project, task_type="external_sources",
+        resolution={"manualLocation": {"location": {"latitude": 19.3, "longitude": 72.9}}})
+    settings.GOOGLE_MAPS_API_KEY = "test-only"
+    settings.PROJECT_LOCATION_REQUIRE_SECOND_APPROVER = True
+    details = Mock(return_value={"placeId": "test-place", "location": {"latitude": 19.2, "longitude": 72.9}})
+    monkeypatch.setattr(sources.GoogleProjectMaps, "details", details)
+    monkeypatch.setattr(sources, "station_routes", lambda *args: {"groups": []})
+    monkeypatch.setattr(command.time, "sleep", lambda *args: None)
+    report = tmp_path / "prefetched-routes.json"
+    call_command("enrich_google_project_routes", execute=True, prefetch_only=True,
+        reviewer=actor.username, report=report)
+    project.refresh_from_db()
+    task.refresh_from_db()
+    manual_task.refresh_from_db()
+    assert project.latitude is None and project.longitude is None
+    assert task.state == "open" and task.resolution["reviewState"] == "unreviewed"
+    assert manual_task.state == "open"
+    assert manual_task.resolution["stationRoutes"]["origin"]["latitude"] == 19.3
+    assert details.call_count == 1
+    panel = sources.project_transit_maps(project)
+    assert panel["has_location"] and "not applied" in panel["location_label"]
+    assert AuditEvent.objects.filter(action="project.google_station_routes_refreshed").count() == 2
+    call_command("enrich_google_project_routes", execute=True, prefetch_only=True,
+        reviewer=actor.username, report=report, resume=True)
+    assert details.call_count == 1
+
+
+@pytest.mark.django_db
 def test_route_retry_generation_retries_unavailable_once(google_reference, settings, monkeypatch, tmp_path):
     from django.core.management import call_command, CommandError
     from platform_api import external_sources_admin as sources
@@ -1025,6 +1161,56 @@ def test_route_retry_generation_retries_unavailable_once(google_reference, setti
     assert details.call_count == 2
     with pytest.raises(CommandError, match="between 1 and 5"):
         call_command("enrich_google_project_routes", execute=True, batch_size=6, report=report)
+
+
+@pytest.mark.parametrize("has_duration", [True, False])
+@pytest.mark.django_db
+def test_route_drain_resumes_or_stops_before_second_batch(google_reference, settings, monkeypatch, tmp_path, has_duration):
+    from django.core.management import call_command, CommandError
+    from platform_api import external_sources_admin as sources
+    from platform_api.management.commands import enrich_google_project_routes as command
+
+    project, actor, task = google_reference
+    for index in range(2):
+        other = Project.objects.create(organization=project.organization, submitted_name=f"Drain {index}")
+        ReviewTask.objects.create(project=other, task_type="external_sources", resolution={"googlePlaceId": f"drain-{index}"})
+    settings.GOOGLE_MAPS_API_KEY = "test-only"
+    details = Mock(return_value={"placeId": "test-place", "location": {"latitude": 19.2, "longitude": 72.9}})
+    monkeypatch.setattr(sources.GoogleProjectMaps, "details", details)
+    routes = {"groups": [{"stations": [{"walking": {"status": "available", "minutes": 5}}]}]} if has_duration else {"groups": []}
+    monkeypatch.setattr(sources, "station_routes", lambda *args: routes)
+    monkeypatch.setattr(command.time, "sleep", lambda *args: None)
+    report = tmp_path / "drain.json"
+    options = {"execute": True, "prefetch_only": True, "drain": True,
+               "batch_size": 1, "reviewer": actor.username, "report": report}
+    if has_duration:
+        call_command("enrich_google_project_routes", **options)
+        assert details.call_count == 3
+        assert json.loads(report.read_text())["state"] == "completed"
+        call_command("enrich_google_project_routes", **options, resume=True)
+        assert details.call_count == 3
+    else:
+        with pytest.raises(CommandError, match="No route durations"):
+            call_command("enrich_google_project_routes", **options)
+        assert details.call_count == 1
+        assert json.loads(report.read_text())["state"] == "paused"
+    task.refresh_from_db()
+    assert task.state == "open"
+    assert not AuditEvent.objects.filter(action="project.google_location_routes_enriched").exists()
+
+
+def test_route_drain_budget_and_continuation_contract():
+    from platform_api.google_route_batches import RouteBatchResult, drain_route_batches
+
+    available = {"routes": {"groups": [{"stations": [{"walking": {"status": "available", "minutes": 0}}]}]}}
+    run_batch = Mock(return_value=RouteBatchResult({"state": "paused"}, [available]))
+    with pytest.raises(ValueError, match="Stopped after 2"):
+        drain_route_batches(run_batch, max_batches=2)
+    assert [call.args for call in run_batch.call_args_list] == [(False,), (True,)]
+    run_batch.reset_mock()
+    with pytest.raises(ValueError, match="between 1 and 100"):
+        drain_route_batches(run_batch, max_batches=0)
+    run_batch.assert_not_called()
 
 
 def test_maharera_mapping_and_url_validation(tmp_path):

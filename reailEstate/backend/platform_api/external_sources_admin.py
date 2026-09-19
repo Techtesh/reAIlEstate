@@ -208,24 +208,34 @@ def project_transit_maps(project):
 
     views = [{"kind": kind, "label": label, "station": None} for kind, label in (
         ("metro", "Metro"), ("railway", "Railway"))]
+    routes = saved_station_routes(project) or {}
     location_label = "Saved project location"
     try:
         origin = coordinates({"latitude": float(project.latitude), "longitude": float(project.longitude)})
     except (TypeError, ValueError, OverflowError):
-        reference = ReviewTask.objects.filter(project=project, task_type="external_sources",
-            resolution__manualLocation__isnull=False).order_by("-created_at", "-pk").first()
-        manual = manual_reference_details(reference.resolution.get("manualLocation")) if reference else None
-        if not manual:
+        reference = ReviewTask.objects.filter(LOCATION_REFERENCE_QUERY, project=project,
+            task_type="external_sources").order_by("-created_at", "-pk").first()
+        if not reference or reference.resolution.get("reviewState") == "rejected":
             return {"views": views, "has_location": False}
-        origin = manual["location"]
-        location_label = "Saved manual pin (not applied to project location)"
+        manual = manual_reference_details(reference.resolution.get("manualLocation"))
+        if manual:
+            origin = manual["location"]
+            location_label = "Saved manual pin (not applied to project location)"
+        elif (reference.resolution.get("googlePlaceId")
+                and routes.get("originPlaceId") == reference.resolution["googlePlaceId"]):
+            try:
+                origin = coordinates(routes.get("origin"))
+            except ValueError:
+                return {"views": views, "has_location": False}
+            location_label = "Saved Google reference pin (not applied to project location)"
+        else:
+            return {"views": views, "has_location": False}
     pin = f"{origin['latitude']},{origin['longitude']}"
     location_map = {
         "location_label": location_label,
         "pin_embed_url": "https://maps.google.com/maps?" + urlencode({"q": pin, "z": 16, "output": "embed"}),
         "pin_url": "https://www.google.com/maps/search/?" + urlencode({"api": 1, "query": pin}),
     }
-    routes = saved_station_routes(project) or {}
     route_origin = origin
     if "origin" in routes:
         try:

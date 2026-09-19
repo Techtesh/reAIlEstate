@@ -2,10 +2,13 @@ import { useEffect, useId, useState } from 'react'
 import { ChevronLeft, ChevronRight, ImageOff, Maximize2, RefreshCw } from 'lucide-react'
 import { api, apiPath } from './api'
 import { errorMessage } from './App'
-import { dateLabel, inr, lowestPrice, type Project } from './buyer'
+import { calculatedRoomArea, dateLabel, inr, priceValue, projectPrice, type Project } from './buyer'
+import { LayoutTable } from './LayoutTable'
 
 type Layout = {
   id: string; name: string; configuration: string; carpetAreaSqFt: string | number | null;
+  price: string | null;
+  roomRectangleSumSqFt?: number | null;
   roomCount: number | null; bathrooms: number | null; balconies: number | null; orientation: string;
   reviewState: string; rooms: { room?: string; lengthFt?: number; widthFt?: number; areaSqFt?: number }[];
 }
@@ -68,7 +71,8 @@ export function ProjectGallery({ projectId, processing = false }: { projectId: s
         <div className="gallery-thumbnails" aria-label="Image thumbnails">{items.map((item, index) => <button key={item.id} type="button" aria-label={`Image ${index + 1}: ${item.title}`} title={item.title} aria-pressed={item.id === selected.id} onClick={() => setSelectedId(item.id)}><img src={apiPath(item.url)} alt="" loading="lazy" width={96} height={72} /><span>{index + 1}</span></button>)}</div>
         {selected.layouts.map(layout => <section className="layout-details" key={layout.id} aria-label={`Layout ${layout.name}`}>
           <h4>{layout.name}</h4><p>{layout.reviewState === 'approved' ? 'Approved layout' : 'Unreviewed layout'}</p>
-          <dl className="layout-specs">{[['Configuration', layout.configuration || 'Unknown'], ['Carpet area', layout.carpetAreaSqFt == null ? 'Unknown' : `${layout.carpetAreaSqFt} sq ft`], ['Rooms', layout.roomCount ?? 'Unknown'], ['Bathrooms', layout.bathrooms ?? 'Unknown'], ['Balconies', layout.balconies ?? 'Unknown'], ['Orientation', layout.orientation || 'Unknown']].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+          <dl className="layout-specs">{[['Configuration', layout.configuration || 'Unknown'], ['Total price (INR)', inr(priceValue(layout.price))], ['Carpet area', layout.carpetAreaSqFt == null ? 'Unknown' : `${layout.carpetAreaSqFt} sq ft`], ['Rooms', layout.roomCount ?? 'Unknown'], ['Bathrooms', layout.bathrooms ?? 'Unknown'], ['Balconies', layout.balconies ?? 'Unknown'], ['Orientation', layout.orientation || 'Unknown']].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+          <p>Calculated room area: {calculatedRoomArea(layout.roomRectangleSumSqFt)}. Sum of available room rectangles, not carpet area.</p>
           {layout.rooms.length > 0 && <div className="table-scroll"><table className="room-table"><caption>Room measurements</caption><thead><tr><th scope="col">Room</th><th scope="col">Length (ft)</th><th scope="col">Width (ft)</th><th scope="col">Area (sq ft)</th></tr></thead><tbody>{layout.rooms.map((room, index) => <tr key={index}><th scope="row">{room.room || 'Unnamed room'}</th><td>{room.lengthFt ?? 'Unknown'}</td><td>{room.widthFt ?? 'Unknown'}</td><td>{room.areaSqFt ?? 'Unknown'}</td></tr>)}</tbody></table></div>}
         </section>)}
       </>}
@@ -79,9 +83,9 @@ export function ProjectGallery({ projectId, processing = false }: { projectId: s
 
 function ProcessingProjectData({ project }: { project: Project }) {
   return <section aria-label="Unpublished project data">
-    <h3>Project data</h3><p className="detail-price">{inr(lowestPrice(project))}</p>
+    <h3>Project data</h3><p className="detail-price">{projectPrice(project)}</p>
     <p>MahaRERA {project.mahaReraId || 'ID unknown'}: {project.verificationStatus || 'Unknown'}. Checked {dateLabel(project.verificationCheckedAt)}.</p>
-    <h4>Configurations</h4>{project.configurations.length ? <div className="table-scroll"><table><thead><tr><th>Home</th><th>Carpet area (sq ft)</th><th>Price from</th></tr></thead><tbody>{project.configurations.map((item, index) => <tr key={index}><td>{item.configurationType}</td><td>{item.carpetAreaMin} - {item.carpetAreaMax}</td><td>{inr(item.priceMin == null ? null : Number(item.priceMin))}</td></tr>)}</tbody></table></div> : <p>Configuration data unknown.</p>}
+    <h4>Available layouts</h4><LayoutTable layouts={project.configurations} />
     <h4>Amenities</h4>{project.amenities.length ? <ul className="project-amenities">{project.amenities.map(code => <li key={code}>{code.replaceAll('_', ' ')}</li>)}</ul> : <p>Amenities unknown.</p>}
     <h4>Project evidence</h4>{project.facts?.length ? <dl className="facts">{project.facts.map((fact, index) => <div key={index}><dt>{fact.code}</dt><dd>{typeof fact.value === 'object' ? JSON.stringify(fact.value) : String(fact.value)} {fact.unit}<small>{fact.sourceClass} | {fact.status || 'Unreviewed'} | Reviewed {dateLabel(fact.reviewedAt)}</small></dd></div>)}</dl> : <p>No project facts extracted yet.</p>}
   </section>

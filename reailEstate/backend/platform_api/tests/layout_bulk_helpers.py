@@ -1,5 +1,6 @@
 """Offline fixture definitions shared by bulk-removal and health contract tests."""
 
+import hashlib
 from datetime import timedelta
 from uuid import uuid4
 
@@ -25,9 +26,11 @@ def layout_records(settings, tmp_path, django_user_model):
     def make_plan(*, owner=None, document=None, state="needs_review", raw=None, scope="flat"):
         owner = owner or project
         if document is None:
+            object_key = f"sources/{uuid4()}.pdf"
             document = EvidenceDocument.objects.create(
-                project=owner, uploaded_by=actor, original_name="immutable.pdf", object_key=f"sources/{uuid4()}.pdf",
-                declared_media_type="application/pdf", byte_length=10, sha256="a" * 64, scan_status="clean",
+                project=owner, uploaded_by=actor, original_name="immutable.pdf", object_key=object_key,
+                declared_media_type="application/pdf", byte_length=10,
+                sha256=hashlib.sha256(object_key.encode()).hexdigest(), scan_status="clean",
                 retention_until=timezone.now() + timedelta(days=30),
             )
         run = IngestionRun.objects.create(project=owner, document=document, status="completed")

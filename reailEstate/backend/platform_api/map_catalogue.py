@@ -8,6 +8,36 @@ from .external_sources import coordinates, metro_catalogue
 from .models import ReviewTask, StationCandidate
 
 
+def requested_connections(stations, lines):
+    endpoints = [
+        ("Line 9", {"miragaon"}, "Line 9", {"dahisar east"}),
+        ("Line 7", {"gundavali"}, "Line 7A", {"airport colony"}),
+        ("Line 4", {"kasarvadavali", "kasarwadavli"}, "Line 4A", {"gowniwada"}),
+    ]
+    existing = {frozenset(pair) for line in lines
+                for pair in zip(line["stationIds"], line["stationIds"][1:])}
+    connections = []
+    for start_line, start_names, end_line, end_names in endpoints:
+        matches = [
+            [station for station in stations.values()
+             if station["source"] == "user_candidate" and station["kind"] == "metro"
+             and station["line"].casefold() == line.casefold()
+             and station["name"].casefold() in names]
+            for line, names in ((start_line, start_names), (end_line, end_names))
+        ]
+        if any(len(group) != 1 for group in matches):
+            continue
+        station_ids = [group[0]["id"] for group in matches]
+        if frozenset(station_ids) in existing:
+            continue
+        connections.append({
+            "id": str(uuid5(NAMESPACE_URL, repr(("requested_connection", station_ids)))),
+            "kind": "metro", "name": end_line, "lineNames": list(dict.fromkeys([start_line, end_line])),
+            "stationIds": station_ids, "geometryStatus": "schematic_unverified", "source": "user_requested",
+        })
+    return connections
+
+
 def map_stations(*, include_saved=True):
     stations = {}
     lines = []
@@ -141,4 +171,5 @@ def map_stations(*, include_saved=True):
         warnings.append("authority_catalogue_unavailable")
     return {"stations": sorted(stations.values(), key=lambda item: (item["kind"], item["name"], item["line"])),
             "lines": lines,
+            "connections": requested_connections(stations, lines),
             "warnings": sorted(set(warnings))}

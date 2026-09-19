@@ -1,5 +1,6 @@
 import hashlib
 from datetime import timedelta
+from unittest.mock import Mock
 
 import pytest
 from django.contrib.auth.models import User
@@ -24,7 +25,9 @@ def test_extracted_text_removes_postgres_nul_bytes():
 
 
 @pytest.mark.django_db
-def test_markdown_ingestion_extracts_facts_and_floor_plan(tmp_path, settings):
+@pytest.mark.parametrize("injected", [False, True])
+@pytest.mark.parametrize("fails", [False, True])
+def test_markdown_ingestion_extracts_facts_and_floor_plan(tmp_path, settings, monkeypatch, injected, fails):
     settings.MEDIA_ROOT = tmp_path
     user = User.objects.create_user(username="builder")
     organization = Organization.objects.create(legal_name="Builder Ltd")
@@ -64,7 +67,21 @@ Amenities: swimming pool, gym, clubhouse and garden.
         retention_until=timezone.now() + timedelta(days=7),
     )
 
-    processed = process_document(document.id, scanner=CleanTestScanner())
+    from platform_api import workers
+
+    provider = workers.get_floor_plan_vision_provider()
+    provider.close = Mock()
+    factory = Mock(return_value=provider)
+    monkeypatch.setattr(workers, "get_floor_plan_vision_provider", factory)
+    if fails:
+        monkeypatch.setattr(workers, "prepare_document", Mock(side_effect=ValueError("TEST_FAILURE")))
+    processed = process_document(document.id, scanner=CleanTestScanner(), extractor=provider if injected else None)
+    assert factory.call_count == (0 if injected else 1)
+    assert provider.close.call_count == (0 if injected else 1)
+    if fails:
+        assert processed.status == "extraction_failed"
+        assert processed.error_category == "TEST_FAILURE"
+        return
 
     assert processed.status == "needs_review"
     assert processed.ingestion_runs.filter(status="completed").exists()

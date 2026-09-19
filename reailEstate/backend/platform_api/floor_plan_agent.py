@@ -16,6 +16,7 @@ from .integrations import ProviderUnavailable
 from .models import AgentWorkflowRun, AgentWorkflowStep, DocumentLayoutPage, FactCandidate, FloorPlan, FloorPlanAsset, ReviewTask
 from .rag import retrieve
 from .ingestion_runtime import event
+from .domain.room_dimensions import calculate_room_areas
 
 
 FLOOR_PLAN_TERMS = re.compile(r"\b(floor\s*plan|unit\s*plan|flat\s*plan|apartment\s*plan|typical\s*plan|tower\s*plan|wing\s*plan|layout)\b", re.IGNORECASE)
@@ -56,6 +57,7 @@ class FloorPlanAgent:
     version = "floor-plan-agent-1.5"
 
     def __init__(self, vision_provider=None):
+        self._owns_vision_provider = vision_provider is None
         if vision_provider is None:
             from .floor_plan_vision import get_floor_plan_vision_provider
             vision_provider = get_floor_plan_vision_provider()
@@ -123,6 +125,9 @@ class FloorPlanAgent:
             workflow.completed_at = timezone.now()
             workflow.save(update_fields=["status", "error_code", "completed_at", "updated_at"])
             raise
+        finally:
+            if self._owns_vision_provider and hasattr(self.vision_provider, "close"):
+                self.vision_provider.close()
 
     def _step(self, workflow, ordinal, name, function, *args):
         event("floor_plan_" + name, workflowId=str(workflow.id))
@@ -306,7 +311,7 @@ class FloorPlanAgent:
                 plan_name=candidate.plan_name,
                 configuration_type=candidate.configuration_type,
                 carpet_area_sqft=area,
-                dimensions=dimensions,
+                dimensions=calculate_room_areas(dimensions),
                 confidence=min(1, confidence),
                 evidence_text=candidate.evidence_text,
                 asset=candidate.asset,

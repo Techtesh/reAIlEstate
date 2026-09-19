@@ -42,6 +42,59 @@ Expensive extraction, image evaluation, and recommendation computation belong in
 workers. Never move provider calls or large document processing into a request
 just to make a screen appear synchronous.
 
+## SOLID design and ownership
+
+SOLID is a review discipline, not a certification or a reason to wrap every
+function in a class. Prefer the existing modular-monolith boundaries and small
+functions; introduce protocols only at genuine substitution points.
+
+| Principle | Project rule | Existing implementation / verification |
+| --- | --- | --- |
+| Single responsibility | HTTP/admin adapters authorize and translate requests; services own use cases; commands parse options and print results; workers perform expensive work. | [`bulk_layout_evaluations.py`](backend/platform_api/bulk_layout_evaluations.py) separates batch selection/queueing from its command. |
+| Open/closed | Extend provider implementations behind narrow contracts rather than adding provider branches throughout views. Keep new queue modes explicit. | [`integrations.py`](backend/platform_api/integrations.py) provider protocols; `EvaluationMode` defines batch intent. |
+| Liskov substitution | Implementations preserve outcomes, exceptions, cleanup, privacy, and transaction semantics. Unavailable data is not a fabricated successful result. | Provider tests and [`test_layout_evaluation_queue.py`](backend/platform_api/tests/test_layout_evaluation_queue.py) check queue and worker contracts. |
+| Interface segregation | Depend on only the operation a caller needs. Do not introduce a universal repository/provider interface. | [`google_route_batches.py`](backend/platform_api/google_route_batches.py) needs only a batch callback returning a report and attempted rows. |
+| Dependency inversion | Leaf domain/policy code must not import adapters, models, or storage; infrastructure is supplied at orchestration boundaries. | [`test_domain_boundaries.py`](backend/platform_api/tests/test_domain_boundaries.py) verifies fresh imports, including the route batch orchestrator. |
+
+Allowed direction is adapters -> application services -> domain/policy rules.
+Infrastructure adapters implement the provider/storage contracts. Django ORM
+access remains in application services where transactions are required; do not
+add an extra repository layer solely for naming compliance. Frontend route
+components own interaction state, [`buyer.ts`](frontend/src/buyer.ts) owns shared
+buyer calculations/types, and [`api.ts`](frontend/src/api.ts) owns HTTP/session
+mechanics. Keep these responsibilities separate as routes grow.
+
+Preserve import paths and callable contracts when extracting existing code.
+Compatibility exports are preferable to silently breaking callers. Characterize
+behavior first, move one ownership boundary, run its tests, then widen checks.
+Never weaken locking, authorization, idempotency, or approval gates to simplify a
+refactor. A test that needs real transaction boundaries must use transactional
+fixtures; do not remove the production guard against provider calls in transactions.
+
+### Architecture status and remaining work
+
+The September 2026 consolidation is incremental, not a whole-project SOLID
+completion claim. Large modules such as admin, views, workers, and the external
+source review integration still combine multiple use cases. The route command's
+per-project persistence loop also remains adapter-owned; only its multi-batch
+policy has moved into an independent service. Preserve these compatibility
+surfaces until the regression baseline is green.
+
+Next gates, in order:
+
+1. Triage the failing backend baseline below, distinguishing stale fixtures from
+   production defects. Do not blanket-skip failures or merely relax assertions.
+2. Extract individual media/admin use cases behind their current URLs, permission
+   checks, audit events, and concurrency contracts.
+3. Move route checkpoint/per-project orchestration out of management commands
+   behind explicit report-store and provider dependencies, retaining report schema.
+4. Split shared worker dispatch and large API modules by use case while retaining
+   public imports, event names, and HTTP contracts.
+5. Review frontend route state ownership, the existing effect warnings, and bundle
+   splitting against the production browser suite before restructuring components.
+6. Verify locking and concurrency on an isolated PostgreSQL test database before
+   declaring a release regression-free. SQLite is not proof of PostgreSQL behavior.
+
 ## Core invariants
 
 - Public catalogue responses default to `published` projects. Processing records
@@ -139,8 +192,8 @@ saved station routes; it makes no provider API calls on page load. Each view
 defaults to the shortest available saved walking distance, combining existing,
 upcoming and unverified metro candidates. Upcoming stops retain their service-status label;
 walking directions to a planned stop do not imply operating metro service.
-When project coordinates are missing, the latest saved manual pin can be shown
-as a labelled preview without applying or approving it. Views without saved
+When project coordinates are missing, a saved manual pin or a saved route origin
+can be shown as a labelled preview without applying or approving it. Views without saved
 routes show the pin map instead; missing pins show an empty state. Both link to
 External sources for location and route review.
 Google frames are allowed by CSP only on the project change page. The embed
@@ -347,6 +400,47 @@ Private storage layout, supported formats, and output contracts are detailed in
 See [`backend/SKILLS.md`](backend/SKILLS.md) for the detailed, review-gated media
 operations. Source assets and provenance must survive every correction.
 
+Vision providers may cache credentials and tokens across page/document calls.
+The creator owns cleanup: document processing, the standalone floor-plan agent,
+and the one-shot flat-separation skill close their own providers in `finally`.
+Injected providers remain owned by the caller so concurrent/batch ingestion can
+reuse them until the batch ends. Do not restore per-request credential disposal
+or reduce extraction budgets to satisfy older tests.
+
+The crop editor heading includes the resolved source floor plan's display name,
+escaped by the template. The Floor plans tab supports natural name sorting in
+both directions with active plans first; toggling active state maintains grouping.
+Room-size corrections use **Manually update room sizes**, preserving provenance
+and review state rather than editing extraction JSON through a shell.
+
+### Supported evaluation operations
+
+Use application entry points instead of one-off database mutation snippets:
+
+| Intent | Supported entry point | State guarantees |
+| --- | --- | --- |
+| Consume pending project work | **Run queued evaluations (exclude DLQ)** or `process_outbox --event-type extraction --project-id <UUID> --drain` | No historical-failure warning; excludes completed and dead-letter jobs. Normal scheduled retries are eligible. |
+| Inspect historical failures before consuming pending work | **Review failures and run queued evaluations** | Confirmation does not itself requeue DLQ entries. |
+| Retry a stopped job | **Evaluation jobs** / project-filtered failed-jobs link, then explicit requeue | Version checked, permission checked, audited; cancelled/ineligible work remains protected. |
+| Correct a layout | Crop/update editor or room-size editor | Source evidence retained; optimistic concurrency and audit enforced. |
+| Enqueue saved layouts in bulk | `requeue_all_layout_evaluations` | Preview by default; execution only in local/development; optional project scope and limit. |
+
+Bulk enqueue and worker execution are separate. From `reailEstate/backend`:
+
+```powershell
+& $Python manage.py requeue_all_layout_evaluations --project-id <UUID> --mode new --limit 20
+& $Python manage.py requeue_all_layout_evaluations --project-id <UUID> --mode new --limit 20 --execute
+```
+
+`new` preserves existing pending/running/completed/failed/cancelled jobs for the
+same asset; it queues missing evaluations and reuses existing jobs. It is not a
+filter on historical attempt counts. `retry-failed` additionally rearms failures;
+`force` additionally creates fresh work for completed results. Neither revives
+cancelled jobs. The command retains **force as its legacy default**: always spell
+out `--mode` in new automation. The reusable service defaults to `new`.
+`queued` counts eligible pending work, including reused pending jobs, not just new
+database rows. No enqueue mode performs model calls or publishes facts.
+
 ### 9. Fact review and project publication flow
 
 1. `DeveloperSubmitReviewView` requires processing attestation, a verification
@@ -378,17 +472,41 @@ All external data enters as reviewable evidence, not trusted project truth.
 - **Manual place decisions:** `import_google_project_place_decisions` imports
   target-bound reviewed decisions. Direct coordinates and validated share links
   use the separate direct-location path.
-- **Routes and stations:** `enrich_google_project_routes` starts only from an
-  eligible reviewed reference, combines Google candidates with the configured
-  metro catalogue, obtains walking/driving durations, and stores accepted routes,
-  decisions, and audit events. `available`, `no_route`, and provider `unavailable`
-  are distinct outcomes.
+- **Routes and stations:** `enrich_google_project_routes --prefetch-only` accepts
+   saved Google references or manual pins, obtains and persists routes without
+   approving the pin or updating project coordinates. Omitting `--prefetch-only`
+   opts into the legacy reviewed-location acceptance workflow and its authorization
+   rules. `available`, `no_route`, and provider `unavailable` are distinct outcomes.
 - **Frontend map:** accepted project coordinates and the local station catalogue
   reach the browser through Django. Provider keys and raw provider workflows never
   reach React.
 
-The currently open route command is implemented in
+The route command is implemented in
 [`backend/platform_api/management/commands/enrich_google_project_routes.py`](backend/platform_api/management/commands/enrich_google_project_routes.py).
+
+`--drain` runs up to `--max-batches` (default/maximum 100), with 1-5 projects per
+batch. Python owns the loop, holds the checkpoint lock across the drain, and stops
+before another batch if newly attempted first-batch rows contain no available
+duration. The attempted rows, not old successes in the report, determine this
+safety check. Every batch checkpoints before continuing. Provider errors remain
+in the report; console output does not echo raw provider errors.
+
+[`run_google_routes_all.ps1`](backend/run_google_routes_all.ps1) is a compatibility
+launcher for environment selection, arguments and log redirection, not a second
+implementation of the batch policy. It defaults to non-approving prefetch and
+passes `--drain`. Its `-ApproveLocations` switch remains an explicit opt-in.
+Do not run an old launcher concurrently with the new command. An interruption can
+leave a database update ahead of the checkpoint; inspect state before resuming.
+
+Portable command equivalent, after configuring the provider key privately:
+
+```powershell
+& $Python manage.py enrich_google_project_routes --execute --prefetch-only --drain --reviewer <username>
+```
+
+Add `--resume` only when the report already exists. Use `--report` for a separate
+checkpoint, and `--retry-failed --retry-generation <stable-id>` for one explicit
+retry generation. Preview (omit `--execute`) performs no provider calls.
 
 ### 11. Account privacy, export, and deletion flow
 
@@ -434,7 +552,7 @@ $Python = (Resolve-Path './.venv/Scripts/python.exe').Path
 $env:WORKSPACE_DATA_ROOT = (Resolve-Path '../..').Path
 $env:DATABASE_BACKEND = 'postgresql'
 $env:PYTHONUTF8 = '1'
-$env:PROJECT_METRO_CATALOGUE_FILE = Join-Path $PWD 'config/mmr-upcoming-metro.json'
+$env:PROJECT_METRO_CATALOGUE_FILE = ''
 docker start realestate-workspace-publish-postgres
 & $Python manage.py runserver 127.0.0.1:8002
 ```
@@ -442,6 +560,13 @@ docker start realestate-workspace-publish-postgres
 `PROJECT_METRO_CATALOGUE_FILE` must point to valid JSON; unset it when no catalogue
 is available. For isolated local work, set `DATABASE_BACKEND=sqlite`. Do not run
 corpus writers against SQLite and PostgreSQL simultaneously.
+
+The bundled metro JSON is currently empty and must not be enabled as a catalogue.
+Do not fabricate authority data to satisfy its test. Configure a validated
+authority-backed catalogue explicitly when available. A server launched with
+`--noreload` must be restarted after Python/template updates; a fresh Django shell
+check is not evidence that the live server loaded the change. Keep credentials in
+the launch environment and do not print them while inspecting or restarting it.
 
 ### Frontend
 
@@ -487,6 +612,77 @@ queue depth, and configured providers before running it.
 Never commit provider credentials or local profile files. `PROJECT_PUBLIC_PREVIEW_ENABLED`
 is a local/debug convenience and must be reviewed explicitly for any shared or
 production environment.
+
+## Regression gates
+
+From the workspace root, use an isolated test database and mocked providers. Do
+not invoke corpus commands or live worker launches as tests. Existing fixtures
+isolate media outputs under temporary directories.
+
+```powershell
+$Python = (Resolve-Path './reailEstate/backend/.venv/Scripts/python.exe').Path
+$env:DATABASE_BACKEND = 'sqlite'
+$env:PROJECT_METRO_CATALOGUE_FILE = ''
+& $Python -m pytest -c ./reailEstate/backend/pytest.ini ./reailEstate/backend/platform_api/tests --tb=short
+npm --prefix reailEstate/frontend test
+npm --prefix reailEstate/frontend run lint
+npm --prefix reailEstate/frontend run build
+$env:BUYER_TEST_BUILD = 'preview'
+npm --prefix reailEstate/frontend run test:e2e
+```
+
+Check each command's exit code; do not treat silence or later successful commands
+as proof of success. Use a dedicated terminal or restore environment variables
+before restarting the live backend. Browser tests own port 5175 and refuse to
+reuse an existing server. They mock API responses; they do not prove live backend
+integration. PostgreSQL checks must use a separate disposable test database.
+
+### Verification snapshot: 2026-09-19
+
+- Backend full-suite run: **990 passed, 53 failed, 5 skipped** (before the final
+   five heading/sort/leaf-import cases were added). This is a red baseline, not a
+   no-regression guarantee; failures have not been established as pre-existing by
+   comparison with a clean starting-worktree baseline.
+- Queue monitor: **40 passed**; layout queue/bulk modes: **49 passed**; targeted
+   route command/prefetch/drain: **6 passed**; new heading/sort and leaf imports:
+   **10 passed**. These targeted totals overlap the full suite.
+- Frontend unit tests: **11 passed**; production browser tests: **18 passed**;
+   TypeScript/Vite build passed. Lint completed with **8 warnings** in unchanged
+   React files; Vite warns about a chunk larger than 500 kB.
+- Changed Python service/command diagnostics are clean; the PowerShell wrapper
+   parses successfully. No live evaluations or paid route calls were made during
+   verification. PostgreSQL regression execution remains unverified.
+
+High-priority follow-up (same date): **192 passed, 1 skipped** across
+`test_feature_flag_adapters.py`, `test_floor_plan_removal.py`,
+`test_floor_plan_vision.py`, `test_floor_plan_pipeline.py`,
+`test_business_ingestion.py`, `test_ingestion_concurrency.py`, and
+`test_project_outputs.py`. The full suite was not rerun after this follow-up.
+
+- Fixed early feature-flag validation errors to use DRF non-field error mappings,
+   returning 400 rather than an internal error without weakening input validation.
+- Corrected the removal test's publication precondition; processing-project fact
+   redaction remains intact. Published detail API tests now cover removal/restore.
+- Added owner-only provider cleanup on success/failure and tests for injected
+   reuse. Credential tests now verify cached reuse and explicit, idempotent close.
+- Updated stale transport-hook and scan-limit assertions to cover current
+   behavior. Extraction prompts, limits, retries, and approval gates are unchanged.
+- No UI validation was required. Editor diagnostics are clean; the adjacent
+   output tests still emit existing Django admin deprecation warnings.
+
+Remaining backend failure groups requiring triage before broader refactoring:
+
+- Bulk/health fixtures violate document uniqueness; isolated admin test sites
+   cannot reverse the queue route; two model-call tests use incompatible transaction
+   fixtures; another persistence test lacks database access permission.
+- Command tests call `handle()` without newer parser defaults (`owner_id`);
+   middleware tests provide an incomplete resolver match.
+- Vision-profile selection and local travel-provider expectations differ from runtime.
+- The authority metro catalogue is empty; a desktop map-layout assertion fails.
+
+Do not declare the whole project SOLID-compliant or regression-free while these
+gates remain red. Resolve each at its owning boundary with a focused reproduction,
+then rerun the complete suite before continuing broad structural moves.
 
 ## Change checklist
 

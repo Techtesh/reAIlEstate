@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 
 from rest_framework import serializers
+from rest_framework.settings import api_settings
 
 from ..models import FeatureFlag
 from .management import create_flag, update_flag, validate_mutation
@@ -46,14 +47,14 @@ class FeatureFlagSerializer(serializers.ModelSerializer):
 
     def to_internal_value(self, data):
         if not isinstance(data, Mapping):
-            raise serializers.ValidationError("Expected an object.")
+            raise serializers.ValidationError({api_settings.NON_FIELD_ERRORS_KEY: ["Expected an object."]})
         data = dict(data)
         # The existing global renderer camelizes response fields recursively.
         # Accept that wire format and the historical snake_case request fields,
         # while keeping one canonical stored rules schema.
         if "targetingRules" in data:
             if "targeting_rules" in data:
-                raise serializers.ValidationError("duplicate_targeting_rules")
+                raise serializers.ValidationError({api_settings.NON_FIELD_ERRORS_KEY: ["duplicate_targeting_rules"]})
             data["targeting_rules"] = data.pop("targetingRules")
         if isinstance(data.get("targeting_rules"), dict):
             rules = dict(data["targeting_rules"])
@@ -61,12 +62,12 @@ class FeatureFlagSerializer(serializers.ModelSerializer):
                                      ("organizationIds", "organization_ids")):
                 if alias in rules:
                     if canonical in rules:
-                        raise serializers.ValidationError("duplicate_targeting_dimension")
+                        raise serializers.ValidationError({api_settings.NON_FIELD_ERRORS_KEY: ["duplicate_targeting_dimension"]})
                     rules[canonical] = rules.pop(alias)
             data["targeting_rules"] = rules
         allowed = {"key", "environment", "enabled", "targeting_rules"}
         if set(data) - allowed:
-            raise serializers.ValidationError("immutable_or_unknown_field")
+            raise serializers.ValidationError({api_settings.NON_FIELD_ERRORS_KEY: ["immutable_or_unknown_field"]})
         # DRF's BooleanField normally coerces strings and integers. This schema
         # deliberately accepts JSON booleans only.
         if "enabled" in data and type(data["enabled"]) is not bool:

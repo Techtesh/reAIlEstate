@@ -1,6 +1,7 @@
 import hashlib
 import io
 from datetime import timedelta
+from unittest.mock import Mock
 
 import pymupdf
 import pytest
@@ -79,6 +80,8 @@ def test_pdf_renders_selected_page_before_vision_and_records_provenance(source):
     assert plan.raw_extraction["visionProfileId"] == "local-test"
     assert plan.raw_extraction["visionModel"] == "test-vision"
     assert plan.review_state == "gen_with_ai_needs_review"
+    assert plan.dimensions == [{"room": "living", "lengthFt": 12, "widthFt": 18, "areaSqFt": 216}]
+    assert plan.carpet_area_sqft == 720
     selection = workflow.steps.get(name="select_pages").output
     assert [item["pageNumber"] for item in selection["pages"]] == [2]
     assert selection["pages"][0]["reasons"]
@@ -93,7 +96,29 @@ def test_text_rich_pdf_still_requires_vision_when_provider_unavailable(source):
     assert workflow.floor_plan_assets.count() == 1
 
 
-def test_scanned_pdf_selection_is_bounded():
+@pytest.mark.django_db
+@pytest.mark.parametrize("injected", [False, True])
+@pytest.mark.parametrize("fails", [False, True])
+def test_agent_closes_only_owned_provider(source, monkeypatch, injected, fails):
+    from platform_api import floor_plan_vision
+
+    run, content = source
+    provider = RecordingVision()
+    provider.close = Mock()
+    monkeypatch.setattr(floor_plan_vision, "get_floor_plan_vision_provider", Mock(return_value=provider))
+    agent = FloorPlanAgent(provider if injected else None)
+    if fails:
+        monkeypatch.setattr(agent, "_detect", Mock(side_effect=ValueError("TEST_FAILURE")))
+        with pytest.raises(ValueError, match="TEST_FAILURE"):
+            agent.run(run, content, "application/pdf")
+    else:
+        assert agent.run(run, content, "application/pdf").status == "completed"
+    assert provider.close.call_count == (0 if injected else 1)
+
+
+@pytest.mark.parametrize("maximum_pages", [8, 16])
+def test_scanned_pdf_selection_is_bounded(settings, maximum_pages):
+    settings.FLOOR_PLAN_MAX_PAGES = maximum_pages
     image = io.BytesIO()
     Image.new("RGB", (100, 100), "white").save(image, format="PNG")
     with pymupdf.open() as pdf:
@@ -102,7 +127,7 @@ def test_scanned_pdf_selection_is_bounded():
             page.insert_image(page.rect, stream=image.getvalue())
         content = pdf.tobytes()
     selected = FloorPlanPageSelector().select(content, "application/pdf")
-    assert len(selected) == 8
+    assert len(selected) == min(12, maximum_pages)
     assert all("image_with_little_text" in page.reasons for page in selected)
 
 
@@ -117,4 +142,8 @@ def test_vision_keeps_labeled_narrow_spaces():
     }]}
     agent = FloorPlanAgent(RecordingVision())
     candidates = agent._validate(agent._vision_candidates(1, result))
-    assert candidates[0].dimensions == result["floorPlans"][0]["dimensions"]
+    assert candidates[0].dimensions == [
+        {"room": "Wash Basin Nook", "lengthFt": 1.5, "widthFt": 3.92, "areaSqFt": 5.88},
+        {"room": "Bedroom Foyer", "lengthFt": 3.08, "widthFt": 4.42, "areaSqFt": 13.61},
+    ]
+    assert candidates[0].carpet_area_sqft is None

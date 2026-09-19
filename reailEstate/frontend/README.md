@@ -29,6 +29,27 @@ entered before signing in. Discover and Browse, published listing details, filte
 and station layers are public. Saved requirements, matches, shortlists and comparisons
 require sign-in. Guest detail responses contain listing fields only, not internal evidence.
 
+## Layout pricing
+
+Project cards, details, comparisons and shortlists display the API's
+layout-derived `priceMin` to `priceMax` range in INR. A single known price is shown
+once; no available layout prices produces **contact to know**. Price sorting uses
+the derived minimum and places unknown prices last. Legacy configuration prices
+are not used as a fallback. Each layout in the gallery shows its own total price.
+Project names are the card headings; prices are secondary. Browse's compact results
+bar keeps the count, processing toggle and sorting without a large title banner.
+
+Enter prices in **Django admin -> Project media -> Layouts -> Total price (INR)**.
+Prices are optional positive amounts with up to two decimal places. The range
+uses eligible active layouts and follows the existing review/public-preview
+policy. Prices may exclude taxes and other charges.
+
+**Available layouts** lists every eligible layout by its alias, including distinct
+layouts with the same BHK type. Carpet area, price, and the backend-calculated room
+area total are separate columns. The calculated total sums available room rectangles;
+it may include decks/overlaps and must not be interpreted as carpet area. Missing
+carpet area remains unknown even when room dimensions are available.
+
 ## Matching Worker
 
 Submitting requirements creates a queued recommendation request. In a separate
@@ -53,7 +74,7 @@ and offers a status check. See [queue commands](../backend/README.md#ingestion-a
 | `/requirements` | One canonical draft in guided or summary mode |
 | `/profiles` | Saved drafts and submitted-profile copies |
 | `/matches/{snapshotId}` | Ranked results, score sheet and snapshot metadata |
-| `/shortlist` | Saved projects in map/feed format |
+| `/shortlist` | Saved projects and private daily-commute destinations in map/feed format |
 | `/privacy` | Consent, local storage and map-provider disclosure |
 
 - Discover, Browse, matches and shortlists use one Leaflet/OpenStreetMap map with
@@ -71,11 +92,17 @@ and offers a status check. See [queue commands](../backend/README.md#ingestion-a
   Below zoom 12, station badges shrink to 10px dots so they do not obscure the lines;
   zooming in restores numbered 32px badges. Station titles and popups remain available.
   Lines follow visible station layers without a separate schematic-lines toggle.
-  Schematic segments use adjacent same-line, same-kind rows in the local CSV,
+  Schematic segments use adjacent same-line, same-kind station sequence records (or configured CSV rows),
   not alphabetical station order or nearest-neighbour routing. Invalid/conflicting
   records, line changes and repeated stops break segments; gaps are not bridged.
   Hiding a station removes adjacent segments, and hiding unverified records also hides
   these unverified schematics. Solid styling does not establish verified geometry or service.
+- Three explicit schematic connections are supported separately from same-line
+  sequences: Miragaon to Dahisar East (Line 9), Gundavali to Airport Colony (7/7A),
+  and Kasarvadavali (Kasarwadavli) to Gowniwada (4/4A). They use existing unambiguous
+  candidate coordinates, never fabricated stations or verified track claims.
+  Selecting either branch retains the connecting terminal; hiding its layer or
+  unverified stations removes the connection. Existing adjacent edges are not duplicated.
 - CSV order, actual tracks, operating status and transfers remain unverified. Crossings
   or shared coordinates do not establish interchange or through-service connections.
   Accurate route geometry would need an authorized dataset; nothing is imported from
@@ -95,8 +122,14 @@ and offers a status check. See [queue commands](../backend/README.md#ingestion-a
   editors/reviewers; public published galleries show approved media only. No raw
   documents, private buyer data, publication or write permissions are opened.
   Matches and shortlists remain published-only; withdrawn projects are omitted from snapshots.
-- Map pins use published coordinates or accepted processing-listing locations, not private destinations. Projects without
-  coordinates remain in the feed and are counted as unmapped.
+- Project map pins show project names rather than prices or match scores; long names
+  are truncated visually with the full name retained in the marker title.
+  Pins use published coordinates or accepted processing-listing locations.
+  In development public-preview mode, missing coordinates can use the latest saved
+  unreviewed manual pin or matching Google route origin. These are explicitly labelled
+  **provisional, not reviewed**, with dashed outlines. This does not approve or apply
+  coordinates. Normal mode still requires published/reviewed coordinates.
+  Projects without usable locations remain in the feed and are counted as unmapped.
 - Publication and MahaRERA verification are separate. Verified registry status is shown
   only for published listings, on cards and marker outlines, and can be filtered.
   Fact-based filters exclude processing summaries because their facts are not public.
@@ -124,9 +157,21 @@ and offers a status check. See [queue commands](../backend/README.md#ingestion-a
   show missing images rather than unrelated stock photographs.
 - Prices and score components retain unknown states. Scores come from the backend;
   the UI never substitutes a fake score or silently relaxes hard constraints.
-- Locality destinations are manual entries. Live place search is unavailable.
+- Daily destinations accept Google Maps search, Google Maps pin/share links or Plus Codes
+  (include a locality for short codes), and direct latitude/longitude. Google lookups
+  require sign-in and explicit action; search requires backend provider configuration.
+  Missing providers or failed lookups produce errors, not approximate or fabricated pins.
+  Legacy locality-only entries remain supported and are shown as unmapped.
   Commute remains unknown without backend routing metrics. Locality preferences and
   additional needs are saved but are not filters in the current scoring algorithm.
+- Open **Shortlist -> Daily commute** to add destinations, select a saved requirement
+  profile, or save the current draft with consent. Loading a profile replaces the
+  entire draft and requires confirmation when it has unsaved edits. Submitted profiles
+  open as new drafts. Saving destinations does not require completing home/budget
+  sections, and uses the existing versioned private-profile API.
+  Numbered destination markers appear only on Shortlist, never Browse, Discover or
+  matches. They are black against white project pins in light mode and white against
+  black project pins with the system dark colour scheme. Both are included in map fitting.
 
 ## Privacy and Concurrency
 
@@ -136,14 +181,17 @@ match URL are stored in session storage. No profile payloads or credentials are
 stored in browser globals, local storage, logs or test traces.
 
 Project and station data come from same-origin public APIs. OpenStreetMap receives
-the client's IP address, browser information and requested public map tile area,
-not requirement profiles or private destinations. The map no longer loads Google
-frames or scripts. CSP blocks all frames with `frame-src 'none'`.
+the client's IP address, browser information and requested map tile area, which may
+reflect areas around destinations, but not destination labels or requirement profiles.
+Explicit destination searches/links are sent to Google through authenticated POST
+requests; they are not placed in request URLs. No provider keys reach the browser.
+The map loads no Google frames or scripts. CSP blocks all frames with `frame-src 'none'`.
 
 Consented, valid drafts autosave after one second. Explicit Save & exit can save
 partially completed drafts accepted by the backend. Writes use `If-Match`; a conflict
-offers the server version or a new profile, never an overwrite. Submitted versions
-are immutable. Submission retries retain their idempotency key unless the draft changes.
+offers the server version or a new profile, never an overwrite. Conflict choices
+are available on Shortlist too. Submitted versions are immutable. Submission retries
+retain their idempotency key unless the draft changes.
 Signing out or detecting session expiry clears private state and cancels in-flight
 requests. Refreshing an unsaved guest draft discards its sensitive fields.
 

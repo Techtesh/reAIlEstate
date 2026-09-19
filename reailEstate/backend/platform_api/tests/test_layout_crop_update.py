@@ -25,7 +25,7 @@ from platform_api.layout_crop_update_admin import LayoutCropUpdateAdminMixin, La
 from platform_api.models import (
     AgentWorkflowRun, AuditEvent, EvidenceDocument, FloorPlan, FloorPlanAsset,
     IngestionRun, LayoutCropDraft, Operation, Organization, OutboxMessage, Project,
-    ProjectMerge, ReviewTask,
+    ProjectMerge, ReviewTask, StationCandidate,
 )
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -35,6 +35,8 @@ class CropTestSite(AdminSite):
     def get_urls(self):
         return [path("project/<uuid:object_id>/media/", lambda request, object_id: HttpResponse("Dashboard"),
                      name="platform_api_project_media_dashboard"),
+                path("project/jobs/", lambda request: HttpResponse("Jobs"),
+                     name="platform_api_project_jobs"),
                 path("project/layout-cart/", lambda request: HttpResponse("Cart"),
                      name="platform_api_project_layout_cart"), *super().get_urls()]
 
@@ -46,6 +48,8 @@ class CropTestAdmin(LayoutCropUpdateAdminMixin, ModelAdmin):
 
 site = CropTestSite(name="crop_edit_test")
 site.register(FloorPlan, CropTestAdmin)
+site.register(Project, ModelAdmin)
+site.register(StationCandidate, ModelAdmin)
 urlpatterns = [path("admin/", site.urls)]
 
 

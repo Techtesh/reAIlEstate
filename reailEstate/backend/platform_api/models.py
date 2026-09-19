@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -363,6 +364,10 @@ class FloorPlan(TimestampedModel):
     crop_remaining = models.BooleanField(default=False)
     configuration_type = models.CharField(max_length=32, blank=True)
     carpet_area_sqft = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    price = models.DecimalField(
+        "Total price (INR)", max_digits=16, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
     room_count = models.PositiveSmallIntegerField(null=True, blank=True)
     bathroom_count = models.PositiveSmallIntegerField(null=True, blank=True)
     balcony_count = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -375,13 +380,23 @@ class FloorPlan(TimestampedModel):
     extractor_version = models.CharField(max_length=64)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["document", "page_number", "plan_name"], name="unique_floor_plan_source")]
+        constraints = [
+            models.UniqueConstraint(fields=["document", "page_number", "plan_name"], name="unique_floor_plan_source"),
+            models.CheckConstraint(condition=models.Q(price__isnull=True) | models.Q(price__gt=0),
+                                   name="floor_plan_price_positive"),
+        ]
 
     @property
     def display_title(self):
         from .domain.layout_titles import layout_display_title
 
         return layout_display_title(self)
+
+    @property
+    def room_rectangle_sum_sqft(self):
+        from .domain.room_dimensions import room_rectangle_sum_sqft
+
+        return room_rectangle_sum_sqft(self.dimensions)
 
 
 class LayoutCropDraft(TimestampedModel):

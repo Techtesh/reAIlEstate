@@ -55,12 +55,17 @@ def test_floor_page_with_unit_labels_persists_as_one_floor_candidate():
     assert len(candidates[0].features["identifiedUnits"]) == 2
 
 
+@pytest.mark.django_db
 def test_ai_persistence_uses_unique_run_name_and_requested_state(monkeypatch):
     captured = []
     def save(**kwargs):
         captured.append(deepcopy(kwargs))
         return SimpleNamespace(id=uuid4()), True
     monkeypatch.setattr(FloorPlan.objects, "update_or_create", save)
+    from unittest.mock import Mock
+    existing = Mock()
+    existing.filter.return_value.first.return_value = None
+    monkeypatch.setattr(FloorPlan.objects, "select_for_update", Mock(return_value=existing))
     agent = FloorPlanAgent(SimpleNamespace(code="azure_foundry", model="gpt-4.1", profile_id="cloud"))
     monkeypatch.setattr(agent, "_create_fact_candidates", lambda plan: None)
     candidate = FloorPlanCandidate(1, "Floor plan page 1", "", None, [], 0.9, "Rooms", plan_scope="floor")

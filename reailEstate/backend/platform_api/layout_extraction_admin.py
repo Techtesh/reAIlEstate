@@ -14,6 +14,7 @@ from .ingestion_runtime import WorkAlreadyClaimed, work_lock
 from .jobs.events import EXTRACTION_EVENTS
 from .layout_crop_update import editable_layout
 from .models import AuditEvent, EvidenceDocument, FloorPlan, OutboxMessage, ReviewTask
+from .domain.room_dimensions import calculate_room_areas
 
 
 EXTRACTION_FIELDS = (
@@ -73,7 +74,7 @@ def corrected_dimensions(plan, rooms):
         dimensions.append(row)
     if seen != set(range(len(plan.dimensions))):
         raise ValueError("Room rows are missing. Reload the editor before saving.")
-    return dimensions
+    return calculate_room_areas(dimensions)
 
 
 def extraction_values(plan):

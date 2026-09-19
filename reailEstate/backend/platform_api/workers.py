@@ -141,6 +141,7 @@ def _process_document(document_id, scanner=None, extractor=None, vision_selectio
             job.save(update_fields=["status", "error_category", "updated_at"])
         return document
     ingestion_run = None
+    owns_extractor = extractor is None
     try:
         if extractor is None:
             extractor = get_floor_plan_vision_provider(vision_selection)
@@ -198,6 +199,9 @@ def _process_document(document_id, scanner=None, extractor=None, vision_selectio
             operation.error_code = error_code
             operation.save(update_fields=["state", "error_code", "updated_at"])
         return document
+    finally:
+        if owns_extractor and hasattr(extractor, "close"):
+            extractor.close()
     return _finish_document(document, job, operation, ingestion_run, extraction_result, artifacts, output, pending_visual)
 
 

@@ -25,7 +25,9 @@ class HealthAdmin(ProjectLayoutHealthAdminMixin, ModelAdmin):
 
     def get_urls(self):
         return [path("<uuid:object_id>/media/", lambda request, object_id: HttpResponse("Layouts"),
-                     name="platform_api_project_media_dashboard")] + super().get_urls()
+                     name="platform_api_project_media_dashboard"),
+                path("jobs/", lambda request: HttpResponse("Jobs"),
+                     name="platform_api_project_jobs")] + super().get_urls()
 
 
 site = AdminSite(name="health_test")

@@ -1,0 +1,37 @@
+<section class="project-layout-summary" aria-labelledby="project-layouts-heading">
+  <h2 id="project-layouts-heading">Layouts, prices and sizes</h2>
+  {% if original %}
+  <p class="project-layout-price"><strong>Layout price range:</strong> {{ project_layout_price_range }}</p>
+  <p class="help">{{ project_layouts|length }} active layout{{ project_layouts|length|pluralize }}. Carpet areas are in sq ft; prices are total INR amounts. Review labels apply to each layout.</p>
+  {% if project_layouts %}
+  <div class="project-layout-scroll" role="region" aria-label="Project layouts, prices and carpet areas" tabindex="0">
+    <table class="project-layout-table">
+      <thead><tr><th scope="col">Layout</th><th scope="col">Carpet area (sq ft)</th><th scope="col">Total price (INR)</th></tr></thead>
+      <tbody>
+        {% for layout in project_layouts %}
+        <tr>
+          <th scope="row">
+            {% if can_view_layout_records and layout.asset_id %}
+            <a class="project-layout-preview" href="{% url 'floor-plan-asset-media' layout.asset_id %}" target="_blank" rel="noopener">
+              <img src="{% url 'floor-plan-asset-media' layout.asset_id %}" alt="Preview of {{ layout.display_title }}" loading="lazy">
+            </a>
+            {% endif %}
+            {% if can_view_layout_records %}<a href="{% url 'admin:platform_api_floorplan_change' layout.pk %}">{{ layout.display_title }}</a>{% else %}{{ layout.display_title }}{% endif %}
+            {% if layout.configuration_type %}<span class="project-layout-meta">{{ layout.configuration_type }}</span>{% endif %}
+            <span class="project-layout-meta">{% if layout.review_state == 'approved' %}Approved{% else %}Needs review{% endif %}</span>
+          </th>
+          <td>{% if layout.carpet_area_sqft != None %}{{ layout.carpet_area_sqft|floatformat:"-2g" }}{% else %}Unknown{% endif %}</td>
+          <td>{% if layout.price != None %}{{ layout.price|floatformat:"2g" }}{% else %}contact to know{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p>No active layouts available.</p>
+  {% endif %}
+  <p><a href="{{ project_media_dashboard_url }}?section=layouts">Manage layouts and prices</a></p>
+  {% else %}
+  <p>Save the project to add layouts, prices and carpet areas.</p>
+  {% endif %}
+</section>

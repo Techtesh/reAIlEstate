@@ -262,6 +262,10 @@ def test_api_and_published_facts_hide_removed_records(records):
     ProjectFact.objects.create(project=project, field_code="locality", typed_value={"value": "Thane"},
         source_class="human_approved", status="published", valid_from=timezone.now(),
         fact_set_version=project.published_fact_set_version)
+    assert "facts" not in ProjectDetailSerializer(project).data
+    project.status = "published"
+    project.save(update_fields=["status"])
+    assert len(ProjectDetailSerializer(project).data["facts"]) == 2
     set_floor_plan_removed(project, selected.pk, actor, removed=True)
     api = APIClient()
     api.force_authenticate(actor)
@@ -271,9 +275,14 @@ def test_api_and_published_facts_hide_removed_records(records):
     assert str(retained.pk) in json.dumps(response.data)
     assert api.post(f"/api/v1/review/floor-plans/{selected.pk}:resolve", {"decision": "approve"}).status_code == 404
     assert [row["code"] for row in ProjectDetailSerializer(project).data["facts"]] == ["locality"]
+    detail = api.get(f"/api/v1/projects/{project.pk}/")
+    assert detail.status_code == 200
+    assert [row["code"] for row in detail.data["facts"]] == ["locality"]
     assert ProjectFact.objects.filter(pk=fact.pk).exists()
     set_floor_plan_removed(project, selected.pk, actor, removed=False)
     assert len(ProjectDetailSerializer(project).data["facts"]) == 2
+    restored = api.get(f"/api/v1/projects/{project.pk}/")
+    assert restored.status_code == 200 and len(restored.data["facts"]) == 2
 
 
 @pytest.mark.parametrize("output_name", ["layout-metrics", "layout-metrics-csv"])

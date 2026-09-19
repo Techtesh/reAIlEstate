@@ -72,10 +72,12 @@ def save(source, page=2, regions=None, rotation=0):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("category", ["floor-plans", "amenities"])
-def test_whole_pages_are_drafts_until_committed(page_source, category):
+def test_whole_pages_are_drafts_until_committed(page_source, category, settings):
     from platform_api.crop_cart import commit_saved_draft, stage_source_pages
 
     project, document, actor, _, selection = page_source
+    settings.FLOOR_PLAN_VISION_PROFILES = {"test": {"provider": "ollama", "model": "offline-only"}}
+    settings.FLOOR_PLAN_DEFAULT_VISION_PROFILE = "test"
     before = published_counts()
     draft = stage_source_pages(project, document.pk, [2], category, actor)[0]
     assert published_counts() == before

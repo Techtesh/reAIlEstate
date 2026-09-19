@@ -10,7 +10,7 @@ DESTINATION = {"placeId": "project:test", "latitude": 19.1176, "longitude": 72.9
 
 
 @pytest.mark.django_db
-@override_settings(ROUTING_PROVIDER="local_approximate", ROUTING_CACHE_SECONDS=3600)
+@override_settings(DEBUG=True, ROUTING_PROVIDER="local_approximate", ROUTING_CACHE_SECONDS=3600)
 def test_local_travel_preview_is_cached():
     first = estimate_matrix([ORIGIN], [DESTINATION], ["transit"])
     second = estimate_matrix([ORIGIN], [DESTINATION], ["transit"])

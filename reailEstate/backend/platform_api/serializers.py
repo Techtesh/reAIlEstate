@@ -131,33 +131,78 @@ class TransactionLinkSerializer(serializers.ModelSerializer):
 
 
 class ProjectListSerializer(serializers.ModelSerializer):
+    latitude = serializers.SerializerMethodField()
+    longitude = serializers.SerializerMethodField()
+    location_status = serializers.SerializerMethodField()
     project_pic = serializers.SerializerMethodField()
+    price_min = serializers.SerializerMethodField()
+    price_max = serializers.SerializerMethodField()
     configurations = serializers.SerializerMethodField()
     amenities = serializers.SerializerMethodField()
 
     def to_representation(self, instance):
         if instance.status == "published":
             return super().to_representation(instance)
-        from django.db.models import Q
-        from .models import ReviewTask
-
-        reference = ReviewTask.objects.filter(project=instance, task_type="external_sources").filter(
-            Q(resolution__manualLocation__isnull=False) | Q(resolution__googlePlaceId__isnull=False)
-        ).order_by("-created_at", "-pk").first()
-        accepted_location = bool(reference and reference.state == "resolved" and reference.resolution.get("reviewState") == "accepted")
         return {
             "id": str(instance.pk), "submitted_name": instance.submitted_name, "locality": instance.locality,
             "project_pic": self.get_project_pic(instance),
             "status": instance.status, "maha_rera_id": "", "verification_status": "unavailable",
             "verification_checked_at": None, "updated_at": instance.updated_at.isoformat(),
-            "latitude": str(instance.latitude) if accepted_location and instance.latitude is not None else None,
-            "longitude": str(instance.longitude) if accepted_location and instance.longitude is not None else None,
+            "latitude": self.get_latitude(instance), "longitude": self.get_longitude(instance),
+            "location_status": self.get_location_status(instance),
             "configurations": [], "amenities": [],
+            "price_min": self.get_price_min(instance), "price_max": self.get_price_max(instance),
         }
 
     class Meta:
         model = Project
-        fields = ["id", "submitted_name", "project_pic", "maha_rera_id", "locality", "status", "verification_status", "verification_checked_at", "latitude", "longitude", "configurations", "amenities", "updated_at"]
+        fields = ["id", "submitted_name", "project_pic", "price_min", "price_max", "maha_rera_id", "locality", "status", "verification_status", "verification_checked_at", "latitude", "longitude", "location_status", "configurations", "amenities", "updated_at"]
+
+    def _map_location(self, obj):
+        from .project_map_locations import project_map_location
+
+        if not hasattr(self, "_map_locations"):
+            self._map_locations = {}
+        if obj.pk not in self._map_locations:
+            self._map_locations[obj.pk] = project_map_location(obj)
+        return self._map_locations[obj.pk]
+
+    def get_latitude(self, obj):
+        value = self._map_location(obj)["latitude"]
+        return str(value) if value is not None else None
+
+    def get_longitude(self, obj):
+        value = self._map_location(obj)["longitude"]
+        return str(value) if value is not None else None
+
+    def get_location_status(self, obj):
+        return self._map_location(obj)["location_status"]
+
+    def _price_range(self, obj):
+        from django.conf import settings
+        from .layout_pricing import project_price_range
+
+        if obj.status not in {"published", "ingestion", "needs_review"}:
+            return None, None
+        if obj.status != "published" and not settings.PROJECT_PUBLIC_PREVIEW_ENABLED:
+            return None, None
+        if hasattr(obj, "layout_price_min"):
+            return obj.layout_price_min, obj.layout_price_max
+        if not hasattr(self, "_price_ranges"):
+            self._price_ranges = {}
+        if obj.pk not in self._price_ranges:
+            self._price_ranges[obj.pk] = project_price_range(
+                obj, can_review=settings.PROJECT_PUBLIC_PREVIEW_ENABLED,
+            )
+        return self._price_ranges[obj.pk]
+
+    def get_price_min(self, obj):
+        value = self._price_range(obj)[0]
+        return format(value, ".2f") if value is not None else None
+
+    def get_price_max(self, obj):
+        value = self._price_range(obj)[1]
+        return format(value, ".2f") if value is not None else None
 
     def get_project_pic(self, obj):
         from django.conf import settings
@@ -168,8 +213,12 @@ class ProjectListSerializer(serializers.ModelSerializer):
         return f"/api/v1/projects/{obj.pk}/picture?v={obj.updated_at.timestamp()}" if available else None
 
     def get_configurations(self, obj):
-        items = HomeConfiguration.objects.filter(building__project=obj, fact_set_version__lte=obj.published_fact_set_version)
-        return HomeConfigurationSerializer(items, many=True).data
+        from django.conf import settings
+        from .layout_configurations import project_layout_configurations
+
+        return project_layout_configurations(
+            obj, can_review=settings.PROJECT_PUBLIC_PREVIEW_ENABLED,
+        )
 
     def get_amenities(self, obj):
         return list(obj.project_amenities.values_list("amenity__taxonomy_code", flat=True))
@@ -226,7 +275,9 @@ class ProjectPreviewSerializer(ProjectDetailSerializer):
         return serializers.ModelSerializer.to_representation(self, instance)
 
     def get_configurations(self, obj):
-        return HomeConfigurationSerializer(HomeConfiguration.objects.filter(building__project=obj), many=True).data
+        from .layout_configurations import project_layout_configurations
+
+        return project_layout_configurations(obj, can_review=True)
 
     def get_facts(self, obj):
         from .floor_plan_visibility import visible_plan_facts
@@ -325,7 +376,7 @@ class FloorPlanSerializer(serializers.ModelSerializer):
         model = FloorPlan
         fields = [
             "id", "documentId", "workflowRunId", "page_number", "plan_scope", "plan_name",
-            "configuration_type", "carpet_area_sqft", "room_count", "bathroom_count",
+            "configuration_type", "carpet_area_sqft", "price", "room_count", "bathroom_count",
             "balcony_count", "orientation", "dimensions", "features", "confidence", "review_state",
             "extractor_version", "evidenceReference", "crop", "created_at", "updated_at",
             "sourceKind", "isPreferredSource", "displayName", "displayTitle",
@@ -457,5 +508,3 @@ class NotificationSubscriptionSerializer(serializers.ModelSerializer):
         model = NotificationSubscription
         fields = ["id", "eventType", "channel", "frequency", "enabled", "last_sent_at", "created_at", "updated_at"]
         read_only_fields = ["id", "last_sent_at", "created_at", "updated_at"]
-
-

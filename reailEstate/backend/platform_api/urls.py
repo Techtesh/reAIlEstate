@@ -1,6 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 from .output_views import ProjectExtractionOutputView, IngestionOutputDownloadView
+from .commute_locations_views import CommuteLocationResolveView, CommuteLocationSearchView
 
 from .views import (
     AccountDeleteView,
@@ -77,6 +78,8 @@ router.register("admin/amenities", AmenityAdminViewSet, basename="admin-amenity"
 router.register("admin/feature-flags", FeatureFlagAdminViewSet, basename="admin-feature-flag")
 
 urlpatterns = [
+    path("commute-locations/search", CommuteLocationSearchView.as_view()),
+    path("commute-locations/resolve", CommuteLocationResolveView.as_view()),
     path("map-stations", MapStationListView.as_view()),
     path("projects/<uuid:project_id>/gallery", ProjectGalleryView.as_view(), name="project-gallery"),
     path("projects/<uuid:project_id>/picture", ProjectPictureView.as_view(), name="project-picture"),

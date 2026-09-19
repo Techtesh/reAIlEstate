@@ -3,7 +3,7 @@ import json
 import sys
 from copy import deepcopy
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 
 import pytest
 
@@ -66,7 +66,7 @@ def sdk(monkeypatch):
     transport = MagicMock()
     transport.__enter__.return_value = transport
     credential = MagicMock()
-    credential.get_token.return_value = SimpleNamespace(token="test-entra-token")
+    credential.get_token.return_value = SimpleNamespace(token="test-entra-token", expires_on=vision.time.time() + 3600)
     openai = Mock(return_value=client)
     httpx = Mock(return_value=transport)
     identity = Mock(return_value=credential)
@@ -275,7 +275,9 @@ def test_local_request_has_png_high_detail_and_explicit_schema(profiles, sdk, pr
     assert sdk.openai.call_args.kwargs["base_url"] == "http://127.0.0.1:11434/v1/"
     assert sdk.openai.call_args.kwargs["api_key"] == "local-not-secret"
     assert sdk.openai.call_args.kwargs["http_client"] is sdk.transport
-    sdk.httpx.assert_called_once_with(follow_redirects=False, trust_env=False)
+    sdk.httpx.assert_called_once_with(follow_redirects=False, trust_env=False,
+                                      event_hooks={"request": [ANY], "response": [ANY]})
+    assert all(callable(hook) for hooks in sdk.httpx.call_args.kwargs["event_hooks"].values() for hook in hooks)
     sdk.client.__exit__.assert_called_once()
     sdk.transport.__exit__.assert_called_once()
     sdk.identity.assert_not_called()
@@ -310,26 +312,57 @@ def test_missing_explicit_key_never_falls_back(profiles, sdk, provider):
     sdk.openai.assert_not_called()
 
 
-def test_azure_entra_credential_is_closed(profiles, sdk):
+def test_azure_entra_credential_is_reused_until_closed(profiles, sdk):
     profiles["cloud"]["provider"] = "azure_foundry"
     del profiles["cloud"]["api_key_env"]
     adapter = vision.get_floor_plan_vision_provider(vision.resolve_vision_selection("cloud"))
-    adapter.analyze(PNG, "image/png", SCHEMA)
+    try:
+        adapter.analyze(PNG, "image/png", SCHEMA)
+        adapter.analyze(PNG, "image/png", SCHEMA)
+        sdk.credential.close.assert_not_called()
+    finally:
+        adapter.close()
+    adapter.close()
+    sdk.identity.assert_called_once_with()
     sdk.credential.get_token.assert_called_once_with("https://cognitiveservices.azure.com/.default")
     sdk.credential.close.assert_called_once()
     assert sdk.openai.call_args.kwargs["api_key"] == "test-entra-token"
 
 
-def test_azure_token_failure_is_safe_and_closes_credential(profiles, sdk):
+def test_azure_token_failure_is_safe_and_closes_credential(profiles, sdk, monkeypatch):
     profiles["cloud"]["provider"] = "azure_foundry"
     del profiles["cloud"]["api_key_env"]
     sdk.credential.get_token.side_effect = RuntimeError("secret from identity provider")
+    monkeypatch.setattr(vision.time, "sleep", Mock())
     adapter = vision.get_floor_plan_vision_provider(vision.resolve_vision_selection("cloud"))
-    with pytest.raises(ProviderUnavailable) as error:
-        adapter.analyze(PNG, "image/png", SCHEMA)
+    try:
+        with pytest.raises(ProviderUnavailable) as error:
+            adapter.analyze(PNG, "image/png", SCHEMA)
+    finally:
+        adapter.close()
     assert "secret" not in str(error.value)
+    assert sdk.credential.get_token.call_count == 3
     sdk.credential.close.assert_called_once()
     sdk.openai.assert_not_called()
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_flat_separation_skill_closes_owned_provider(profiles, monkeypatch, fails):
+    from platform_api import floor_plan_ai_skill as skill
+
+    provider = Mock()
+    provider.analyze_unit_regions.return_value = ([], {"unitCount": 0})
+    if fails:
+        provider.analyze_unit_regions.side_effect = ProviderUnavailable("Unavailable")
+    monkeypatch.setattr(skill, "get_floor_plan_vision_provider", Mock(return_value=provider))
+    if fails:
+        with pytest.raises(ProviderUnavailable):
+            skill.FloorPlanFlatSeparationAISkill.invoke(PNG, "image/png")
+    else:
+        regions, metadata = skill.FloorPlanFlatSeparationAISkill.invoke(PNG, "image/png")
+        assert regions == [] and metadata["unitCount"] == 0
+        assert metadata["skill"] == skill.FloorPlanFlatSeparationAISkill.name
+    provider.close.assert_called_once_with()
 
 
 def test_legacy_key_is_read_only_at_execution(settings, sdk):

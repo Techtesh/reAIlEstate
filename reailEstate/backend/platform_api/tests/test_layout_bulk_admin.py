@@ -21,7 +21,7 @@ from django.utils import timezone
 from platform_api import floor_plan_removal as removal
 from platform_api.ingestion_runtime import WorkAlreadyClaimed
 from platform_api.layout_bulk_admin import CONFIRMATION_MAX_AGE, SELECTION_SALT, LayoutBulkAdminMixin
-from platform_api.models import AuditEvent, EvidenceDocument, FloorPlan, FloorPlanAsset, Operation, OutboxMessage, Project, ProjectMerge
+from platform_api.models import AuditEvent, EvidenceDocument, FloorPlan, FloorPlanAsset, Operation, OutboxMessage, Project, ProjectMerge, StationCandidate
 from platform_api.tests.layout_bulk_helpers import layout_records, queue_plan, versions
 
 pytestmark = pytest.mark.django_db(transaction=True)
@@ -32,11 +32,15 @@ class BulkTestAdmin(LayoutBulkAdminMixin, ModelAdmin):
         return self.layout_bulk_urls() + [path(
             "<uuid:object_id>/media/", self.admin_site.admin_view(lambda request, object_id: HttpResponse("Layouts")),
             name="platform_api_project_media_dashboard",
-        )] + super().get_urls()
+        ), path("jobs/", self.admin_site.admin_view(lambda request: HttpResponse("Jobs")),
+                name="platform_api_project_jobs"),
+            path("layout-cart/", self.admin_site.admin_view(lambda request: HttpResponse("Cart")),
+                 name="platform_api_project_layout_cart")] + super().get_urls()
 
 
 site = AdminSite(name="bulk_test")
 site.register(Project, BulkTestAdmin)
+site.register(StationCandidate, ModelAdmin)
 urlpatterns = [path("admin/", site.urls)]
 
 

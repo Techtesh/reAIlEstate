@@ -56,17 +56,24 @@ def validate_requirement_payload(payload, final=False):
     if not isinstance(places, list):
         errors.setdefault("places", []).append({"code": "INVALID_LIST"})
     else:
+        if len(places) > 10:
+            errors.setdefault("places", []).append({"code": "TOO_MANY_PLACES"})
         seen = set()
         for index, place in enumerate(places):
             if not isinstance(place, dict):
                 errors.setdefault(f"places.{index}", []).append({"code": "INVALID_OBJECT"})
                 continue
             place_id = place.get("placeId")
-            if not place_id:
-                errors.setdefault(f"places.{index}.placeId", []).append({"code": "REQUIRED"})
+            if (not isinstance(place_id, str) or not place_id.strip() or len(place_id) > 255
+                    or any(ord(character) < 32 for character in place_id)):
+                errors.setdefault(f"places.{index}.placeId", []).append({"code": "INVALID_PLACE_ID"})
             elif place_id in seen:
                 errors.setdefault(f"places.{index}.placeId", []).append({"code": "DUPLICATE"})
-            seen.add(place_id)
+            else:
+                seen.add(place_id)
+            precision = place.get("precision", "locality")
+            if precision not in ("exact", "locality", "municipality"):
+                errors.setdefault(f"places.{index}.precision", []).append({"code": "INVALID_PRECISION"})
             frequency = place.get("frequencyPerWeek", 0)
             if not isinstance(frequency, int) or not 0 <= frequency <= 28:
                 errors.setdefault(f"places.{index}.frequencyPerWeek", []).append({"code": "OUT_OF_RANGE"})
@@ -76,11 +83,16 @@ def validate_requirement_payload(payload, final=False):
             latitude, longitude = place.get("latitude"), place.get("longitude")
             if (latitude is None) != (longitude is None):
                 errors.setdefault(f"places.{index}", []).append({"code": "INCOMPLETE_COORDINATES"})
+            elif precision == "exact" and latitude is None:
+                errors.setdefault(f"places.{index}", []).append({"code": "COORDINATES_REQUIRED"})
             elif latitude is not None and (
-                not isinstance(latitude, (int, float))
+                isinstance(latitude, bool) or isinstance(longitude, bool)
+                or not isinstance(latitude, (int, float))
                 or not isinstance(longitude, (int, float))
                 or not -90 <= latitude <= 90
                 or not -180 <= longitude <= 180
+                or not math.isfinite(latitude)
+                or not math.isfinite(longitude)
             ):
                 errors.setdefault(f"places.{index}", []).append({"code": "INVALID_COORDINATES"})
 
@@ -171,6 +183,8 @@ def _project_configuration_data(project):
 
 
 def _hard_constraint_failure(project, profile, configurations):
+    from .layout_pricing import project_price_range
+
     home = profile.get("home", {})
     budget = profile.get("budget", {})
     requested_types = set(home.get("configurations", []))
@@ -183,8 +197,8 @@ def _hard_constraint_failure(project, profile, configurations):
     if bathrooms and home.get("bathroomsIsHardConstraint", True) and not any(item.bathrooms >= bathrooms for item in configurations):
         return "INSUFFICIENT_BATHROOMS"
     budget_max = _decimal(budget.get("allInMaximum") or budget.get("purchaseMaximum"))
-    known_prices = [item.price_min for item in configurations if item.price_min is not None]
-    if budget.get("isHardConstraint") and budget_max is not None and known_prices and min(known_prices) > budget_max:
+    price, _ = project_price_range(project)
+    if budget.get("isHardConstraint") and budget_max is not None and price is not None and price > budget_max:
         return "OVER_HARD_BUDGET"
     required = {item.get("code") for item in profile.get("societyAmenities", []) if item.get("importance") == "required" and not item.get("substituteAccepted")}
     available = set(ProjectAmenity.objects.filter(project=project, availability_state="available").values_list("amenity__taxonomy_code", flat=True))
@@ -201,12 +215,13 @@ def _space_score(profile, configurations):
     return float(min(Decimal("1"), best / preferred))
 
 
-def _budget_score(profile, configurations):
+def _budget_score(profile, project):
+    from .layout_pricing import project_price_range
+
     maximum = _decimal(profile.get("budget", {}).get("allInMaximum") or profile.get("budget", {}).get("purchaseMaximum"))
-    known_prices = [item.price_min for item in configurations if item.price_min is not None]
-    if maximum is None or not known_prices:
+    price, _ = project_price_range(project)
+    if maximum is None or price is None:
         return None
-    price = min(known_prices)
     if price <= maximum:
         return float(max(Decimal("0.5"), Decimal("1") - (maximum - price) / maximum * Decimal("0.5")))
     return float(max(Decimal("0"), Decimal("1") - (price - maximum) / maximum))
@@ -241,6 +256,7 @@ def _metric_score(project, code):
 
 def compute_project_metrics(project):
     from .floor_plan_visibility import visible_plan_facts
+    from .layout_pricing import pricing_layouts
 
     now = timezone.now()
     facts = list(visible_plan_facts(project.facts.filter(
@@ -254,7 +270,8 @@ def compute_project_metrics(project):
         "evidence_completeness": (min(1, len({fact.field_code for fact in facts}) / 10), "ratio", evidence_confidence),
         "configuration_count": (len(configurations), "count", evidence_confidence),
     }
-    rates = [float(item.price_min / item.carpet_area_min) for item in configurations if item.price_min and item.carpet_area_min]
+    priced_layouts = pricing_layouts().filter(pricing_project_id=project.pk, price__isnull=False, carpet_area_sqft__gt=0)
+    rates = [float(item.price / item.carpet_area_sqft) for item in priced_layouts]
     if rates:
         metric_values["price_per_carpet_sqft"] = (min(rates), "INR/sqft", evidence_confidence)
     snapshot_hash = hashlib.sha256(json.dumps({"project": str(project.id), "factSet": project.published_fact_set_version, "facts": [(item.field_code, item.typed_value) for item in facts]}, sort_keys=True, default=str).encode()).hexdigest()
@@ -275,7 +292,7 @@ def compute_project_metrics(project):
 def _components(project, profile, configurations, commute=None):
     return {
         "commute": commute,
-        "budget": _budget_score(profile, configurations),
+        "budget": _budget_score(profile, project),
         "space": _space_score(profile, configurations),
         "societyAmenities": _amenity_score(project, profile.get("societyAmenities", [])),
         "nearbyAmenities": _amenity_score(project, profile.get("nearbyAmenities", []), nearby=True),

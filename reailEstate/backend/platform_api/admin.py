@@ -1,4 +1,5 @@
 from copy import copy
+from decimal import Decimal
 from io import BytesIO
 from types import SimpleNamespace
 import json
@@ -84,6 +85,29 @@ class StationCandidateAdmin(admin.ModelAdmin):
 class PlanRemovalConfirmationForm(forms.Form):
     confirm = forms.BooleanField(label="Confirm this action for this record only")
     expected_updated_at = forms.DateTimeField(widget=forms.HiddenInput)
+
+
+class LayoutPriceForm(forms.Form):
+    floor_plan_id = forms.UUIDField(widget=forms.HiddenInput)
+    expected_updated_at = forms.DateTimeField(widget=forms.HiddenInput)
+    price = forms.DecimalField(
+        label="Total price (INR)", required=False, min_value=Decimal("0.01"),
+        max_digits=16, decimal_places=2,
+        help_text="Leave blank for contact to know. Enter the total price, not a per-square-foot rate.",
+    )
+
+
+def project_price_label(project):
+    from .layout_pricing import project_price_range
+
+    if not project or not project.pk:
+        return "contact to know"
+    minimum, maximum = project_price_range(project, can_review=True)
+    if minimum is None:
+        return "contact to know"
+    if minimum == maximum:
+        return f"INR {minimum:,.2f}"
+    return f"INR {minimum:,.2f} - INR {maximum:,.2f}"
 
 
 def _asset_preview(asset):
@@ -259,13 +283,23 @@ class PlanSegmentationMethodFilter(admin.SimpleListFilter):
 @admin.register(FloorPlan)
 class FloorPlanAdmin(LayoutExtractionAdminMixin, LayoutCropUpdateAdminMixin, ImageNavigationAdminMixin, admin.ModelAdmin):
     list_display = ("plan_name", "project", "page_number", "record_level", "segmentation_method",
-                    "configuration_type", "active", "crop_remaining", "review_state")
+                    "configuration_type", "price", "active", "crop_remaining", "review_state")
     list_filter = ("active", "crop_remaining", "review_state", "plan_scope", "asset__asset_type", PlanSegmentationMethodFilter)
     search_fields = ("project__submitted_name", "plan_name", "document__original_name")
     list_select_related = ("project", "document", "asset")
-    readonly_fields = ("saved_image", "extraction_notice", "removal_action", "review_state", "display_name",
+    readonly_fields = ("saved_image", "extraction_notice", "removal_action", "review_state", "display_name", "price", "pricing_editor",
                        *EXTRACTION_FIELDS, "dimensions", "features", "raw_extraction", "confidence", "extractor_version")
     ordering = ("project__submitted_name", "document_id", "page_number", "plan_name", "id")
+
+    @admin.display(description="Layout pricing")
+    def pricing_editor(self, obj):
+        if not obj or not obj.pk or obj.plan_scope != "flat":
+            return "Pricing is entered on individual layouts."
+        project_id = ProjectMerge.objects.filter(source_project_id=obj.project_id, state="applied").values_list(
+            "target_project_id", flat=True
+        ).first() or obj.project_id
+        url = reverse("admin:platform_api_project_media_dashboard", args=[project_id])
+        return format_html('<a href="{}?section=layouts">Edit total price in the layout dashboard</a>', url)
 
     def has_delete_permission(self, request, obj=None):
         # Removal is reversible; the default admin delete would destroy evidence.
@@ -961,27 +995,20 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
 
     def jobs_view(self, request):
         from django.core.exceptions import ValidationError
-        from .queue_monitor import delete_dead_letter, queue_snapshot, requeue_dead_letter
+        from .queue_monitor import delete_dead_letter, queue_snapshot
         if request.method == "POST":
-            action = request.POST.get("action")
-            if action not in {"delete_dead_letter", "requeue_dead_letter"}:
+            if request.POST.get("action") != "delete_dead_letter":
                 from django.http import HttpResponseBadRequest
                 return HttpResponseBadRequest("Unknown queue action.")
             try:
-                if action == "requeue_dead_letter":
-                    requeue_dead_letter(request.user, request.POST.get("message_id"), request.POST.get("version"))
-                else:
-                    delete_dead_letter(request.user, request.POST.get("message_id"), request.POST.get("version"),
-                                      confirmed=request.POST.get("confirm_delete") == "yes")
+                delete_dead_letter(request.user, request.POST.get("message_id"), request.POST.get("version"),
+                                  confirmed=request.POST.get("confirm_delete") == "yes")
             except ValidationError as exc:
                 messages.error(request, " ".join(exc.messages))
             except WorkAlreadyClaimed:
-                messages.warning(request, "A worker has claimed this job. Reload and try again.")
+                messages.warning(request, "A worker has claimed this job. Reload before deleting it.")
             else:
-                if action == "requeue_dead_letter":
-                    messages.success(request, "Dead-letter job requeued. Run queued evaluations to process it.")
-                else:
-                    messages.success(request, "Dead-letter job deleted. Project data and audit history were retained.")
+                messages.success(request, "Dead-letter job deleted. Project data and audit history were retained.")
             return HttpResponseRedirect(reverse("admin:platform_api_project_jobs"))
         response = TemplateResponse(request, "admin/platform_api/queue_monitor.html", {
             **self.admin_site.each_context(request), "opts": self.model._meta,
@@ -1005,8 +1032,16 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
         obj = self.get_object(request, object_id)
         if obj and self.has_view_or_change_permission(request, obj):
             from .external_sources_admin import project_transit_maps
+            from .layout_pricing import pricing_layouts
 
             context["project_transit_maps"] = project_transit_maps(obj)
+            context["project_layouts"] = pricing_layouts(can_review=True).filter(
+                pricing_project_id=obj.pk,
+            ).order_by("configuration_type", "plan_name", "pk")
+            context["project_layout_price_range"] = project_price_label(obj)
+            context["can_view_layout_records"] = request.user.has_perm(
+                "platform_api.view_floorplan",
+            ) or request.user.has_perm("platform_api.change_floorplan")
             from django.conf import settings
 
             reference = ReviewTask.objects.filter(LOCATION_REFERENCE_QUERY, project=obj,
@@ -1065,19 +1100,14 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
     @staticmethod
     def _layout_card(plan, dashboard_project=None):
         from .floor_plan_rules import plan_source_kind
+        from .domain.room_dimensions import calculate_room_areas
         source_kind = plan_source_kind(plan)
         dimensions = []
-        for item in plan.dimensions if isinstance(plan.dimensions, list) else []:
-            if not isinstance(item, dict):
-                continue
+        for item in calculate_room_areas(plan.dimensions):
             length, width = item.get("lengthFt"), item.get("widthFt")
-            try:
-                area = round(float(length) * float(width), 2)
-            except (TypeError, ValueError):
-                area = None
             dimensions.append({
                 "room": item.get("room") or item.get("name") or "Room",
-                "length": length, "width": width, "area": area,
+                "length": length, "width": width, "area": item["areaSqFt"],
                 "raw": json.dumps(item, indent=2, default=str),
             })
         manual_crop_url = reverse(
@@ -1085,6 +1115,9 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
         )
         return {
             "plan": plan,
+            "priceForm": LayoutPriceForm(initial={
+                "floor_plan_id": plan.pk, "expected_updated_at": plan.updated_at.isoformat(), "price": plan.price,
+            }, auto_id=f"id_layout_price_{plan.pk}_%s") if plan.plan_scope == "flat" else None,
             "inactive": not plan.active or getattr(plan, "inactive_source", False),
             "editCropUrl": reverse("admin:platform_api_floorplan_crop_update", args=[plan.pk]) if plan.plan_scope in {"flat", "floor"} and plan.asset_id else None,
             "editExtractionUrl": reverse("admin:platform_api_floorplan_edit_extraction", args=[plan.pk]) if plan.plan_scope in {"flat", "floor"} and plan.asset_id else None,
@@ -1189,12 +1222,31 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                             related = list(visible_floor_plans(FloorPlan.objects.filter(project_id__in=project_family_ids(project),
                                 document_id=plan.document_id, page_number=plan.page_number)))
                             inactive_source = any(item.plan_scope == "floor" and not item.active for item in related)
-                            response = JsonResponse({"plans": [{"id": str(item.pk), "active": item.active,
+                            response = JsonResponse({"projectPrice": project_price_label(project), "plans": [{"id": str(item.pk), "active": item.active,
                                 "inactive": not item.active or (item.plan_scope != "floor" and inactive_source),
                                 "version": item.updated_at.isoformat()} for item in related]})
                             response["Cache-Control"] = "private, no-store"
                             return response
                 return HttpResponseRedirect(request.path + f"?section={section}")
+            if action == "save_layout_price":
+                from django.core.exceptions import ValidationError
+                from .layout_pricing import save_layout_price
+
+                price_form = LayoutPriceForm(request.POST)
+                if price_form.is_valid():
+                    try:
+                        save_layout_price(
+                            project, price_form.cleaned_data["floor_plan_id"], price_form.cleaned_data["price"],
+                            request.user, expected_updated_at=price_form.cleaned_data["expected_updated_at"],
+                        )
+                    except (ValidationError, ValueError) as exc:
+                        messages.error(request, " ".join(exc.messages) if isinstance(exc, ValidationError) else str(exc))
+                    else:
+                        messages.success(request, "Layout price saved. The project price range is calculated from available layout prices.")
+                else:
+                    for field, errors in price_form.errors.items():
+                        messages.error(request, f"{price_form.fields[field].label or field}: {' '.join(errors)}")
+                return HttpResponseRedirect(request.path + "?section=layouts")
             if action == "save_layout_name":
                 from django.core.exceptions import ValidationError
                 from .layout_names import save_layout_name
@@ -1451,6 +1503,9 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
             "boundary_only": boundary_only,
             "bulk_remove_url": reverse("admin:platform_api_project_layout_bulk_remove", args=[project.pk]),
             "project_location": project.locality.strip() or "Location not recorded",
+            "project_price": project_price_label(project),
+            "can_edit_prices": self.has_change_permission(request, project)
+                and request.user.has_perm("platform_api.change_floorplan") and project.status != "retired",
             "title": f"Project media — {project.submitted_name}", "section": section,
             "include_candidates": include_candidates,
             "layout_sort": layout_sort,

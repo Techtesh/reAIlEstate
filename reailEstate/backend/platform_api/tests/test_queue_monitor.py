@@ -175,7 +175,8 @@ def test_project_launch_waits_for_capacity_and_dispatches_after_worker_stops(set
 
 
 @pytest.mark.parametrize("state,expected", [("starting", "starting or already running"), ("queued", "had to be queued"), ("failed", "Could not start")])
-def test_project_run_action_reports_capacity(client, django_user_model, state, expected):
+@pytest.mark.parametrize("action", ["run_project_evaluations", "run_queued_project_evaluations"])
+def test_project_run_action_reports_capacity(client, django_user_model, state, expected, action):
     from django.contrib.messages import get_messages
     from django.urls import reverse
     from platform_api.models import Organization, Project
@@ -185,10 +186,64 @@ def test_project_run_action_reports_capacity(client, django_user_model, state, e
     client.force_login(owner)
     url = reverse("admin:platform_api_project_media_dashboard", args=[project.pk])
     with patch("platform_api.queue_monitor.start_user_queue", return_value=QueueWorker(state=state)) as launch:
-        response = client.post(url + "?section=floor-plans", {"action": "run_project_evaluations"})
+        response = client.post(url + "?section=floor-plans", {"action": action})
     launch.assert_called_once_with(owner, project=project)
     assert response.status_code == 302 and response.url.endswith("?section=floor-plans")
     assert expected in " ".join(str(message) for message in get_messages(response.wsgi_request))
+
+
+def test_queued_only_action_preserves_dead_letters(source, client):
+    from django.urls import reverse
+
+    plan, actor = source
+    job = make_job(actor)
+    job.payload["projectId"] = str(plan.project_id)
+    job.dead_lettered_at = timezone.now()
+    job.last_error_code = "PROVIDER_UNAVAILABLE"
+    job.attempts = 3
+    job.save()
+    version = job.dead_lettered_at
+    client.force_login(actor)
+    url = reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id])
+    page = client.get(url)
+    assert b'Run queued evaluations (exclude DLQ)' in page.content
+    with patch("platform_api.queue_monitor.start_user_queue", return_value=None) as launch:
+        response = client.post(url, {"action": "run_queued_project_evaluations"},
+                               HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        assert response.status_code == 200 and response.json()["redirectUrl"]
+        launch.assert_called_once_with(actor, project=plan.project)
+        launch.reset_mock()
+        response = client.post(url, {"action": "run_project_evaluations"},
+                               HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        assert response.status_code == 409 and response.json()["requiresConfirmation"]
+        launch.assert_not_called()
+    job.refresh_from_db()
+    assert job.dead_lettered_at == version and job.attempts == 3
+    assert job.last_error_code == "PROVIDER_UNAVAILABLE" and job.published_at is None
+
+
+def test_drain_excludes_dead_letters_and_completed_jobs(django_user_model):
+    owner = django_user_model.objects.create_superuser(username="pending-only", password=None)
+    pending = make_job(owner)
+    stopped = make_job(owner)
+    stopped.dead_lettered_at = timezone.now()
+    stopped.attempts = 3
+    stopped.save()
+    completed = make_job(owner)
+    completed.published_at = timezone.now()
+    completed.save()
+    seen = []
+
+    def process(limit, message_ids):
+        seen.extend(message_ids)
+        OutboxMessage.objects.filter(pk__in=message_ids).update(published_at=timezone.now())
+        return {"processed": len(message_ids), "retry": 0, "failed": 0}
+
+    with patch("platform_api.management.commands.process_outbox.process_pending_outbox", side_effect=process):
+        call_command("process_outbox", event_type="extraction", owner_id=owner.pk, drain=True)
+    assert seen == [pending.pk]
+    stopped.refresh_from_db()
+    assert stopped.dead_lettered_at and stopped.attempts == 3 and stopped.published_at is None
 
 
 def test_dead_letter_delete_is_confirmed_audited_and_preserves_operation(client, django_user_model):

@@ -1,5 +1,5 @@
 import { test as base, expect, type Page } from '@playwright/test'
-import type { Draft, MapLine, MapStation, Profile, Project, Shortlist, Snapshot } from '../src/buyer'
+import type { Draft, MapConnection, MapLine, MapStation, Profile, Project, Shortlist, Snapshot } from '../src/buyer'
 import type { GalleryItem } from '../src/ProjectGallery'
 
 const test = base.extend<{ clientErrors: string[] }>({
@@ -19,6 +19,8 @@ const fixtures: Project[] = ['Fixture Lakes', 'Fixture Gardens', 'Fixture Unmapp
   id: projectIds[index], submittedName: name, locality: index === 1 ? 'Thane' : 'Powai', status: 'published', mahaReraId: `P12345678${index}`,
   verificationStatus: index === 1 ? 'unavailable' : 'verified', verificationCheckedAt: index === 1 ? null : '2026-09-15T10:00:00Z', updatedAt: '2026-09-15T10:00:00Z',
   latitude: index === 2 ? null : String(19.12 + index * .10), longitude: index === 2 ? null : String(72.91 + index * .06),
+  priceMin: index === 2 ? null : String(15000000 + index * 1000000),
+  priceMax: index === 2 ? null : String(18000000 + index * 1000000),
   configurations: [{ configurationType: '2BHK', carpetAreaMin: '700', carpetAreaMax: '850', priceMin: index === 2 ? null : String(15000000 + index * 1000000), priceMax: null, bathrooms: 2 }], amenities: ['gym'], facts: [],
 }))
 const snapshot: Snapshot = { id: snapshotId, status: 'ready', profileVersion: 2, algorithmVersion: 'match-1.0', generatedAt: '2026-09-17T10:00:00Z', expiresAt: '2099-09-18T10:00:00Z', excludedSummary: [], items: fixtures.map((project, index) => ({ projectId: project.id, rank: index + 1, score: 80 - index * 10, confidence: .8, components: [{ code: 'BUDGET', score: .8, weight: .25, status: 'available' }, { code: 'SPACE', score: 0, weight: .2, status: 'available' }, { code: 'COMMUTE', weight: .3, status: 'unavailable' }], reasonCodes: ['ALL_HARD_CONSTRAINTS_MET'], freshness: { projectFactsAsOf: '2026-09-15T10:00:00Z' } })) }
@@ -85,6 +87,210 @@ async function mockApi(page: Page, signedIn = true) {
   })
   return state
 }
+
+async function addCoordinateDestination(page: Page, label = 'Work campus') {
+  await page.getByRole('button', { name: 'Add destination', exact: true }).click()
+  await page.getByLabel('Destination locality', { exact: true }).fill(label)
+  await page.getByText('Set map location', { exact: true }).click()
+  await page.getByLabel('Location entry method').selectOption('coordinates')
+  await page.getByLabel('Latitude', { exact: true }).fill('19.3')
+  await page.getByLabel('Longitude', { exact: true }).fill('73.01')
+  await page.getByRole('button', { name: 'Use coordinates', exact: true }).click()
+}
+
+test('project names lead compact cards and provisional map pins are clearly labelled', async ({ page }, info) => {
+  await mockApi(page, false)
+  await page.route('**/api/v1/projects/', route => route.fulfill({ json: { results: fixtures.map((project, index) => ({ ...project, locationStatus: index === 0 ? 'provisional' : 'published' })), next: null } }))
+  await page.goto('/browse')
+  const card = page.locator(`#project-${projectIds[0]}`)
+  await expect(card.getByRole('heading', { name: 'Fixture Lakes', level: 2 })).toBeVisible()
+  const heading = await card.locator('.project-heading').boundingBox()
+  const price = await card.locator('.price-row').boundingBox()
+  expect(heading!.y + heading!.height).toBeLessThanOrEqual(price!.y)
+  expect((await page.locator('.browse-heading').boundingBox())!.height).toBeLessThan(76)
+  await expect(page.locator('.price-pin.provisional')).toHaveCount(1)
+  await expect(card).toContainText('Provisional map location - not reviewed')
+  await expect(page.locator('.map-data-status')).toContainText('development preview, not reviewed')
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.getByRole('button', { name: 'Feed view', exact: true }).click()
+    await noOverflow(page)
+    expect((await page.locator('.browse-heading').boundingBox())!.height).toBeLessThan(160)
+    await page.screenshot({ path: info.outputPath(`compact-projects-${width}.png`), fullPage: true })
+  }
+})
+
+test('daily commute coordinates save privately, reload by profile, and appear only on shortlist with inverse colours', async ({ page }, info) => {
+  const state = await mockApi(page)
+  await page.goto('/browse')
+  await page.getByRole('button', { name: 'Shortlist Fixture Lakes', exact: true }).click()
+  await page.getByRole('link', { name: /^Shortlist/ }).click()
+  await page.locator('.shortlist-commute > summary').click()
+  await addCoordinateDestination(page)
+  await expect(page.locator('.commute-pin')).toHaveCount(1)
+  await expect(page.locator('.commute-pin')).toHaveAttribute('title', 'Daily commute 1: Work campus')
+  await page.getByRole('checkbox', { name: /I consent to saving my requirements/ }).check()
+  await page.getByRole('button', { name: 'Save destinations', exact: true }).click()
+  await expect.poll(() => state.patches.length).toBe(1)
+  expect(state.patches[0].home.configurations).toEqual([])
+  expect(state.patches[0].places[0]).toMatchObject({ label: 'Work campus', precision: 'exact', latitude: 19.3, longitude: 73.01 })
+  await expect(page.locator('.shortlist-commute')).toContainText('Saved privately | version 2')
+  expect(state.consents).toBe(1)
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme })
+    await expect(page.locator('.commute-pin')).toHaveCSS('background-color', colorScheme === 'light' ? 'rgb(23, 23, 23)' : 'rgb(255, 255, 255)')
+    await expect(page.locator('.price-pin')).toHaveCSS('background-color', colorScheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(23, 23, 23)')
+    await page.screenshot({ path: info.outputPath(`commute-${colorScheme}.png`), fullPage: true })
+  }
+  expect(await page.evaluate(() => JSON.stringify({ session: { ...sessionStorage }, local: { ...localStorage } }))).not.toContain('Work campus')
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.getByRole('button', { name: 'Map view', exact: true }).click()
+    await expect(page.locator('.commute-pin')).toBeVisible()
+    await noOverflow(page)
+  }
+  await page.getByRole('link', { name: 'Browse', exact: true }).click()
+  await expect(page.locator('.commute-pin')).toHaveCount(0)
+  await page.getByRole('link', { name: 'Discover', exact: true }).click()
+  await expect(page.locator('.commute-pin')).toHaveCount(0)
+  await page.getByRole('link', { name: /^Shortlist/ }).click()
+  await expect(page.locator('.commute-pin')).toHaveCount(1)
+  await page.reload()
+  await page.locator('.shortlist-commute > summary').click()
+  await page.getByLabel('Saved requirement profile').selectOption(profileId)
+  await page.getByRole('button', { name: 'Load requirements', exact: true }).click()
+  await expect(page.locator('.commute-pin')).toHaveCount(1)
+  expect(state.requests.some(request => request.includes('commute-locations'))).toBe(false)
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click()
+  await expect(page.locator('.commute-pin')).toHaveCount(0)
+  await expect(page.locator('.shortlist-commute')).toHaveCount(0)
+})
+
+test('daily commute supports Google search, share links, Plus Codes and explicit provider failures', async ({ page }) => {
+  await mockApi(page)
+  const lookups: { path: string; body: Record<string, string> }[] = []
+  await page.route('**/api/v1/commute-locations/**', async route => {
+    const request = route.request(), url = new URL(request.url()), body = request.postDataJSON()
+    expect(request.method()).toBe('POST')
+    expect(url.search).toBe('')
+    expect(request.headers()['x-csrftoken']).toBe('test-only-csrf')
+    lookups.push({ path: url.pathname, body })
+    if (body.query === 'provider unavailable') return route.fulfill({ status: 503, json: {} })
+    const result = { placeId: `google:${lookups.length}`, label: `Resolved destination ${lookups.length}`, precision: 'exact', latitude: 19.1 + lookups.length / 100, longitude: 72.9 }
+    return route.fulfill({ json: url.pathname.endsWith('/search') ? { results: [result] } : result })
+  })
+  await page.goto('/shortlist')
+  await page.locator('.shortlist-commute > summary').click()
+  for (const [index, method, query] of [[1, 'search', 'Office Powai'], [2, 'share', 'https://maps.app.goo.gl/fixture'], [3, 'share', '7JFJ+5C Powai']] as const) {
+    await page.getByRole('button', { name: 'Add destination', exact: true }).click()
+    const destination = page.getByRole('group', { name: `Destination ${index}`, exact: true })
+    await destination.getByLabel('Destination locality', { exact: true }).fill(`Place ${index}`)
+    await destination.getByText('Set map location', { exact: true }).click()
+    await destination.getByLabel('Location entry method').selectOption(method)
+    await destination.getByLabel(method === 'share' ? 'Google Maps share link or Plus Code' : 'Search Google Maps', { exact: true }).fill(query)
+    await destination.getByRole('button', { name: 'Look up location', exact: true }).click()
+    if (index !== 2) await destination.getByRole('button', { name: `Use Resolved destination ${index}`, exact: true }).click()
+    await expect(page.locator('.commute-pin')).toHaveCount(index)
+  }
+  expect(lookups.map(item => item.path)).toEqual(['/api/v1/commute-locations/search', '/api/v1/commute-locations/resolve', '/api/v1/commute-locations/search'])
+  await page.getByRole('button', { name: 'Add destination', exact: true }).click()
+  const destination = page.getByRole('group', { name: 'Destination 4', exact: true })
+  await destination.getByText('Set map location', { exact: true }).click()
+  await destination.getByLabel('Search Google Maps', { exact: true }).fill('provider unavailable')
+  await destination.getByRole('button', { name: 'Look up location', exact: true }).click()
+  await expect(destination.getByRole('alert')).toContainText('Google Maps lookup is unavailable')
+  await expect(page.locator('.commute-pin')).toHaveCount(3)
+  await destination.getByLabel('Location entry method').selectOption('coordinates')
+  await destination.getByLabel('Latitude', { exact: true }).fill('19.2')
+  await destination.getByLabel('Longitude', { exact: true }).fill('72.9')
+  await destination.getByRole('button', { name: 'Use coordinates', exact: true }).click()
+  await expect(page.locator('.commute-pin')).toHaveCount(4)
+})
+
+test('daily commute save conflicts are surfaced on shortlist without overwriting edits', async ({ page }) => {
+  const state = await mockApi(page)
+  state.conflict = true
+  await page.goto('/shortlist')
+  await page.locator('.shortlist-commute > summary').click()
+  await addCoordinateDestination(page)
+  await page.getByRole('checkbox', { name: /I consent to saving my requirements/ }).check()
+  await page.getByRole('button', { name: 'Save destinations', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Another session changed this draft' })).toBeVisible()
+  await expect(page.locator('.commute-pin')).toHaveCount(1)
+  expect(state.patches).toEqual([])
+  await page.getByRole('button', { name: 'Use saved version', exact: true }).click()
+  await expect(page.locator('.commute-pin')).toHaveCount(0)
+})
+
+test('daily commute lookup expiry clears private markers and editor state', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/v1/commute-locations/search', route => route.fulfill({ status: 403, json: {} }))
+  await page.goto('/shortlist')
+  await page.locator('.shortlist-commute > summary').click()
+  await addCoordinateDestination(page)
+  await page.getByText('Change map location', { exact: true }).click()
+  await page.getByLabel('Search Google Maps', { exact: true }).fill('Private office')
+  await page.getByRole('button', { name: 'Look up location', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.locator('.commute-pin')).toHaveCount(0)
+  await expect(page.locator('.shortlist-commute')).toHaveCount(0)
+  expect(await page.evaluate(() => JSON.stringify({ ...sessionStorage }))).not.toContain('Private office')
+})
+
+test('daily commute discards stale searches and prevents duplicate map destinations', async ({ page }) => {
+  await mockApi(page)
+  let release: (() => void) | undefined
+  await page.route('**/api/v1/commute-locations/search', async route => {
+    const query = route.request().postDataJSON().query
+    if (query === 'First office') await new Promise<void>(resolve => { release = resolve })
+    return route.fulfill({ json: { results: [{ placeId: 'google:same-office', label: query, precision: 'exact', latitude: 19.15, longitude: 72.95 }] } })
+  })
+  await page.goto('/shortlist')
+  await page.locator('.shortlist-commute > summary').click()
+  await page.getByRole('button', { name: 'Add destination', exact: true }).click()
+  const first = page.getByRole('group', { name: 'Destination 1', exact: true })
+  await first.getByText('Set map location', { exact: true }).click()
+  await first.getByLabel('Search Google Maps', { exact: true }).fill('First office')
+  await first.getByRole('button', { name: 'Look up location', exact: true }).click()
+  await expect.poll(() => !!release).toBe(true)
+  await first.getByLabel('Search Google Maps', { exact: true }).fill('Second office')
+  release?.()
+  await first.getByRole('button', { name: 'Look up location', exact: true }).click()
+  await expect(first.getByRole('button', { name: 'Use First office', exact: true })).toHaveCount(0)
+  await first.getByRole('button', { name: 'Use Second office', exact: true }).click()
+  await expect(page.locator('.commute-pin')).toHaveAttribute('title', 'Daily commute 1: Second office')
+  await page.getByRole('button', { name: 'Add destination', exact: true }).click()
+  const second = page.getByRole('group', { name: 'Destination 2', exact: true })
+  await second.getByText('Set map location', { exact: true }).click()
+  await second.getByLabel('Search Google Maps', { exact: true }).fill('Same office')
+  await second.getByRole('button', { name: 'Look up location', exact: true }).click()
+  await second.getByRole('button', { name: 'Use Same office', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('That destination is already listed')
+  await expect(page.locator('.commute-pin')).toHaveCount(1)
+})
+
+test('requested metro connections bridge only explicit branch endpoints and respect filters', async ({ page }) => {
+  await mockApi(page, false)
+  const names = [['Miragaon', 'Line 9'], ['Dahisar East', 'Line 9'], ['Gundavali', 'Line 7'], ['Airport Colony', 'Line 7A'], ['Kasarvadavali', 'Line 4'], ['Gowniwada', 'Line 4A']]
+  const stations: MapStation[] = names.map(([name, line], index) => ({ id: `endpoint-${index}`, name, line, kind: 'metro', location: { latitude: 19.1 + index / 100, longitude: 72.9 }, serviceStatus: 'unverified', source: 'user_candidate', asOf: null, sourceUrl: null }))
+  const connections: MapConnection[] = [0, 2, 4].map(index => ({ id: `connection-${index}`, kind: 'metro', name: stations[index + 1].line, lineNames: [...new Set([stations[index].line, stations[index + 1].line])], stationIds: [stations[index].id, stations[index + 1].id], geometryStatus: 'schematic_unverified', source: 'user_requested' }))
+  const lines: MapLine[] = [{ id: 'not-an-authorized-branch', kind: 'metro', name: 'Line 7', stationIds: ['endpoint-2', 'endpoint-3'], geometryStatus: 'schematic_unverified', source: 'user_candidate' }]
+  await page.route('**/api/v1/map-stations', route => route.fulfill({ json: { stations, connections, lines, warnings: [] } }))
+  await page.goto('/browse')
+  await expect(page.locator('.transit-line')).toHaveCount(3)
+  await expect(page.locator('.transit-connection')).toHaveCount(3)
+  for (const line of ['7', '7a', '4', '4a', '9']) {
+    await page.getByLabel('Transit line', { exact: true }).selectOption(`metro:line ${line}`)
+    await expect(page.locator('.transit-line')).toHaveCount(1)
+    await expect(page.locator('.station-pin')).toHaveCount(2)
+  }
+  await page.getByRole('checkbox', { name: 'Unverified stations', exact: true }).uncheck()
+  await expect(page.locator('.transit-line')).toHaveCount(0)
+  await expect(page.locator('.station-pin')).toHaveCount(0)
+  await page.getByRole('checkbox', { name: 'Unverified stations', exact: true }).check()
+  await page.getByRole('checkbox', { name: /^Metro/ }).uncheck()
+  await expect(page.locator('.transit-line')).toHaveCount(0)
+})
 async function noOverflow(page: Page) { expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true) }
 test('project picture loads on cards and failures restore placeholders', async ({ page }, info) => {
   await mockApi(page, false)
@@ -128,7 +334,7 @@ async function mockGallery(page: Page) {
     return canvas.toDataURL('image/png').split(',')[1]
   })
   const items: GalleryItem[] = [
-    { id: 'image-one', url: '/api/v1/media/floor-plan-assets/image-one', title: 'East <b>Residence</b>', category: 'floor-plans', width: 800, height: 600, reviewState: 'approved', layouts: [{ id: 'layout-one', name: 'East <b>Residence</b>', configuration: '2BHK', carpetAreaSqFt: '780', roomCount: 4, bathrooms: 2, balconies: 0, orientation: 'East', reviewState: 'approved', rooms: [{ room: 'Living', lengthFt: 12, widthFt: 10, areaSqFt: 120 }] }] },
+    { id: 'image-one', url: '/api/v1/media/floor-plan-assets/image-one', title: 'East <b>Residence</b>', category: 'floor-plans', width: 800, height: 600, reviewState: 'approved', layouts: [{ id: 'layout-one', name: 'East <b>Residence</b>', configuration: '2BHK', carpetAreaSqFt: '780', price: '15000000.50', roomCount: 4, bathrooms: 2, balconies: 0, orientation: 'East', reviewState: 'approved', rooms: [{ room: 'Living', lengthFt: 12, widthFt: 10, areaSqFt: 120 }] }] },
     { id: 'image-two', url: '/api/v1/media/floor-plan-assets/image-two', title: 'West Residence', category: 'layouts', width: 800, height: 600, reviewState: 'approved', layouts: [] },
   ]
   const state = { fail: false, imageFail: false, empty: false, access: 'published', project: undefined as Project | undefined, items, pages: [] as string[] }
@@ -182,6 +388,7 @@ test('map/feed selection, server filters, shortlist persistence and comparison',
   await page.goto(`/matches/${snapshotId}`)
   await expect(page.locator('.project-card')).toHaveCount(3)
   await expect(page.locator('.price-pin')).toHaveCount(2)
+  await expect(page.locator('.price-pin[title="Fixture Gardens"]')).toHaveText('Fixture Gardens')
   await page.locator('.price-pin[title="Fixture Gardens"]').click()
   await expect(page.locator(`#project-${projectIds[1]}`)).toHaveClass(/selected/)
   await expect(page.locator('.map-preview')).toContainText('Fixture Gardens')
@@ -204,6 +411,29 @@ test('map/feed selection, server filters, shortlist persistence and comparison',
   await expect(page.locator('.project-card')).toHaveCount(0)
 })
 
+test('map project names render as text and long names stay within the marker', async ({ page }) => {
+  await mockApi(page)
+  const name = 'A very long project name <b>not markup</b> with multiple buildings and gardens'
+  await page.route(/\/api\/v1\/projects\/(?:\?.*)?$/, route => route.fulfill({
+    json: { results: [{ ...fixtures[0], submittedName: name }], next: null },
+  }))
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/browse')
+  await page.getByRole('button', { name: 'Map view', exact: true }).click()
+  const pin = page.locator('.price-pin')
+  await expect(pin).toHaveCount(1)
+  await expect(pin).toHaveAttribute('title', name)
+  await expect(pin).toHaveText(name)
+  await expect(pin.locator('b')).toHaveCount(0)
+  const label = pin.locator('span')
+  await expect(label).toHaveCSS('text-overflow', 'ellipsis')
+  const bounds = await label.boundingBox(), pinBounds = await pin.boundingBox()
+  expect(bounds).not.toBeNull()
+  expect(pinBounds).not.toBeNull()
+  expect(bounds!.width).toBeLessThanOrEqual(pinBounds!.width)
+  await noOverflow(page)
+})
+
 test('mobile map selection, details, and summary do not overflow', async ({ page }, info) => {
   await mockApi(page)
   await page.setViewportSize({ width: 390, height: 844 })
@@ -224,6 +454,27 @@ test('mobile map selection, details, and summary do not overflow', async ({ page
   await noOverflow(page)
 })
 
+test('layout-derived prices appear in cards, details and comparisons while map pins show project names', async ({ page }) => {
+  await mockApi(page)
+  await page.goto('/browse')
+  const range = '\u20b91,50,00,000 - \u20b91,80,00,000'
+  await expect(page.locator(`#project-${projectIds[0]} .price-row`)).toContainText(range)
+  await expect(page.locator(`#project-${projectIds[2]} .price-row`)).toContainText('contact to know')
+  await expect(page.locator('.price-pin[title="Fixture Lakes"]')).toHaveText('Fixture Lakes')
+  await page.getByLabel('Sort by').selectOption('price')
+  await expect(page.locator('.project-card').first()).toHaveAttribute('id', `project-${projectIds[0]}`)
+  await expect(page.locator('.project-card').last()).toHaveAttribute('id', `project-${projectIds[2]}`)
+  await page.getByRole('button', { name: 'View Fixture Lakes details and media', exact: true }).click()
+  await expect(page.getByRole('dialog').locator('.detail-price')).toHaveText(range)
+  await page.keyboard.press('Escape')
+  await page.getByRole('checkbox', { name: 'Compare', exact: true }).nth(0).check()
+  await page.getByRole('checkbox', { name: 'Compare', exact: true }).nth(2).check()
+  await page.getByRole('button', { name: 'Compare projects', exact: true }).click()
+  const row = page.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'Price range', exact: true }) })
+  await expect(row).toContainText(range)
+  await expect(row).toContainText('contact to know')
+})
+
 test('project gallery loads paginated media, layouts and published data on desktop and mobile', async ({ page }, info) => {
   const apiState = await mockApi(page, false)
   const galleryState = await mockGallery(page)
@@ -238,9 +489,13 @@ test('project gallery loads paginated media, layouts and published data on deskt
   await expect(gallery.locator('.gallery-caption b')).toHaveCount(0)
   await expect(gallery.getByRole('row', { name: 'Living 12 10 120' })).toBeVisible()
   await expect(gallery.locator('.layout-specs')).toContainText('780 sq ft')
+  await expect(gallery.locator('.layout-specs')).toContainText('Total price (INR)\u20b91,50,00,000.5')
   await expect(gallery.locator('.layout-specs')).toContainText('Balconies0')
   await expect(dialog.locator('.project-amenities')).toContainText('gym')
-  await expect(dialog).toContainText('Available configurations')
+  await expect(dialog).toContainText('Available layouts')
+  const configurations = dialog.getByRole('table').filter({ hasText: 'Carpet area' })
+  await expect(configurations.getByRole('columnheader', { name: 'Price', exact: true })).toBeVisible()
+  await expect(configurations.getByRole('row').filter({ hasText: '2BHK' })).toContainText('₹1,50,00,000')
   await gallery.getByRole('button', { name: 'Next image', exact: true }).click()
   await expect(gallery.locator('.gallery-caption')).toContainText('West Residence')
   await expect(gallery.getByRole('button', { name: 'Next image', exact: true })).toBeDisabled()
@@ -270,6 +525,46 @@ test('project gallery loads paginated media, layouts and published data on deskt
   expect(apiState.requests.some(request => request.startsWith('POST '))).toBe(false)
 })
 
+for (const processing of [false, true]) test(`individual layout aliases and calculated areas remain separate (${processing ? 'processing' : 'published'})`, async ({ page }) => {
+  await mockApi(page, false)
+  const gallery = await mockGallery(page)
+  const names = ['1BHK - unit 5/6', '1BHK- Unit 3', '2BHK- Unit 1/2', '2BHK - unit 4/7 <East>']
+  const project: Project = {
+    ...fixtures[0], status: processing ? 'needs_review' : 'published',
+    configurations: names.map((name, index) => ({
+      id: `layout-${index}`, name, configurationType: index < 2 ? '1BHK' : '2BHK',
+      carpetAreaMin: index === 2 ? '594' : null, carpetAreaMax: index === 2 ? '594' : null,
+      roomRectangleSumSqFt: index === 1 ? null : 438.44 + index,
+      priceMin: null, priceMax: null, bathrooms: 2,
+    })),
+  }
+  gallery.access = processing ? 'preview' : 'published'
+  gallery.project = project
+  await page.route('**/api/v1/projects/**', route => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith('/gallery')) return route.fallback()
+    return route.fulfill({ json: path === '/api/v1/projects/' ? { results: [project], next: null } : project })
+  })
+  await page.goto(processing ? '/browse?includeProcessing=true' : '/browse')
+  await page.getByRole('region', { name: 'Project feed' }).getByRole('button', { name: 'Fixture Lakes', exact: true }).click()
+  const dialog = page.getByRole('dialog'), table = dialog.locator('.layout-summary-table')
+  await expect(table.locator('tbody tr')).toHaveCount(4)
+  for (const name of names) await expect(table.getByRole('rowheader', { name, exact: true })).toBeVisible()
+  await expect(table.locator('tbody tr').nth(0)).toContainText('Unknown')
+  await expect(table.locator('tbody tr').nth(0)).toContainText('438.44 sq ft')
+  await expect(table.locator('tbody tr').nth(0)).toContainText('contact to know')
+  await expect(table.locator('tbody tr').nth(2)).toContainText('594 sq ft')
+  await expect(table.locator('tbody tr').nth(2)).toContainText('440.44 sq ft')
+  await expect(table.locator('tbody tr').nth(1).getByRole('cell').nth(1)).toHaveText('Unknown')
+  await expect(table.locator('East')).toHaveCount(0)
+  await expect(dialog).toContainText('is not carpet area')
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await noOverflow(page)
+    expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
+  }
+})
+
 test('project gallery temporary public preview lets guests view processing data and media', async ({ page }) => {
   const state = await mockApi(page, false)
   const gallery = await mockGallery(page)
@@ -279,12 +574,13 @@ test('project gallery temporary public preview lets guests view processing data 
   gallery.project = { ...processing, configurations: fixtures[0].configurations, amenities: ['gym'], facts: [{ code: 'project.towers', value: 3, unit: '', sourceClass: 'developer', reviewedAt: null, status: 'draft' }] }
   await page.route('**/api/v1/projects/?*', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ results: [processing], next: null }) }))
   await page.goto('/browse?includeProcessing=true')
-  const opener = page.getByRole('button', { name: 'Processing Heights', exact: true })
+  const opener = page.getByRole('region', { name: 'Project feed' }).getByRole('button', { name: 'Processing Heights', exact: true })
   await opener.click()
   await expect(page.getByRole('dialog')).toContainText('Unpublished media. Extracted details may be unreviewed.')
   await expect(page.getByRole('dialog')).toContainText('Temporary public preview.')
   await expect(page.getByRole('region', { name: 'Unpublished project data' })).toContainText('project.towers')
   await expect(page.getByRole('region', { name: 'Unpublished project data' })).toContainText('gym')
+  await expect(page.getByRole('region', { name: 'Unpublished project data' }).locator('.detail-price')).toHaveText('\u20b91,50,00,000 - \u20b91,80,00,000')
   await expect(page.locator('.gallery-caption')).toContainText('Unreviewed')
   await expect(page.locator('.gallery-image img')).toHaveJSProperty('naturalWidth', 800)
   await expect(page.locator('.layout-details')).toContainText('Unreviewed layout')
@@ -381,7 +677,7 @@ test('guests browse listings and station layers without accessing private data',
   await expect(page.locator('.station-pin')).toHaveCount(1)
   await page.getByRole('checkbox', { name: /^Metro/ }).check()
   await page.getByRole('button', { name: 'Fixture Lakes', exact: true }).click()
-  await expect(page.getByRole('dialog')).toContainText('Available configurations')
+  await expect(page.getByRole('dialog')).toContainText('Available layouts')
   await page.keyboard.press('Escape')
   await page.getByRole('checkbox', { name: 'MahaRERA verified', exact: true }).click()
   await expect(page).toHaveURL(/verified=true/)

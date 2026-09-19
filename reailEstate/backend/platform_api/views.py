@@ -431,6 +431,9 @@ class ProjectViewSet(viewsets.ReadOnlyModelViewSet):
         states = ["published", "ingestion", "needs_review"] if preview_detail or (self.action == "list" and include_processing == "true") else ["published"]
         queryset = Project.objects.filter(status__in=states).exclude(address__has_key="mergedIntoProjectId").exclude(
             merge_out__state="applied").prefetch_related("project_amenities__amenity", "metrics", "verification_snapshots", "facts")
+        from .layout_pricing import annotate_project_prices
+
+        queryset = annotate_project_prices(queryset, can_review=settings.PROJECT_PUBLIC_PREVIEW_ENABLED)
         if any(params.get(key) for key in ("configuration", "carpetAreaMinimum", "allInPriceMaximum", "mahaReraStatus", "amenity")):
             queryset = queryset.filter(status="published")
         if params.get("locality"):
@@ -442,8 +445,15 @@ class ProjectViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(buildings__configurations__carpet_area_max__gte=params["carpetAreaMinimum"],
                                        buildings__configurations__fact_set_version__lte=F("published_fact_set_version"))
         if params.get("allInPriceMaximum"):
-            queryset = queryset.filter(buildings__configurations__price_min__lte=params["allInPriceMaximum"],
-                                       buildings__configurations__fact_set_version__lte=F("published_fact_set_version"))
+            from decimal import Decimal, InvalidOperation
+
+            try:
+                maximum = Decimal(params["allInPriceMaximum"])
+            except InvalidOperation:
+                raise ValidationError({"allInPriceMaximum": "Enter a positive amount in INR."}) from None
+            if not maximum.is_finite() or maximum <= 0:
+                raise ValidationError({"allInPriceMaximum": "Enter a positive amount in INR."})
+            queryset = queryset.filter(layout_price_min__lte=maximum)
         if params.get("mahaReraStatus"):
             queryset = queryset.filter(verification_status=params["mahaReraStatus"])
         if params.get("amenity"):
@@ -506,13 +516,21 @@ class ProjectGalleryView(APIView):
         if not allow_unreviewed:
             plans = plans.filter(review_state="approved")
         layouts = {}
+        from .layout_pricing import pricing_layouts
+        from .domain.room_dimensions import calculate_room_areas
+
+        priced_plans = dict(pricing_layouts(can_review=allow_unreviewed).filter(
+            project=project, asset_id__in=[asset.pk for asset in page],
+        ).values_list("pk", "price"))
         for plan in plans.order_by("plan_name", "pk"):
             rooms = [{key: room[key] for key in ("room", "lengthFt", "widthFt", "areaSqFt")
                       if key in room and isinstance(room[key], (str, int, float))}
-                     for room in plan.dimensions if isinstance(room, dict)] if isinstance(plan.dimensions, list) else []
+                     for room in calculate_room_areas(plan.dimensions)]
             layouts.setdefault(plan.asset_id, []).append({
                 "id": str(plan.pk), "name": plan.display_title, "configuration": plan.configuration_type,
                 "carpetAreaSqFt": plan.carpet_area_sqft, "rooms": rooms,
+                "roomRectangleSumSqFt": plan.room_rectangle_sum_sqft,
+                "price": format(priced_plans[plan.pk], ".2f") if priced_plans.get(plan.pk) is not None else None,
                 "roomCount": plan.room_count, "bathrooms": plan.bathroom_count, "balconies": plan.balcony_count,
                 "orientation": plan.orientation, "reviewState": plan.review_state,
             })

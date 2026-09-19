@@ -27,6 +27,46 @@ GENERATED_ID = "12345678-1234-4321-8765-123456789abc"
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("alias", ["Tower 2 Floor 2", '<Tower & "Floor">'])
+def test_manual_crop_heading_uses_escaped_source_name(source, client, alias):
+    from django.urls import reverse
+    from django.utils.html import escape
+
+    plan, actor = source
+    save_layout_name(plan.project, plan.pk, alias, actor)
+    client.force_login(actor)
+    response = client.get(reverse("admin:platform_api_floorplan_manual_crops", args=[plan.pk]))
+    assert response.status_code == 200
+    assert response.context["title"] == f"Draw individual layout crops: {alias}"
+    assert f"<h1>{escape(response.context['title'])}</h1>" in response.content.decode()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("sort,expected", [
+    ("name", ["Tower 2", "Tower 10", "Tower 1"]),
+    ("name-desc", ["Tower 10", "Tower 2", "Tower 1"]),
+])
+def test_floor_plan_sort_is_natural_and_active_first(source, client, sort, expected):
+    from django.urls import reverse
+
+    plan, actor = source
+    plan.display_name = "Tower 10"
+    plan.save()
+    for name, active in [("Tower 2", True), ("Tower 1", False)]:
+        FloorPlan.objects.create(project=plan.project, document=plan.document, asset=plan.asset,
+            workflow_run=plan.workflow_run, page_number=1, plan_scope="floor",
+            plan_name=name, display_name=name, active=active, extractor_version="test")
+    client.force_login(actor)
+    response = client.get(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]),
+                          {"section": "floor-plans", "sort": sort})
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert 'name="sort"' in html and 'data-floor-plan-grid' in html
+    positions = [html.index(f"<h2>{name}</h2>") for name in expected]
+    assert positions == sorted(positions)
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("alias", ["", "Garden home", '<Example & "alias">'])
 def test_dashboard_alias_editor_starts_with_displayed_title(source, client, alias):
     from django.urls import reverse
@@ -407,7 +447,7 @@ def test_placeholder_upsert_preserves_saved_alias(source, monkeypatch):
     assert plans[0].display_name == "Reviewer title"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("rename_during_extraction", [False, True])
 def test_crop_evaluation_keeps_alias_even_when_saved_during_model_call(source, monkeypatch, rename_during_extraction):
     from platform_api import layout_reanalysis

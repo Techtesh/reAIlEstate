@@ -3,7 +3,7 @@
 
 {% block extrahead %}
 {{ block.super }}
-<script src="{% static 'platform_api/project_media_dashboard.js' %}?v=20260916-resizable-layouts" defer></script>
+<script src="{% static 'platform_api/project_media_dashboard.js' %}?v=20260919-layout-pricing" defer></script>
 {% endblock %}
 
 {% block breadcrumbs %}
@@ -17,7 +17,7 @@
 
 {% block extrastyle %}
 {{ block.super }}
-<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}?v=20260918-project-images">
+<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}?v=20260919-layout-pricing">
 {% endblock %}
 
 {% block content %}
@@ -38,6 +38,7 @@
   <div class="media-byline">
     <p class="help">Layout tools v7 — crop-first additions, extraction status and display names</p>
     <p><strong>Location:</strong> {{ project_location|default:"Unknown" }}</p>
+    <p><strong>Layout price range:</strong> <span data-project-price>{{ project_price }}</span></p>
   </div>
   <nav class="project-nav" aria-label="Project navigation">
     <a class="button" href="{{ project_change_url }}">&larr; Back to project</a>
@@ -46,20 +47,6 @@
     <strong>{{ project_navigation.position }} of {{ project_navigation.total }}</strong>
     {% if project_navigation.next %}<a class="button" href="{{ project_navigation.next }}">Next project &rarr;</a>{% else %}<span aria-disabled="true">Next project &rarr;</span>{% endif %}
     {% if can_report %}{% include "admin/platform_api/cart_icon.html" with count=draft_crop_count only %}{% endif %}
-  </nav>
-
-  <nav class="media-tabs" aria-label="Project media sections">
-    <a class="{% if section == 'project-images' %}active{% endif %}" href="?section=project-images">Project images ({{ counts.projectImages }})</a>
-    <a class="{% if section == 'amenities' %}active{% endif %}" href="?section=amenities">Amenities ({{ counts.amenities }})</a>
-    <a class="{% if section == 'floor-plans' %}active{% endif %}" href="?section=floor-plans">Floor plans ({{ counts.floorPlans }})</a>
-    <a class="{% if section == 'layouts' %}active{% endif %}" href="?section=layouts">Layouts ({{ counts.layouts }})</a>
-    {% if can_report %}
-      {% if section == 'project-images' %}
-      <a class="button media-primary media-add" href="#project-image-form">Add project image</a>
-      {% else %}
-      <a class="button media-primary media-add" href="{{ add_source_pages_url }}?category={{ section }}">{% if section == 'layouts' %}Add missing layout{% elif section == 'floor-plans' %}Add missing floor-plan pages{% else %}Add missing amenity pages{% endif %}</a>
-      {% endif %}
-    {% endif %}
   </nav>
 
   {% if carousel %}
@@ -78,6 +65,20 @@
       </div>
     </section>
   {% endif %}
+
+  <nav class="media-tabs" aria-label="Project media sections">
+    <a class="{% if section == 'project-images' %}active{% endif %}" href="?section=project-images">Project images ({{ counts.projectImages }})</a>
+    <a class="{% if section == 'amenities' %}active{% endif %}" href="?section=amenities">Amenities ({{ counts.amenities }})</a>
+    <a class="{% if section == 'floor-plans' %}active{% endif %}" href="?section=floor-plans">Floor plans ({{ counts.floorPlans }})</a>
+    <a class="{% if section == 'layouts' %}active{% endif %}" href="?section=layouts">Layouts ({{ counts.layouts }})</a>
+    {% if can_report %}
+      {% if section == 'project-images' %}
+      <a class="button media-primary media-add" href="#project-image-form">Add project image</a>
+      {% else %}
+      <a class="button media-primary media-add" href="{{ add_source_pages_url }}?category={{ section }}">{% if section == 'layouts' %}Add missing layout{% elif section == 'floor-plans' %}Add missing floor-plan pages{% else %}Add missing amenity pages{% endif %}</a>
+      {% endif %}
+    {% endif %}
+  </nav>
 
   {% if boundary_review_count or boundary_only %}
   <section class="module media-panel boundary-banner" aria-labelledby="boundary-review-heading">

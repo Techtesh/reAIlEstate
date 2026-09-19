@@ -161,8 +161,8 @@ def test_manual_extraction_editor_adds_rooms_without_publishing(client, records)
     assert client.post(url, extraction_post(plan)).status_code == 302
     plan.refresh_from_db()
     project.refresh_from_db()
-    assert plan.dimensions == [{"room": "Living", "lengthFt": 12.5, "widthFt": 10.0},
-                               {"room": "Bedroom", "lengthFt": 10.0, "widthFt": None}]
+    assert plan.dimensions == [{"room": "Living", "lengthFt": 12.5, "widthFt": 10.0, "areaSqFt": 125},
+                               {"room": "Bedroom", "lengthFt": 10.0, "widthFt": None, "areaSqFt": None}]
     assert plan.review_state == "needs_review" and str(plan.carpet_area_sqft) == "650.00"
     assert project.published_fact_set_version == 0 and project.status == "draft"
     task = ReviewTask.objects.get(resolution__source="manual_extraction")
@@ -221,7 +221,7 @@ def test_manual_extraction_fixes_and_removes_existing_rooms(client, records):
     data.update({"rooms-INITIAL_FORMS": "2", "rooms-0-source_index": "0", "rooms-1-source_index": "1", "rooms-1-DELETE": "on"})
     assert client.post(url, data).status_code == 302
     plan.refresh_from_db()
-    assert plan.dimensions == [{"room": "Living", "lengthFt": 12.5, "widthFt": 10.0, "evidence": "source"}]
+    assert plan.dimensions == [{"room": "Living", "lengthFt": 12.5, "widthFt": 10.0, "evidence": "source", "areaSqFt": 125}]
     assert plan.raw_extraction == {"sourcePlanName": "Original evidence"} and plan.display_name == "Saved alias"
     assert ReviewTask.objects.get(resolution__source="manual_extraction").resolution["before"]["dimensions"] == original_rooms
     truncated = extraction_post(plan)
@@ -334,7 +334,8 @@ def test_project_gallery_permissions_and_direct_images(client, records, django_u
     assert body["access"] == ("review" if actor == "reviewer" else "published")
     assert "privateEvidence" not in response.content.decode() and "objectKey" not in response.content.decode()
     assert "rawExtraction" not in response.content.decode() and "documentId" not in response.content.decode()
-    assert body["results"][0]["layouts"][0]["rooms"] == [{"room": "Living", "lengthFt": 12, "widthFt": 10}]
+    assert body["results"][0]["layouts"][0]["rooms"] == [{"room": "Living", "lengthFt": 12, "widthFt": 10, "areaSqFt": 120}]
+    assert body["results"][0]["layouts"][0]["roomRectangleSumSqFt"] == 120
     assert client.get(body["results"][0]["url"]).status_code == 200
     assert client.get(reverse("floor-plan-asset-media", args=[assets[1].pk])).status_code == (200 if actor == "reviewer" else 404)
     assert client.get(reverse("floor-plan-asset-media", args=[assets[2].pk])).status_code == (200 if actor == "reviewer" else 404)
@@ -481,7 +482,8 @@ def test_map_preview_browser_layout(client, records, tmp_path):
             page.set_viewport_size({"width": width, "height": 1000})
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), width
             bounds = frame.bounding_box()
-            assert bounds and bounds["height"] == 260 and bounds["width"] <= min(600, width)
+            assert bounds and bounds["width"] <= min(600, width)
+            assert bounds["height"] == pytest.approx(max(260, bounds["width"] * 9 / 16), abs=1)
             section.screenshot(path=str(tmp_path / f"map-preview-{width}.png"))
         assert not page.get_by_role("checkbox", name="I confirm these references belong to this project and submit them for review.").is_checked()
         print(f"Map preview screenshots: {tmp_path}")

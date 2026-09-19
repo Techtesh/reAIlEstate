@@ -67,6 +67,67 @@ def sibling(plan):
     )
 
 
+@pytest.mark.parametrize("mode", ["new", "retry-failed", "force"])
+@pytest.mark.parametrize("state", ["pending", "failed", "completed", "cancelled"])
+def test_bulk_evaluation_modes_preserve_queue_contract(layout, inference, mode, state):
+    from platform_api.bulk_layout_evaluations import queue_layout_batch
+
+    plan, actor = layout
+    message, operation = layouts.queue_layout_evaluation(plan, actor)
+    operation.state = state
+    operation.save()
+    if state in {"failed", "cancelled"}:
+        message.dead_lettered_at = timezone.now()
+        message.attempts = 3
+    if state == "completed":
+        message.published_at = timezone.now()
+    message.save()
+    original = (message.dead_lettered_at, message.attempts, message.published_at)
+    outcome, = queue_layout_batch([plan], vision_selection=message.payload["visionSelection"], mode=mode, actor=actor)
+    message.refresh_from_db()
+    operation.refresh_from_db()
+    if state == "failed" and mode != "new":
+        assert operation.state == "pending" and outcome.status == "queued"
+        assert message.dead_lettered_at is None and message.attempts == 0
+        assert AuditEvent.objects.filter(action="floor_plan.crop_evaluation_retried", actor=actor).exists()
+    else:
+        assert operation.state == state
+        assert (message.dead_lettered_at, message.attempts, message.published_at) == original
+    assert OutboxMessage.objects.count() == (2 if state == "completed" and mode == "force" else 1)
+    assert Operation.objects.exclude(owner=actor).count() == 0
+    inference[1].assert_not_called()
+
+
+def test_bulk_command_preview_scope_and_new_mode(layout, settings, inference):
+    from io import StringIO
+    from uuid import uuid4
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+    from platform_api.bulk_layout_evaluations import eligible_layouts
+
+    plan, _ = layout
+    settings.DEBUG = True
+    settings.ENVIRONMENT = "local"
+    output = StringIO()
+    call_command("requeue_all_layout_evaluations", mode="new", project_id=str(plan.project_id), stdout=output)
+    assert "eligible=1" in output.getvalue() and "Preview only" in output.getvalue()
+    assert not OutboxMessage.objects.exists()
+    assert not eligible_layouts(project_id=uuid4()).exists()
+    with pytest.raises(CommandError, match="at least 1"):
+        call_command("requeue_all_layout_evaluations", limit=0)
+    call_command("requeue_all_layout_evaluations", mode="new", execute=True, project_id=str(plan.project_id))
+    assert OutboxMessage.objects.count() == 1
+    call_command("requeue_all_layout_evaluations", mode="new", execute=True, project_id=str(plan.project_id))
+    assert OutboxMessage.objects.count() == 1
+    plan.crop_remaining = True
+    plan.save()
+    assert not eligible_layouts().exists()
+    settings.ENVIRONMENT = "production"
+    with pytest.raises(CommandError, match="restricted"):
+        call_command("requeue_all_layout_evaluations", execute=True)
+    inference[1].assert_not_called()
+
+
 def test_queue_is_durable_idempotent_and_does_not_read_images_or_run_workers(layout, inference, monkeypatch):
     plan, actor = layout
     _, factory, _, _ = inference

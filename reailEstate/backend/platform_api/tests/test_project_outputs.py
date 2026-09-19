@@ -16,6 +16,7 @@ from platform_api.models import EvidenceDocument, Organization, OrganizationMemb
 from platform_api.project_outputs import build_project_output, extract_fields, layout_metrics, materialize_project_amenities
 from platform_api.rag import SourcePage
 from platform_api.workers import detect_media_type, process_document, enqueue_document
+from .test_floor_plan_layout_jobs import source
 
 
 TEXT = """Project name: Test Gardens
@@ -70,6 +71,12 @@ def test_project_admin_columns_preserve_fields_and_links(client, django_user_mod
     assert b'name="project_pic"' not in response.content
     assert b'name="project_picture_source"' not in response.content
     assert b'name="_save"' in response.content
+    assert b'class="project-address-disclosure">' in response.content
+    assert b"Layouts, prices and sizes" in response.content
+    if adding:
+        assert b"Save the project to add layouts" in response.content
+    else:
+        assert b"No active layouts available." in response.content
     if not adding:
         assert reverse("admin:platform_api_project_media_dashboard", args=[project.pk]).encode() in response.content
     assert Project.objects.values().get(pk=project.pk) == before
@@ -98,6 +105,12 @@ def test_project_admin_columns_preserve_validation_and_saving(client, django_use
     project.refresh_from_db()
     assert project.submitted_name == "Updated name" and project.locality == "Thane"
     assert float(project.latitude) == 19.15 and float(project.longitude) == 72.95
+    response = client.post(url, dict(data, submitted_name="Updated name", address="{invalid json"))
+    assert response.status_code == 200
+    assert "address" in response.context["adminform"].form.errors
+    assert b'class="project-address-disclosure" open>' in response.content
+    project.refresh_from_db()
+    assert project.address == {"city": "Thane"}
 
 
 @pytest.mark.django_db
@@ -126,18 +139,27 @@ def test_project_change_transit_maps_are_scoped_and_escaped(client, django_user_
 
 
 @pytest.mark.django_db
-def test_project_details_responsive_layout(client, django_user_model, monkeypatch, tmp_path):
+def test_project_details_responsive_layout(client, source, monkeypatch, tmp_path):
     import mimetypes
     from pathlib import Path
     from urllib.parse import urlsplit
     from django.contrib.staticfiles import finders
     from django.urls import reverse
     from platform_api import external_sources_admin as sources
+    from platform_api.models import FloorPlan
 
     playwright_api = pytest.importorskip("playwright.sync_api")
-    actor = django_user_model.objects.create_superuser(username="project-layout", password="test-only")
-    project = Project.objects.create(organization=Organization.objects.create(legal_name="Layout tests"),
-        submitted_name="Project layout", latitude="19.1", longitude="72.9")
+    plan, actor = source
+    project = plan.project
+    project.latitude, project.longitude = "19.1", "72.9"
+    project.save()
+    for index in range(12):
+        FloorPlan.objects.create(
+            project=project, document=plan.document, workflow_run=plan.workflow_run,
+            page_number=2, plan_scope="flat", plan_name=f"Layout {index} with a longer name",
+            carpet_area_sqft=700 + index, price=15000000 + index,
+            extractor_version="test",
+        )
     monkeypatch.setattr(sources, "saved_station_routes", lambda project: {"groups": [{"stations": [
         {"kind": kind, "name": f"Selected {kind} station", "serviceStatus": "unverified",
          "location": {"latitude": 19.2, "longitude": 72.95},
@@ -171,16 +193,24 @@ def test_project_details_responsive_layout(client, django_user_model, monkeypatc
                 metadata = page.locator(".project-metadata").bounding_box()
                 resources = page.locator(".project-resources").bounding_box()
                 transit = page.locator(".project-transit").bounding_box()
-                address = page.locator(".project-address").bounding_box()
-                assert metadata and resources and transit and address
+                address = page.locator(".project-address-disclosure").bounding_box()
+                layouts = page.locator(".project-layout-summary").bounding_box()
+                assert metadata and resources and transit and address and layouts
+                assert not page.locator("#id_address").is_visible()
+                assert page.locator(".project-layout-table tbody tr").count() == 12
+                assert page.locator(".project-layout-scroll").evaluate("element => element.scrollHeight > element.clientHeight")
+                assert layouts["y"] >= resources["y"] + resources["height"] - 1
+                assert address["y"] >= layouts["y"] + layouts["height"] - 1
                 if width > 900:
                     assert transit["x"] > resources["x"]
                     assert abs(transit["y"] - resources["y"]) < 2
-                    assert address["y"] >= resources["y"] + resources["height"] - 1
-                    assert address["y"] < transit["y"] + transit["height"]
                     assert transit["width"] > resources["width"]
                 else:
                     assert transit["y"] >= address["y"] + address["height"] - 1
+                page.locator(".project-address-disclosure > summary").click()
+                assert page.locator("#id_address").is_visible()
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+                page.locator(".project-address-disclosure > summary").click()
                 assert page.locator(".project-transit .project-transit-tools").count() == 1
                 assert page.locator("#id_latitude,#id_longitude").count() == 0
                 page.locator('label[for="transit-railway"]').click()

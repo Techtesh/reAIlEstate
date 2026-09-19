@@ -7,12 +7,21 @@ export const weightLabels = {
 export const defaults = { commute: .30, budget: .25, space: .20, societyAmenities: .10, nearbyAmenities: .05, microMarket: .05, projectConfidence: .05 }
 const positive = z.number().positive().max(100000).optional()
 const money = z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional()
-export const draftSchema = z.object({
-  places: z.array(z.object({
-    placeId: z.string().min(1), label: z.string().trim().min(2).max(100), precision: z.literal('locality'),
+export const placesSchema = z.array(z.object({
+    placeId: z.string().trim().min(1).max(255), label: z.string().trim().min(2).max(100), precision: z.enum(['locality', 'exact']),
+    latitude: z.number().min(-90).max(90).optional(), longitude: z.number().min(-180).max(180).optional(),
     frequencyPerWeek: z.number().int().min(0).max(28), modes: z.array(z.enum(['car', 'transit', 'walking', 'cycling'])).min(1),
     maxOneWayMinutes: z.number().int().min(5).max(300),
-  })),
+  }).superRefine((place, context) => {
+    if ((place.latitude == null) !== (place.longitude == null) || (place.precision === 'exact' && place.latitude == null)) context.addIssue({ code: 'custom', message: 'Set both latitude and longitude for an exact destination.' })
+  })).max(10).superRefine((places, context) => {
+    const labels = places.map(place => place.label.trim().toLocaleLowerCase())
+    if (new Set(labels).size !== labels.length || new Set(places.map(place => place.placeId)).size !== places.length) context.addIssue({ code: 'custom', message: 'Combine repeated destinations into one entry.' })
+  })
+export type CommutePlace = z.infer<typeof placesSchema>[number]
+export type LocatedPlace = Pick<CommutePlace, 'placeId' | 'label'> & { precision: 'exact'; latitude: number; longitude: number }
+export const draftSchema = z.object({
+  places: placesSchema,
   home: z.object({
     configurations: z.array(z.string()).min(1, 'Choose at least one home configuration.'),
     carpetAreaSqFt: z.object({ minimum: positive, preferred: positive, maximum: positive }),
@@ -33,8 +42,6 @@ export const draftSchema = z.object({
   if (budget.purchaseMinimum && budget.purchaseMaximum && budget.purchaseMinimum > budget.purchaseMaximum) context.addIssue({ code: 'custom', path: ['budget'], message: 'Maximum purchase budget must be at least the minimum.' })
   if (budget.allInMaximum && budget.purchaseMaximum && budget.allInMaximum < budget.purchaseMaximum) context.addIssue({ code: 'custom', path: ['budget'], message: 'All-in maximum must cover your purchase maximum.' })
   if (!Object.values(draft.weights).some(value => value > 0)) context.addIssue({ code: 'custom', path: ['weights'], message: 'Give at least one priority a weight above zero.' })
-  const labels = draft.places.map(place => place.label.trim().toLocaleLowerCase())
-  if (new Set(labels).size !== labels.length) context.addIssue({ code: 'custom', path: ['places'], message: 'Combine repeated destinations into one entry.' })
 })
 export type Draft = z.infer<typeof draftSchema>
 export function newDraft(): Draft {
@@ -46,7 +53,15 @@ export function resumeDraft(sections: Partial<Draft>): Draft {
   const base = newDraft()
   return { ...base, ...sections, home: { ...base.home, ...sections.home }, budget: { ...base.budget, ...sections.budget }, weights: { ...base.weights, ...sections.weights }, microMarket: { ...base.microMarket, ...sections.microMarket } }
 }
-export type Configuration = { configurationType: string; carpetAreaMin: string; carpetAreaMax: string; priceMin: string | null; priceMax: string | null; bathrooms: number }
+export type Configuration = { id?: string; name?: string; roomRectangleSumSqFt?: number | null; configurationType: string; carpetAreaMin: string | null; carpetAreaMax: string | null; priceMin: string | null; priceMax: string | null; bathrooms: number | null }
+export function calculatedRoomArea(area: number | null | undefined) {
+  return area != null && Number.isFinite(area) && area > 0 ? `${area.toLocaleString('en-IN', { maximumFractionDigits: 2 })} sq ft` : 'Unknown'
+}
+export function configurationArea(configuration: Configuration) {
+  const minimum = Number(configuration.carpetAreaMin), maximum = Number(configuration.carpetAreaMax)
+  if (!Number.isFinite(minimum) || minimum <= 0) return 'Unknown'
+  return !Number.isFinite(maximum) || maximum <= minimum ? `${minimum.toLocaleString('en-IN')} sq ft` : `${minimum.toLocaleString('en-IN')} - ${maximum.toLocaleString('en-IN')} sq ft`
+}
 export type MapStation = {
   id: string; name: string; kind: 'metro' | 'railway'; line: string;
   location: { latitude: number; longitude: number };
@@ -57,30 +72,46 @@ export type MapLine = {
   id: string; name: string; kind: MapStation['kind']; stationIds: string[];
   geometryStatus: 'schematic_unverified'; source: 'user_candidate';
 }
+export type MapConnection = Omit<MapLine, 'source'> & { source: 'user_requested'; lineNames: string[] }
 export type Project = {
   projectPic?: string | null;
+  priceMin: string | null; priceMax: string | null;
   id: string; submittedName: string; locality: string; status: string; mahaReraId: string;
   verificationStatus: string; verificationCheckedAt: string | null; updatedAt: string;
   latitude?: string | null; longitude?: string | null; configurations: Configuration[]; amenities: string[];
+  locationStatus?: 'published' | 'reviewed' | 'provisional' | 'unavailable';
   facts?: { code: string; value: unknown; unit: string; sourceClass: string; reviewedAt: string | null; status?: string }[];
 }
 export type Component = { code: string; weight: number; score?: number; status: string; destinations?: { status: string; durationMinutes?: number; mode?: string }[] }
 export type Match = { projectId: string; rank: number; score: number; confidence: number; components: Component[]; reasonCodes: string[]; freshness: { projectFactsAsOf: string } }
 export type Snapshot = { id: string; status: string; profileVersion: number; algorithmVersion: string; generatedAt: string | null; expiresAt: string | null; items: Match[]; excludedSummary: { reasonCode: string; count: number }[] }
 export type Shortlist = { id: string; name: string; entries: { project: string; note: string }[] }
-export function coordinates(project: Project): [number, number] | null {
+export function coordinates(project: { latitude?: string | number | null; longitude?: string | number | null }): [number, number] | null {
   if (project.latitude == null || project.longitude == null || String(project.latitude).trim() === '' || String(project.longitude).trim() === '') return null
   const latitude = Number(project.latitude), longitude = Number(project.longitude)
   return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? [latitude, longitude] : null
 }
 export function lowestPrice(project: Project) {
-  const values = project.configurations.map(item => item.priceMin).filter(value => value != null && value !== '').map(Number).filter(value => Number.isFinite(value) && value > 0)
-  return values.length ? Math.min(...values) : null
+  return priceValue(project.priceMin)
+}
+export function priceValue(value: string | number | null | undefined) {
+  if (value == null || String(value).trim() === '') return null
+  const amount = Number(value)
+  return Number.isFinite(amount) && amount > 0 ? amount : null
+}
+export function projectPrice(project: Pick<Project, 'priceMin' | 'priceMax'>, compact = false) {
+  const minimum = priceValue(project.priceMin), maximum = priceValue(project.priceMax)
+  if (minimum == null || (maximum != null && maximum < minimum)) return 'contact to know'
+  const format = compact ? (value: number) => value >= 100000 ? `INR ${(value / 10000000).toFixed(2)} Cr` : inr(value) : inr
+  return maximum == null || maximum === minimum ? format(minimum) : `${format(minimum)} - ${format(maximum)}`
+}
+export function configurationPrice(configuration: Pick<Configuration, 'priceMin' | 'priceMax'>) {
+  return projectPrice(configuration)
 }
 export function projectStatusLabel(project: Project) {
   return project.status === 'published' ? 'Published project' : project.status === 'needs_review' ? 'In progress: awaiting review' : 'Processing listing'
 }
-export const inr = (value: number | null | undefined) => value == null ? 'Price unknown' : new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(value)
+export const inr = (value: number | null | undefined) => value == null ? 'contact to know' : new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(value)
 export const dateLabel = (value: string | null | undefined) => value ? new Date(value).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) : 'Unknown'
 export function componentLabel(code: string) { return Object.entries(weightLabels).find(([key]) => key.toUpperCase() === code)?.[1] ?? code.replaceAll('_', ' ').toLowerCase() }
 export function reasonLabel(code: string) {

@@ -276,22 +276,27 @@ def requeue_dead_letter(actor, message_id, version):
         return job
 
 
-def queue_snapshot(actor):
+def queue_snapshot(actor, *, project=None, state=None):
     require_monitor_access(actor)
     now = timezone.now()
     active_workers = QueueWorker.objects.filter(state__in=["starting", "idle", "running"],
         heartbeat_at__gte=now - timedelta(seconds=LIVE_SECONDS)).count()
-    workers = list(QueueWorker.objects.select_related("project").order_by("-heartbeat_at")[:50])
+    worker_rows = QueueWorker.objects.select_related("project")
+    if project is not None:
+        worker_rows = worker_rows.filter(project=project)
+    workers = list(worker_rows.order_by("-heartbeat_at")[:50])
     live = [worker for worker in workers if worker.state in {"starting", "idle", "running"}
             and worker.heartbeat_at >= now - timedelta(seconds=LIVE_SECONDS)]
     running = {str(worker.message_id): worker for worker in live if worker.message_id}
-    jobs = OutboxMessage.objects.filter(event_type__in=EXTRACTION_EVENTS)
+    jobs = project_jobs(project) if project is not None else OutboxMessage.objects.filter(event_type__in=EXTRACTION_EVENTS)
     pending = jobs.filter(published_at__isnull=True, dead_lettered_at__isnull=True)
     rows = list(jobs.filter(pk__in=running))
     rows += list(pending.exclude(pk__in=running).order_by("occurred_at")[:50])
     rows += list(jobs.filter(published_at__isnull=False).order_by("-published_at")[:25])
     rows += list(jobs.filter(dead_lettered_at__isnull=False).order_by("-dead_lettered_at")[:25])
     rows = list({job.pk: job for job in rows}.values())
+    if state == "dead_letter":
+        rows = [job for job in rows if job.dead_lettered_at and not job.published_at]
     can_requeue = actor.has_perms(["platform_api.change_project", "platform_api.change_floorplan"])
     can_delete = actor.has_perms(["platform_api.change_project", "platform_api.change_floorplan",
                                  "platform_api.delete_outboxmessage"])

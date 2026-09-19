@@ -82,6 +82,7 @@ def test_display_title_imports_leaf_not_alias_save_service(monkeypatch):
     "platform_api.domain.layout_titles",
     "platform_api.policies",
     "platform_api.policies.crops",
+    "platform_api.google_route_batches",
 ])
 def test_fresh_leaf_import_needs_no_models_storage_or_django_setup(module_name):
     # A fresh process prevents pytest-django's already-loaded models from hiding

@@ -21,6 +21,10 @@
 .media-tools .alias-editor input[name="display_name"] { flex: 1 1 160px; min-width: 0; max-width: 100%; box-sizing: border-box; }
 .media-tools .alias-editor button { flex: 0 0 38px; width: 38px; height: 38px; padding: 0; }
 .media-tools .alias-editor img { width: 16px; height: 16px; background: transparent; }
+.media-tools [data-layout-price-form]:not([hidden]) { display: grid; gap: 8px; margin: 16px 0; max-width: 32rem; }
+.media-tools [data-layout-price-form] input[type="number"] { width: 100%; box-sizing: border-box; }
+.media-tools [data-layout-price-form] .help { margin: 0; }
+.media-tools [data-layout-price-form] button { justify-self: start; }
 .media-tools .inactive-plan { border-style: dashed; background: var(--darkened-bg); color: var(--body-quiet-color); }
 .media-tools .inactive-plan > a img { filter: grayscale(1); opacity: .5; }
 .media-tools .retired-warning { padding: 12px; border-left: 4px solid #ba2121; background: var(--message-warning-bg); margin-bottom: 16px; }

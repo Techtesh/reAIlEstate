@@ -13,7 +13,7 @@ from platform_api.middleware import CorrelationIdMiddleware
 
 def response_policy(path, namespaces):
     request = RequestFactory().get(path)
-    request.resolver_match = SimpleNamespace(namespaces=namespaces)
+    request.resolver_match = SimpleNamespace(namespaces=namespaces, url_name=None)
     return CorrelationIdMiddleware(lambda request: HttpResponse("OK"))(request)["Content-Security-Policy"]
 
 
@@ -50,3 +50,10 @@ def test_project_dashboard_uses_external_carousel_script():
     source = get_template("admin/platform_api/project_media_dashboard.html").template.source
     assert "platform_api/project_media_dashboard.js" in source
     assert "addEventListener" not in source
+
+
+def test_project_dashboard_media_tab_order():
+    source = get_template("admin/platform_api/project_media_dashboard.html").template.source
+    sections = ["project-images", "amenities", "floor-plans", "layouts"]
+    positions = [source.index(f'href="?section={section}"') for section in sections]
+    assert positions == sorted(positions)
