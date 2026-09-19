@@ -43,5 +43,7 @@ class CorrelationIdMiddleware:
             )
             if match.url_name == "platform_api_project_external_sources":
                 policy += "; frame-src https://www.openstreetmap.org"
+            elif match.url_name == "platform_api_project_change":
+                policy += "; frame-src https://maps.google.com https://www.google.com"
         response["Content-Security-Policy"] = policy
         return response

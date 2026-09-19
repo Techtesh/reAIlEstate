@@ -1,9 +1,15 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<script src="{% static 'platform_api/queue_monitor.js' %}?v=20260916-queue-capacity" defer></script>{% endblock %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'platform_api/queue_monitor.js' %}?v=20260919-dead-letter-requeue" defer></script>{% endblock %}
 {% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}">{% endblock %}
 {% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> &rsaquo; <a href="{% url 'admin:platform_api_project_changelist' %}">Projects</a> &rsaquo; Evaluation jobs</div>{% endblock %}
 {% block content %}
+{% if station_correction_count != None %}
+<section aria-labelledby="station-corrections-heading">
+  <h2 id="station-corrections-heading">Station corrections</h2>
+  <p><a href="{% url 'admin:platform_api_stationcandidate_changelist' %}?needs_review__exact=1">{{ station_correction_count }} stations need coordinate review</a></p>
+</section>
+{% endif %}
 <div id="queue-monitor" data-status-url="{% url 'admin:platform_api_project_jobs_status' %}">
   <div class="queue-toolbar"><a href="{% url 'admin:platform_api_project_changelist' %}">Projects</a>
     {% if can_run %}<form method="post" action="{% url 'admin:platform_api_project_run_reanalysis_cart' %}">{% csrf_token %}<button type="submit">Run all my queued evaluations</button></form>{% endif %}
@@ -16,6 +22,11 @@
   <div class="queue-table" tabindex="0" role="region" aria-label="Running and pending jobs"><table><thead><tr><th>Project</th><th>Job</th><th>State</th><th>Progress</th><th>Attempts</th><th>Retry / error</th></tr></thead><tbody id="queue-pending"></tbody></table></div>
   <h2>Recent Completions and Dead-Letter Jobs</h2>
   <div class="queue-table" tabindex="0" role="region" aria-label="Recent jobs"><table><thead><tr><th>Project</th><th>Job</th><th>State</th><th>Finished</th><th>Attempts</th><th>Error</th><th>Actions</th></tr></thead><tbody id="queue-recent"></tbody></table></div>
+  <template id="requeue-dead-letter-form"><form method="post" action="{% url 'admin:platform_api_project_jobs' %}">{% csrf_token %}
+    <input type="hidden" name="action" value="requeue_dead_letter">
+    <input type="hidden" name="message_id"><input type="hidden" name="version">
+    <button type="submit">Requeue</button>
+  </form></template>
   <template id="delete-dead-letter-form"><form method="post" action="{% url 'admin:platform_api_project_jobs' %}">{% csrf_token %}
     <input type="hidden" name="action" value="delete_dead_letter">
     <input type="hidden" name="message_id"><input type="hidden" name="version">

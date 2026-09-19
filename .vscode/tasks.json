@@ -24,13 +24,12 @@
 		{
 			"label": "Run Django backend",
 			"type": "shell",
-			"command": "& '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' '${workspaceFolder}/reailEstate/backend/manage.py' runserver 127.0.0.1:8002",
+			"command": "& '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' '${workspaceFolder}/reailEstate/backend/manage.py' runserver 127.0.0.1:8002 --noreload",
 			"isBackground": true,
 			"options": {
 				"cwd": "${workspaceFolder}",
 				"env": {
 					"DATABASE_BACKEND": "postgresql",
-					"PROJECT_METRO_CATALOGUE_FILE": "${workspaceFolder}/reailEstate/backend/config/mmr-upcoming-metro.json",
 					"WORKSPACE_DATA_ROOT": "${workspaceFolder}",
 					"FLOOR_PLAN_EXTRACTION_MODE": "ai",
 					"FLOOR_PLAN_DEFAULT_VISION_PROFILE": "azure-samples",

@@ -112,8 +112,8 @@ class MahaRERAFilter(admin.SimpleListFilter):
 
 
 def saved_station_routes(project):
-    task = ReviewTask.objects.filter(project=project, task_type="external_sources",
-        resolution__googlePlaceId__isnull=False).order_by("-created_at", "-pk").first()
+    task = ReviewTask.objects.filter(LOCATION_REFERENCE_QUERY, project=project,
+        task_type="external_sources").order_by("-created_at", "-pk").first()
     if not task:
         return None
     routes = task.resolution.get("stationRoutes")
@@ -137,12 +137,164 @@ def saved_station_routes(project):
     return routes if isinstance(routes, dict) and isinstance(routes.get("groups"), list) else None
 
 
+def station_choice_key(station):
+    import hashlib
+
+    return hashlib.sha256(json.dumps({key: station.get(key) for key in (
+        "kind", "name", "line", "location", "placeId", "candidateId")}, sort_keys=True).encode()).hexdigest()
+
+
+def route_revision(routes):
+    import hashlib
+
+    return hashlib.sha256(json.dumps(routes, sort_keys=True).encode()).hexdigest()
+
+
+class TransitStationForm(forms.Form):
+    project_version = forms.DateTimeField(widget=forms.HiddenInput)
+    route_revision = forms.CharField(widget=forms.HiddenInput)
+    railway = forms.ChoiceField(label="Railway station", required=False)
+    metro = forms.ChoiceField(label="Metro station", required=False)
+
+    def __init__(self, *args, project, routes, **kwargs):
+        super().__init__(*args, **kwargs)
+        selected = project.transit_station_choices or {}
+        self.initial.update(project_version=project.updated_at, route_revision=route_revision(routes))
+        for kind in ("railway", "metro"):
+            options = {}
+            for group in (routes or {}).get("groups", []):
+                for station in group.get("stations", []):
+                    if station.get("kind") != kind:
+                        continue
+                    try:
+                        coordinates(station.get("location"))
+                    except ValueError:
+                        continue
+                    walking = station.get("walking", {})
+                    distance = walking.get("distanceMeters")
+                    label = f"{station.get('name', 'Station')} - {station.get('line') or group.get('label', kind)}"
+                    if walking.get("status") == "available" and type(distance) is int and distance >= 0:
+                        label += f" - {distance} m walking"
+                    else:
+                        label += " - walking distance unavailable"
+                    options[station_choice_key(station)] = label
+            self.fields[kind].choices = [("", "Automatic (shortest available walking route)"), *options.items()]
+            self.initial[kind] = selected.get(kind) if selected.get(kind) in options else ""
+
+
+def save_transit_station_choices(project, actor, data):
+    if not actor.is_active or not actor.is_staff or not actor.has_perm("platform_api.change_project"):
+        raise PermissionDenied
+    with transaction.atomic():
+        current = Project.objects.select_for_update().get(pk=project.pk)
+        if current.status in {"retired", "merged"}:
+            raise ValueError("Use an active canonical project.")
+        routes = saved_station_routes(current)
+        form = TransitStationForm(data, project=current, routes=routes)
+        if not form.is_valid():
+            raise ValueError("Choose stations from the current saved routes. Reload and try again.")
+        if (form.cleaned_data["project_version"] != current.updated_at
+                or form.cleaned_data["route_revision"] != route_revision(routes)):
+            raise ValueError("Project or routes changed. Reload before saving station choices.")
+        current.transit_station_choices = {kind: form.cleaned_data[kind] for kind in ("railway", "metro")
+                                           if form.cleaned_data[kind]}
+        current.save(update_fields=["transit_station_choices", "updated_at"])
+        AuditEvent.objects.create(actor=actor, action="project.transit_stations_selected", entity_type="Project",
+            entity_id=current.pk, correlation_id=uuid4(), metadata=current.transit_station_choices)
+
+
+def project_transit_maps(project):
+    from .external_sources import route_link
+
+    views = [{"kind": kind, "label": label, "station": None} for kind, label in (
+        ("metro", "Metro"), ("railway", "Railway"))]
+    location_label = "Saved project location"
+    try:
+        origin = coordinates({"latitude": float(project.latitude), "longitude": float(project.longitude)})
+    except (TypeError, ValueError, OverflowError):
+        reference = ReviewTask.objects.filter(project=project, task_type="external_sources",
+            resolution__manualLocation__isnull=False).order_by("-created_at", "-pk").first()
+        manual = manual_reference_details(reference.resolution.get("manualLocation")) if reference else None
+        if not manual:
+            return {"views": views, "has_location": False}
+        origin = manual["location"]
+        location_label = "Saved manual pin (not applied to project location)"
+    pin = f"{origin['latitude']},{origin['longitude']}"
+    location_map = {
+        "location_label": location_label,
+        "pin_embed_url": "https://maps.google.com/maps?" + urlencode({"q": pin, "z": 16, "output": "embed"}),
+        "pin_url": "https://www.google.com/maps/search/?" + urlencode({"api": 1, "query": pin}),
+    }
+    routes = saved_station_routes(project) or {}
+    route_origin = origin
+    if "origin" in routes:
+        try:
+            route_origin = coordinates(routes["origin"])
+        except ValueError:
+            routes = {}
+    candidates = {"metro": [], "railway": []}
+    route_errors = {"metro": [], "railway": []}
+    for group in routes.get("groups", []):
+        if not isinstance(group, dict) or not isinstance(group.get("stations"), list):
+            continue
+        for station in group["stations"]:
+            if not isinstance(station, dict) or station.get("kind") not in candidates:
+                continue
+            walking = station.get("walking")
+            if isinstance(walking, dict) and isinstance(walking.get("error"), str):
+                route_errors[station["kind"]].append(walking["error"])
+            if not isinstance(walking, dict):
+                continue
+            distance = walking.get("distanceMeters")
+            if walking.get("status") == "available" and (type(distance) is not int or distance < 0):
+                continue
+            if walking.get("status") != "available":
+                distance = None
+            try:
+                destination = coordinates(station.get("location"))
+            except ValueError:
+                continue
+            candidates[station["kind"]].append((distance, station, destination))
+    statuses = {"planned": "Upcoming: planned", "under_construction": "Upcoming: under construction",
+                "operational": "Existing"}
+    for view in views:
+        errors = [error for error in routes.get("errors", []) if isinstance(error, str)
+              and error != "Some station catalogue candidates are unavailable or invalid. Review the candidate CSV."] + route_errors[view["kind"]]
+        view["errors"] = list(dict.fromkeys(errors))[:5]
+        view["access_denied"] = any("HTTP 403" in error for error in view["errors"])
+        if not candidates[view["kind"]]:
+            continue
+        selected = (getattr(project, "transit_station_choices", None) or {}).get(view["kind"])
+        chosen = next((item for item in candidates[view["kind"]] if station_choice_key(item[1]) == selected), None)
+        available = [item for item in candidates[view["kind"]] if item[0] is not None]
+        if chosen is None and not available:
+            continue
+        distance, station, destination = chosen or min(available, key=lambda item: item[0])
+        link_origin, link_destination = route_origin, destination
+        if station["walking"].get("endpointMode") == "places":
+            link_origin = route_origin | {"placeId": routes.get("originPlaceId")}
+            link_destination = destination | {"placeId": station.get("placeId")}
+        view.update({
+            "station": str(station.get("name", "Station")), "distance_meters": distance,
+            "selected": chosen is not None,
+            "service_status": statuses.get(station.get("serviceStatus"), "Service status unverified"),
+            "directions_url": route_link(link_origin, link_destination, "walking"),
+            "different_origin": route_origin != origin,
+            "embed_url": "https://maps.google.com/maps?" + urlencode({
+                "saddr": f"{route_origin['latitude']},{route_origin['longitude']}",
+                "daddr": f"{destination['latitude']},{destination['longitude']}",
+                "dirflg": "w", "output": "embed",
+            }),
+        })
+    return {"views": views, "has_location": True, "retrieved_at": routes.get("retrievedAt", ""), **location_map}
+
+
 def location_reviewer_allowed(task, actor):
     return (not getattr(settings, "PROJECT_LOCATION_REQUIRE_SECOND_APPROVER", True)
             or str(task.resolution.get("submittedBy")) != str(actor.pk))
 
 
-def _google_reference(project, actor, task_id, *, accepting=False):
+def _google_reference(project, actor, task_id, *, accepting=False, allow_manual=False):
     if not actor or not actor.is_active or not actor.is_staff or not actor.has_perm("platform_api.change_project"):
         raise PermissionDenied
     current = Project.objects.get(pk=project.pk)
@@ -150,7 +302,8 @@ def _google_reference(project, actor, task_id, *, accepting=False):
             or Project.objects.filter(pk=current.pk, merge_out__state="applied").exists()):
         raise ValueError("Use an active canonical project.")
     task = ReviewTask.objects.filter(pk=task_id, project=current, task_type="external_sources").first()
-    if not task or not isinstance(task.resolution, dict) or not task.resolution.get("googlePlaceId"):
+    if not task or not isinstance(task.resolution, dict) or not (task.resolution.get("googlePlaceId")
+            or (allow_manual and manual_reference_details(task.resolution.get("manualLocation")))):
         raise ValueError("Saved Google reference is unavailable.")
     if accepting and task.state != "open":
         raise ValueError("Reference must be open before approval.")
@@ -251,12 +404,15 @@ def enrich_google_reference(project, actor, task_id, radius):
 def refresh_google_routes(project, actor, task_id, radius):
     if radius not in {5000, 10000, 20000}:
         raise ValueError("Invalid station search radius.")
-    previous_project, previous_task = _google_reference(project, actor, task_id)
+    previous_project, previous_task = _google_reference(project, actor, task_id, allow_manual=True)
     maps = GoogleProjectMaps()
-    place = maps.details(previous_task.resolution["googlePlaceId"])
-    if place["placeId"] != previous_task.resolution["googlePlaceId"]:
-        raise ValueError("Google returned a different place reference. Start a fresh lookup.")
+    place = manual_reference_details(previous_task.resolution.get("manualLocation"))
+    if place is None:
+        place = maps.details(previous_task.resolution["googlePlaceId"])
+        if place["placeId"] != previous_task.resolution["googlePlaceId"]:
+            raise ValueError("Google returned a different place reference. Start a fresh lookup.")
     routes = station_routes(place, radius, maps)
+    routes["origin"] = coordinates(place["location"])
     with transaction.atomic():
         current = Project.objects.select_for_update().get(pk=project.pk)
         task = ReviewTask.objects.select_for_update().get(pk=previous_task.pk)
@@ -347,6 +503,9 @@ def commit_references(project, actor, draft, token):
                 references["manualLocation"]["sourceUrlDigest"] = draft["manualLocation"]["sourceUrlDigest"]
         if draft.get("registry"):
             references["maharera"] = draft["registry"]
+        if draft.get("routes") and (draft.get("selected") or draft.get("manualLocation")):
+            references["stationRoutes"] = draft["routes"] | {
+                "origin": coordinates((draft.get("manualLocation") or draft["selected"])["location"])}
         if not (references.get("googlePlaceId") or references.get("manualLocation") or references.get("maharera")):
             raise ValueError("Select a project match or add registry evidence first.")
         task = ReviewTask.objects.create(project=locked, task_type="external_sources", priority=3, resolution=references)
@@ -433,15 +592,24 @@ class ExternalSourcesAdminMixin:
                     apply_google_reference(project, request.user, reference_id)
                     messages.success(request, "Reviewed Google location applied to this project.")
                     return HttpResponseRedirect(url)
+                elif action == "save_station_choices":
+                    save_transit_station_choices(project, request.user, request.POST)
+                    messages.success(request, "Project station choices saved.")
+                    return HttpResponseRedirect(url)
                 elif action == "retry_saved_routes":
+                    if not getattr(settings, "GOOGLE_MAPS_API_KEY", ""):
+                        raise ValueError("Google Maps API is not configured on this server.")
                     reference_id = forms.UUIDField().clean(request.POST.get("reference_id"))
-                    routes = refresh_google_routes(project, request.user, reference_id, int(request.POST.get("radius", "10000")))
+                    with work_lock("external-sources", project.pk):
+                        routes = refresh_google_routes(project, request.user, reference_id, int(request.POST.get("radius", "10000")))
                     available = sum(station.get(mode, {}).get("status") == "available"
                         for group in routes["groups"] for station in group["stations"] for mode in ("walking", "driving"))
                     if available:
                         messages.success(request, f"Saved {available} available walking/driving route results.")
                     else:
                         messages.warning(request, "Station links were saved, but no route durations were returned. See provider diagnostics below.")
+                    if request.POST.get("return_to") == "project":
+                        return HttpResponseRedirect(reverse("admin:platform_api_project_change", args=[project.pk]) + "#project-transit-heading")
                     return HttpResponseRedirect(url)
                 elif action == "refresh_saved":
                     reference_id = forms.UUIDField().clean(request.POST.get("reference_id"))
@@ -470,7 +638,19 @@ class ExternalSourcesAdminMixin:
                         if request.POST.get("confirm") != "on":
                             raise ValueError("Confirm submitting these source references for review.")
                         with work_lock("external-sources", project.pk):
-                            commit_references(project, request.user, draft, token)
+                            reference = commit_references(project, request.user, draft, token)
+                            if (getattr(settings, "GOOGLE_MAPS_API_KEY", "")
+                                    and (reference.resolution.get("manualLocation") or reference.resolution.get("googlePlaceId"))
+                                    and not reference.resolution.get("stationRoutes")):
+                                try:
+                                    routes = refresh_google_routes(project, request.user, reference.pk, 10000)
+                                except ValueError:
+                                    messages.warning(request, "Pin saved; directions could not be generated. Retry from Nearby transit.")
+                                else:
+                                    if routes.get("errors"):
+                                        messages.warning(request, "Pin saved; some station lookups failed. Review the route results and retry if needed.")
+                                    else:
+                                        messages.success(request, "Station directions generated from the saved pin.")
                         cache.delete(draft_key(project, request.user, token))
                         messages.success(request, "Source references submitted for review. Accepted project facts are unchanged.")
                         return HttpResponseRedirect(url)
@@ -487,6 +667,7 @@ class ExternalSourcesAdminMixin:
                 and location_reviewer_allowed(reference, request.user))
             reference.can_accept_google = bool(reference.resolution.get("googlePlaceId") and reference.state == "open"
                 and location_reviewer_allowed(reference, request.user))
+        saved_routes = saved_station_routes(project)
         response = TemplateResponse(request, "admin/platform_api/external_sources.html", {
             **self.admin_site.each_context(request), "opts": self.model._meta, "original": project,
             "title": f"External sources: {project.submitted_name}", "search_form": search_form,
@@ -500,9 +681,10 @@ class ExternalSourcesAdminMixin:
             "references": references,
             "image_navigation": self.record_navigation(request, project, "admin:platform_api_project_external_sources"),
             "preserved_filters": self.get_preserved_filters(request),
-            "saved_routes": saved_station_routes(project),
-            "has_google_reference": ReviewTask.objects.filter(project=project, task_type="external_sources",
-                resolution__googlePlaceId__isnull=False).exists(),
+            "saved_routes": saved_routes,
+            "station_choice_form": TransitStationForm(project=project, routes=saved_routes) if saved_routes else None,
+            "has_google_reference": ReviewTask.objects.filter(LOCATION_REFERENCE_QUERY, project=project,
+                task_type="external_sources").exists(),
         })
         response["Cache-Control"] = "private, no-store"
         response["Referrer-Policy"] = "same-origin"

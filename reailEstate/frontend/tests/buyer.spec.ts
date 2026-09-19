@@ -86,6 +86,32 @@ async function mockApi(page: Page, signedIn = true) {
   return state
 }
 async function noOverflow(page: Page) { expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true) }
+test('project picture loads on cards and failures restore placeholders', async ({ page }, info) => {
+  await mockApi(page, false)
+  await page.goto('/browse')
+  const gallery = await mockGallery(page)
+  await page.route('**/api/v1/projects/', route => route.fulfill({ json: {
+    results: fixtures.map((project, index) => ({ ...project,
+      projectPic: index === 0 ? '/api/v1/media/floor-plan-assets/image-one' : null })), next: null,
+  } }))
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.reload()
+    await page.getByRole('button', { name: 'Feed view', exact: true }).click()
+    const card = page.locator(`#project-${projectIds[0]}`)
+    await expect(card.locator('.project-picture')).toBeVisible()
+    await expect.poll(() => card.locator('.project-picture').evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(800)
+    await expect(page.locator(`#project-${projectIds[1]} .project-open span`)).toHaveText(fixtures[1].submittedName)
+    await noOverflow(page)
+    await page.screenshot({ path: info.outputPath(`project-picture-${width}.png`), fullPage: true })
+  }
+  gallery.imageFail = true
+  await page.reload()
+  await page.getByRole('button', { name: 'Feed view', exact: true }).click()
+  await expect(page.locator(`#project-${projectIds[0]} .project-open span`)).toHaveText(fixtures[0].submittedName)
+  await expect(page.locator('.project-picture')).toHaveCount(0)
+})
+
 async function mockGallery(page: Page) {
   const image = await page.evaluate(() => {
     const canvas = document.createElement('canvas'); canvas.width = 800; canvas.height = 600

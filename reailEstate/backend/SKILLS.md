@@ -93,6 +93,12 @@ queued, running and completed work is reused. **Requeue failed extraction** expl
 retries a failed job using its original model selection. Cancelled jobs are not restarted.
 Processing uses the separate **Run queued evaluations** control or a worker.
 Boundary-invalid crops stop retrying automatically; their layout needs correction.
+AI extraction records every visibly labeled space with two readable dimensions, including
+nooks, foyers, passages, corridors, utility areas, balconies and decks; narrow dimensions
+down to 0.5 ft are retained. Preview a corpus-wide refresh with
+`python manage.py requeue_all_layout_evaluations`, then add `--execute` to force completed
+eligible layouts through the current configured vision profile. Process the durable media
+queue separately with `python manage.py process_outbox --event-type media --drain`.
 
 **Edit display name → Save display name** stores a reviewer-owned alias separately
 from the internal `plan_name`/unique key. Blank clears the alias. Cards and API display

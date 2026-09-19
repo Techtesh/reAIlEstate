@@ -56,11 +56,19 @@ def test_project_admin_columns_preserve_fields_and_links(client, django_user_mod
     assert response.status_code == 200
     assert b"project-details-grid" in response.content and b"platform_api/project_form.css" in response.content
     assert list(response.context["adminform"].form.fields) == [
-        "organization", "status", "maha_rera_id", "submitted_name", "address", "locality", "latitude", "longitude",
-        "published_fact_set_version", "processing_attested", "verification_status", "verification_checked_at",
+        "organization", "status", "maha_rera_id", "submitted_name",
+        "published_fact_set_version", "verification_status", "processing_attested", "verification_checked_at",
+        "address", "locality",
     ]
+    assert b'name="latitude"' not in response.content and b'name="longitude"' not in response.content
+    assert b'project-details-layout' in response.content
     assert b"field-extraction_outputs" in response.content and b"field-media_dashboard_link" in response.content
     assert b"field-google_location_reference" in response.content
+    from django import forms
+    assert isinstance(response.context["adminform"].form.fields["status"].widget, forms.Select)
+    assert isinstance(response.context["adminform"].form.fields["verification_status"].widget, forms.Select)
+    assert b'name="project_pic"' not in response.content
+    assert b'name="project_picture_source"' not in response.content
     assert b'name="_save"' in response.content
     if not adding:
         assert reverse("admin:platform_api_project_media_dashboard", args=[project.pk]).encode() in response.content
@@ -73,7 +81,7 @@ def test_project_admin_columns_preserve_validation_and_saving(client, django_use
 
     actor = django_user_model.objects.create_superuser(username="project-form-save", password="test-only")
     project = Project.objects.create(organization=Organization.objects.create(legal_name="Form saves"),
-                                     submitted_name="Original name")
+                                     submitted_name="Original name", latitude="19.150000", longitude="72.950000")
     client.force_login(actor)
     url = reverse("admin:platform_api_project_change", args=[project.pk])
     data = {"organization": str(project.organization_id), "status": project.status, "submitted_name": "",
@@ -89,6 +97,100 @@ def test_project_admin_columns_preserve_validation_and_saving(client, django_use
     assert response.status_code == 302, response.context["adminform"].form.errors
     project.refresh_from_db()
     assert project.submitted_name == "Updated name" and project.locality == "Thane"
+    assert float(project.latitude) == 19.15 and float(project.longitude) == 72.95
+
+
+@pytest.mark.django_db
+def test_project_change_transit_maps_are_scoped_and_escaped(client, django_user_model, monkeypatch):
+    from django.urls import reverse
+    from platform_api import external_sources_admin as sources
+
+    actor = django_user_model.objects.create_superuser(username="transit-map-reader", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Transit tests"),
+        submitted_name="Test project", latitude="19.1", longitude="72.9")
+    monkeypatch.setattr(sources, "saved_station_routes", lambda project: {"groups": [{"stations": [
+        {"kind": "metro", "name": "<Station>", "serviceStatus": "planned",
+         "location": {"latitude": 19.2, "longitude": 72.9},
+         "walking": {"status": "available", "distanceMeters": 500}}]}]})
+    client.force_login(actor)
+    response = client.get(reverse("admin:platform_api_project_change", args=[project.pk]))
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert "&lt;Station&gt;" in html and "<Station>" not in html
+    assert "Upcoming: planned" in html and "No saved railway walking route" in html
+    assert 'id="transit-metro"' in html and 'id="transit-railway"' in html
+    assert 'title="Walking directions to &lt;Station&gt;"' in html
+    assert "frame-src https://maps.google.com https://www.google.com" in response["Content-Security-Policy"]
+    assert "frame-src" not in client.get(reverse("admin:platform_api_project_changelist"))["Content-Security-Policy"]
+    assert b"project-transit-heading" not in client.get(reverse("admin:platform_api_project_add")).content
+
+
+@pytest.mark.django_db
+def test_project_details_responsive_layout(client, django_user_model, monkeypatch, tmp_path):
+    import mimetypes
+    from pathlib import Path
+    from urllib.parse import urlsplit
+    from django.contrib.staticfiles import finders
+    from django.urls import reverse
+    from platform_api import external_sources_admin as sources
+
+    playwright_api = pytest.importorskip("playwright.sync_api")
+    actor = django_user_model.objects.create_superuser(username="project-layout", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Layout tests"),
+        submitted_name="Project layout", latitude="19.1", longitude="72.9")
+    monkeypatch.setattr(sources, "saved_station_routes", lambda project: {"groups": [{"stations": [
+        {"kind": kind, "name": f"Selected {kind} station", "serviceStatus": "unverified",
+         "location": {"latitude": 19.2, "longitude": 72.95},
+         "walking": {"status": "available", "distanceMeters": 1200}} for kind in ("metro", "railway")]}]})
+    client.force_login(actor)
+    url = reverse("admin:platform_api_project_change", args=[project.pk])
+    response = client.get(url)
+
+    def serve(route):
+        path = urlsplit(route.request.url).path
+        if path == url:
+            route.fulfill(body=response.content, content_type="text/html")
+        elif path.startswith("/static/"):
+            filename = finders.find(path.removeprefix("/static/"))
+            if filename:
+                route.fulfill(body=Path(filename).read_bytes(), content_type=mimetypes.guess_type(filename)[0] or "application/octet-stream")
+            else:
+                route.abort()
+        else:
+            route.abort()
+
+    with playwright_api.sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.route("**/*", serve)
+            page.goto("http://testserver" + url)
+            for width in (1440, 900, 390, 320):
+                page.set_viewport_size({"width": width, "height": 1000})
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
+                metadata = page.locator(".project-metadata").bounding_box()
+                resources = page.locator(".project-resources").bounding_box()
+                transit = page.locator(".project-transit").bounding_box()
+                address = page.locator(".project-address").bounding_box()
+                assert metadata and resources and transit and address
+                if width > 900:
+                    assert transit["x"] > resources["x"]
+                    assert abs(transit["y"] - resources["y"]) < 2
+                    assert address["y"] >= resources["y"] + resources["height"] - 1
+                    assert address["y"] < transit["y"] + transit["height"]
+                    assert transit["width"] > resources["width"]
+                else:
+                    assert transit["y"] >= address["y"] + address["height"] - 1
+                assert page.locator(".project-transit .project-transit-tools").count() == 1
+                assert page.locator("#id_latitude,#id_longitude").count() == 0
+                page.locator('label[for="transit-railway"]').click()
+                assert page.locator("#transit-panel-railway").is_visible()
+                assert not page.locator("#transit-panel-metro").is_visible()
+                page.locator('label[for="transit-metro"]').click()
+                page.locator(".project-details-layout").screenshot(path=str(tmp_path / f"project-details-{width}.png"))
+            print(f"Project layout screenshots: {tmp_path}")
+        finally:
+            browser.close()
 
 
 def test_structured_fields_and_units_preserve_unknown_enrichment(settings):

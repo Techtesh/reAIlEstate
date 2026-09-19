@@ -53,7 +53,7 @@ class FloorPlanCandidate:
 class FloorPlanAgent:
     """Bounded workflow: detect, extract, validate, reconcile, and request review."""
 
-    version = "floor-plan-agent-1.4"
+    version = "floor-plan-agent-1.5"
 
     def __init__(self, vision_provider=None):
         if vision_provider is None:
@@ -293,7 +293,7 @@ class FloorPlanAgent:
     def _validate(self, candidates):
         valid = []
         for candidate in candidates:
-            dimensions = [item for item in candidate.dimensions if 2 <= item["lengthFt"] <= 100 and 2 <= item["widthFt"] <= 100]
+            dimensions = [item for item in candidate.dimensions if 0.5 <= item["lengthFt"] <= 100 and 0.5 <= item["widthFt"] <= 100]
             area = candidate.carpet_area_sqft
             confidence = candidate.confidence
             if area is not None and not Decimal("100") <= area <= Decimal("20000"):
@@ -552,7 +552,7 @@ class FloorPlanAgent:
                         width = float(dimension.get("widthFt"))
                     except (TypeError, ValueError):
                         continue
-                    if room and 2 <= length <= 100 and 2 <= width <= 100:
+                    if room and 0.5 <= length <= 100 and 0.5 <= width <= 100:
                         dimensions.append({"room": room, "lengthFt": length, "widthFt": width})
             raw_features = item.get("features", [])
             features = {

@@ -104,3 +104,17 @@ def test_scanned_pdf_selection_is_bounded():
     selected = FloorPlanPageSelector().select(content, "application/pdf")
     assert len(selected) == 8
     assert all("image_with_little_text" in page.reasons for page in selected)
+
+
+def test_vision_keeps_labeled_narrow_spaces():
+    result = {"floorPlans": [{
+        "planName": "Unit 6", "planScope": "flat", "configurationType": "1BHK",
+        "carpetAreaSqFt": None, "orientation": None, "features": [], "confidence": 0.9,
+        "dimensions": [
+            {"room": "Wash Basin Nook", "lengthFt": 1.5, "widthFt": 3.92},
+            {"room": "Bedroom Foyer", "lengthFt": 3.08, "widthFt": 4.42},
+        ],
+    }]}
+    agent = FloorPlanAgent(RecordingVision())
+    candidates = agent._validate(agent._vision_candidates(1, result))
+    assert candidates[0].dimensions == result["floorPlans"][0]["dimensions"]

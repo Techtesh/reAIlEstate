@@ -461,6 +461,34 @@ class ProjectViewSet(viewsets.ReadOnlyModelViewSet):
         return response
 
 
+class ProjectPictureView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, project_id):
+        project = get_object_or_404(Project, pk=project_id)
+        public = project.status in {"published", "ingestion", "needs_review"} and not (
+            "mergedIntoProjectId" in project.address or Project.objects.filter(pk=project.pk, merge_out__state="applied").exists())
+        privileged = request.user.is_authenticated and request.user.is_active and (
+            _project_can_edit(request.user, project) or _is_reviewer(request.user))
+        if not (public or privileged):
+            raise NotFound()
+        try:
+            if project.project_pic:
+                picture = project.project_pic.open("rb")
+            elif privileged or settings.PROJECT_PUBLIC_PREVIEW_ENABLED:
+                from .project_pictures import default_picture
+
+                picture = io.BytesIO(default_picture(project))
+            else:
+                raise NotFound()
+        except (OSError, ValueError):
+            raise NotFound() from None
+        response = FileResponse(picture, content_type="image/png")
+        response["Content-Disposition"] = 'inline; filename="project.png"'
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
 class ProjectGalleryView(APIView):
     permission_classes = [AllowAny]
 

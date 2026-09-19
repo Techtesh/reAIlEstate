@@ -329,7 +329,11 @@ class OpenAIFloorPlanVisionProvider:
             "and return an EMPTY floorPlans array. Do not invent a plan to satisfy the schema. "
             "Briefly describe the visible evidence in visualEvidence. Only for genuine plans extract distinct "
             "flat or floor plans with planScope flat or floor (never unknown), visible configuration, areas, "
-            "room dimensions in feet, orientation and features. Unreadable values stay null/empty; "
+            "room dimensions in feet, orientation and features. Include every visibly labeled space with two "
+            "readable dimensions, including kitchens, living/dining rooms, bedrooms, toilets, bathrooms, balconies, "
+            "decks, wash-basin nooks, foyers, passages, corridors, utility areas and similar secondary spaces. "
+            "Keep each labeled space as a separate dimensions item and preserve its specific visible label. "
+            "Unreadable values stay null/empty; "
             "never infer sizes from pixels, scale or expected standards."
         ))
         if result["pageType"] not in {"floor_plan", "flat_layout", "mixed_plan"} and result["floorPlans"]:

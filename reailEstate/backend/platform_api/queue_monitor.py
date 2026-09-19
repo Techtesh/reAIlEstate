@@ -234,6 +234,48 @@ def delete_dead_letter(actor, message_id, version, *, confirmed=False):
         job.delete()
 
 
+def requeue_dead_letter(actor, message_id, version):
+    from uuid import UUID
+    from .ingestion_runtime import work_lock
+
+    require_monitor_access(actor, run=True)
+    try:
+        message_id = UUID(str(message_id))
+    except (ValueError, TypeError, AttributeError):
+        raise ValidationError("Choose a valid dead-letter job.") from None
+    with work_lock("outbox", message_id), transaction.atomic():
+        job = OutboxMessage.objects.select_for_update().filter(pk=message_id, event_type__in=EXTRACTION_EVENTS).first()
+        if not job or not job.dead_lettered_at or job.published_at:
+            raise ValidationError("Only unpublished dead-letter jobs can be requeued. Reload the queue.")
+        if job.dead_lettered_at.isoformat() != version:
+            raise ValidationError("This job changed. Reload before requeueing it.")
+        if QueueWorker.objects.filter(message_id=job.pk, state__in=["starting", "running"],
+                heartbeat_at__gte=timezone.now() - timedelta(seconds=LIVE_SECONDS)).exists():
+            raise ValidationError("A worker still holds this job. Try again after it finishes.")
+        operation = None
+        if job.payload.get("operationId"):
+            operation = Operation.objects.select_for_update().filter(pk=job.payload["operationId"]).first()
+            if operation and operation.state in {"completed", "cancelled", "running"}:
+                raise ValidationError(f"A {operation.state} operation cannot be requeued.")
+            if operation:
+                operation.state = "pending"
+                operation.error_code = ""
+                operation.result = {key: value for key, value in operation.result.items()
+                                    if key not in {"failureCategory", "retryable"}}
+                operation.save(update_fields=["state", "error_code", "result", "updated_at"])
+        previous = {"attempts": job.attempts, "errorCode": job.last_error_code,
+                    "deadLetteredAt": job.dead_lettered_at.isoformat()}
+        job.dead_lettered_at = None
+        job.available_after = None
+        job.last_error_code = ""
+        job.attempts = 0
+        job.save(update_fields=["dead_lettered_at", "available_after", "last_error_code", "attempts"])
+        AuditEvent.objects.create(actor=actor, action="queue.dead_letter_requeued", entity_type="OutboxMessage",
+            entity_id=job.pk, correlation_id=job.correlation_id,
+            metadata={"eventType": job.event_type, "operationId": job.payload.get("operationId"), **previous})
+        return job
+
+
 def queue_snapshot(actor):
     require_monitor_access(actor)
     now = timezone.now()
@@ -250,6 +292,7 @@ def queue_snapshot(actor):
     rows += list(jobs.filter(published_at__isnull=False).order_by("-published_at")[:25])
     rows += list(jobs.filter(dead_lettered_at__isnull=False).order_by("-dead_lettered_at")[:25])
     rows = list({job.pk: job for job in rows}.values())
+    can_requeue = actor.has_perms(["platform_api.change_project", "platform_api.change_floorplan"])
     can_delete = actor.has_perms(["platform_api.change_project", "platform_api.change_floorplan",
                                  "platform_api.delete_outboxmessage"])
     plans = {str(plan.pk): plan for plan in FloorPlan.objects.filter(
@@ -271,6 +314,7 @@ def queue_snapshot(actor):
             "attempts": job.attempts, "error": job.last_error_code,
             "updatedAt": (job.published_at or job.dead_lettered_at or job.occurred_at).isoformat(),
             "retryAt": job.available_after.isoformat() if job.available_after else None,
+            "canRequeue": can_requeue and state == "dead_letter" and worker is None,
             "canDelete": can_delete and state == "dead_letter" and worker is None,
             "deleteVersion": job.dead_lettered_at.isoformat() if state == "dead_letter" else None,
             "progress": worker.progress if worker else {}})

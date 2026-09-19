@@ -1,4 +1,6 @@
 from copy import copy
+from io import BytesIO
+from types import SimpleNamespace
 import json
 import re
 from uuid import uuid4
@@ -9,6 +11,7 @@ from django.contrib import admin, messages
 from django.contrib.admin.options import IncorrectLookupParameters
 from django.contrib.admin.views.main import ChangeList
 from django.core.exceptions import SuspiciousOperation
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import models
 from django.http import HttpResponseRedirect, QueryDict
 from django.template.response import TemplateResponse
@@ -34,6 +37,7 @@ from .models import (
     RecommendationSnapshot,
     RequirementProfile,
     ReviewTask,
+    StationCandidate,
 )
 from .floor_plan_segmentation_service import (
     FlatSeparationFailed,
@@ -65,6 +69,16 @@ from .project_layout_health import (
     ProjectLayoutHealthAdminMixin, NeedsBoundaryReviewFilter,
     project_layout_health_context, project_boundary_layouts,
 )
+
+
+@admin.register(StationCandidate)
+class StationCandidateAdmin(admin.ModelAdmin):
+    list_display = ("name", "line", "kind", "latitude", "longitude", "needs_review", "active", "issue")
+    list_filter = ("needs_review", "active", "kind", "line")
+    search_fields = ("name", "line")
+    readonly_fields = ("coordinate_options", "created_at", "updated_at")
+    fields = ("name", "line", "kind", ("latitude", "longitude"), "sequence", "active", "needs_review",
+              "issue", "coordinate_options", "created_at", "updated_at")
 
 
 class PlanRemovalConfirmationForm(forms.Form):
@@ -613,8 +627,88 @@ class EvidenceDocumentAdmin(admin.ModelAdmin):
         self.message_user(request, f"Queued {count} failed document(s) for retry.")
 
 
+class ProjectPictureWidget(forms.ClearableFileInput):
+    def format_value(self, value):
+        if value and getattr(value, "instance", None):
+            return SimpleNamespace(name="Project pic", url=reverse("project-picture", args=[value.instance.pk]))
+        return None
+
+
+class ProjectAdminForm(forms.ModelForm):
+    project_picture_source = forms.ChoiceField(
+        label="Project pic from documents", required=False, widget=forms.RadioSelect,
+        help_text="Choose an extracted image or use the first clean PDF page. An uploaded picture overrides the automatic default.",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from .project_pictures import picture_candidates
+
+        choices = [("", "Keep current picture (first PDF page if none)"),
+                   ("automatic", "Automatic: first page of the first clean PDF")]
+        if self.instance.pk and not self.instance._state.adding:
+            for asset in picture_candidates(self.instance):
+                choices.append((str(asset.pk), format_html(
+                    '<span class="project-picture-option"><img src="{}" alt="" loading="lazy" width="160" height="110">'
+                    '<span>{} · Page {} · {}</span></span>',
+                    reverse("floor-plan-asset-media", args=[asset.pk]), asset.document.original_name,
+                    asset.page_number or "?", asset.source_bounds.get("category", "Image"))))
+        self.fields["project_picture_source"].choices = choices
+
+    def clean(self):
+        data = super().clean()
+        source = data.get("project_picture_source")
+        if not source:
+            return data
+        if "project_pic" in self.changed_data:
+            raise forms.ValidationError("Choose either an upload/clear action or a document picture, not both.")
+        if source == "automatic":
+            data["project_pic"] = False
+        else:
+            from .project_pictures import extracted_picture
+
+            try:
+                data["project_pic"] = extracted_picture(self.instance, source)
+            except (ValueError, OSError) as exc:
+                self.add_error("project_picture_source", str(exc))
+        return data
+
+    class Meta:
+        model = Project
+        fields = "__all__"
+        widgets = {"project_pic": ProjectPictureWidget}
+
+    def clean_project_pic(self):
+        picture = self.cleaned_data.get("project_pic")
+        if not picture or "project_pic" not in self.changed_data:
+            return picture
+        from PIL import Image, ImageOps
+
+        if picture.size > 10 * 1024 * 1024:
+            raise forms.ValidationError("Project pic must be 10 MB or smaller.")
+        try:
+            picture.seek(0)
+            with Image.open(picture) as image:
+                if image.format not in {"JPEG", "PNG", "WEBP"} or image.width * image.height > 20_000_000:
+                    raise forms.ValidationError("Choose a JPEG, PNG or WebP image up to 20 megapixels.")
+                normalized = ImageOps.exif_transpose(image).convert("RGB")
+                normalized.thumbnail((2400, 2400))
+                normalized.info.clear()
+                output = BytesIO()
+                normalized.save(output, format="PNG")
+        except (OSError, ValueError, Image.DecompressionBombError) as exc:
+            raise forms.ValidationError("Choose a valid project image.") from exc
+        return SimpleUploadedFile("project.png", output.getvalue(), content_type="image/png")
+
+
+class ProjectMediaPictureForm(ProjectAdminForm):
+    class Meta(ProjectAdminForm.Meta):
+        fields = ("project_pic",)
+
+
 @admin.register(Project)
 class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, LayoutBulkAdminMixin, CropCartAdminMixin, SourcePageAdminMixin, ImageNavigationAdminMixin, admin.ModelAdmin):
+    form = forms.ModelForm
     change_form_template = "admin/platform_api/project_change_form.html"
     change_list_template = "admin/platform_api/project_change_list.html"
     list_display = ("submitted_name", "created_at", "maharera_reference", "google_maps_reference", "locality", "status", "boundary_review_link", "media_dashboard_link")
@@ -622,12 +716,16 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
     search_fields = ("submitted_name", "locality", "maha_rera_id")
     readonly_fields = ("extraction_outputs", "media_dashboard_link", "google_location_reference")
     fieldsets = ((None, {
-        "classes": ("project-details-grid",),
-        "fields": ("organization", "status", "maha_rera_id", "submitted_name", "address", "locality",
-                   "latitude", "longitude", "published_fact_set_version", "processing_attested",
-                   "verification_status", "verification_checked_at", "google_location_reference",
-                   "extraction_outputs", "media_dashboard_link"),
-    }),)
+        "classes": ("project-details-grid", "project-metadata"),
+        "fields": ("organization", "status", "maha_rera_id", "submitted_name",
+                   "published_fact_set_version", "verification_status", "processing_attested", "verification_checked_at"),
+    }), (None, {
+        "classes": ("project-details-grid", "project-resources"),
+        "fields": ("google_location_reference", "media_dashboard_link", "extraction_outputs"),
+    }), (None, {
+        "classes": ("project-details-grid", "project-address"),
+        "fields": ("address", "locality"),
+    }))
     ordering = ("submitted_name", "id")
     actions = ("retire_selected_projects", "queue_selected_projects_for_reanalysis")
 
@@ -863,24 +961,33 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
 
     def jobs_view(self, request):
         from django.core.exceptions import ValidationError
-        from .queue_monitor import delete_dead_letter, queue_snapshot
+        from .queue_monitor import delete_dead_letter, queue_snapshot, requeue_dead_letter
         if request.method == "POST":
-            if request.POST.get("action") != "delete_dead_letter":
+            action = request.POST.get("action")
+            if action not in {"delete_dead_letter", "requeue_dead_letter"}:
                 from django.http import HttpResponseBadRequest
                 return HttpResponseBadRequest("Unknown queue action.")
             try:
-                delete_dead_letter(request.user, request.POST.get("message_id"), request.POST.get("version"),
-                                  confirmed=request.POST.get("confirm_delete") == "yes")
+                if action == "requeue_dead_letter":
+                    requeue_dead_letter(request.user, request.POST.get("message_id"), request.POST.get("version"))
+                else:
+                    delete_dead_letter(request.user, request.POST.get("message_id"), request.POST.get("version"),
+                                      confirmed=request.POST.get("confirm_delete") == "yes")
             except ValidationError as exc:
                 messages.error(request, " ".join(exc.messages))
             except WorkAlreadyClaimed:
-                messages.warning(request, "A worker has claimed this job. Reload before deleting it.")
+                messages.warning(request, "A worker has claimed this job. Reload and try again.")
             else:
-                messages.success(request, "Dead-letter job deleted. Project data and audit history were retained.")
+                if action == "requeue_dead_letter":
+                    messages.success(request, "Dead-letter job requeued. Run queued evaluations to process it.")
+                else:
+                    messages.success(request, "Dead-letter job deleted. Project data and audit history were retained.")
             return HttpResponseRedirect(reverse("admin:platform_api_project_jobs"))
         response = TemplateResponse(request, "admin/platform_api/queue_monitor.html", {
             **self.admin_site.each_context(request), "opts": self.model._meta,
             "title": "Evaluation jobs", "snapshot": queue_snapshot(request.user),
+            "station_correction_count": StationCandidate.objects.filter(needs_review=True).count()
+                if request.user.has_perm("platform_api.view_stationcandidate") else None,
             "can_run": request.user.has_perms(["platform_api.change_project", "platform_api.change_floorplan"]),
         })
         response["Cache-Control"] = "private, no-store"
@@ -897,6 +1004,15 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
         context = dict(extra_context or {})
         obj = self.get_object(request, object_id)
         if obj and self.has_view_or_change_permission(request, obj):
+            from .external_sources_admin import project_transit_maps
+
+            context["project_transit_maps"] = project_transit_maps(obj)
+            from django.conf import settings
+
+            reference = ReviewTask.objects.filter(LOCATION_REFERENCE_QUERY, project=obj,
+                task_type="external_sources").order_by("-created_at", "-pk").first()
+            context["transit_reference_id"] = reference.pk if reference else None
+            context["transit_maps_configured"] = bool(getattr(settings, "GOOGLE_MAPS_API_KEY", ""))
             if obj.status == "retired":
                 messages.warning(request, "Retired project: these records are retained for reference, not active use.")
             context["project_media_dashboard_url"] = reverse(
@@ -999,13 +1115,35 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
 
         section = request.GET.get("section", "layouts")
         include_candidates = request.GET.get("include_candidates") == "1"
-        if section not in {"amenities", "floor-plans", "layouts"}:
+        if section not in {"amenities", "floor-plans", "layouts", "project-images"}:
             section = "layouts"
         if request.method == "POST":
             if not self.has_change_permission(request, project):
                 from django.core.exceptions import PermissionDenied
                 raise PermissionDenied
             action = request.POST.get("action", "report")
+            if action == "save_project_picture":
+                from django.db import transaction
+
+                with transaction.atomic():
+                    project = Project.objects.select_for_update().get(pk=project.pk)
+                    if project.status == "retired" or project.updated_at.isoformat() != request.POST.get("version"):
+                        messages.error(request, "The project changed or is retired. Reload before saving its picture.")
+                    else:
+                        picture_form = ProjectMediaPictureForm(request.POST, request.FILES, instance=project)
+                        if picture_form.is_valid():
+                            project = picture_form.save(commit=False)
+                            project.save(update_fields=["project_pic", "updated_at"])
+                            AuditEvent.objects.create(actor=request.user, action="project.picture_changed",
+                                entity_type="Project", entity_id=project.pk, correlation_id=uuid4(),
+                                metadata={"source": picture_form.cleaned_data.get("project_picture_source") or "upload_or_clear"})
+                            self.log_change(request, project, [{"changed": {"fields": ["Project pic"]}}])
+                            messages.success(request, "Project picture saved.")
+                        else:
+                            for errors in picture_form.errors.values():
+                                for error in errors:
+                                    messages.error(request, error)
+                return HttpResponseRedirect(request.path + "?section=project-images")
             from .reanalysis import evaluation_retry_warning
             warning = evaluation_retry_warning(project, request.user, request.POST)
             if warning:
@@ -1274,17 +1412,21 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
             plan.inactive_source = (plan.document_id, plan.page_number) in inactive_pages
         from .layout_evaluation_status import layout_evaluation_states
         evaluation_states = layout_evaluation_states([*floor_plans, *layouts])
+        from .project_pictures import first_picture_document, picture_candidates
+
+        project_image_count = picture_candidates(project).count()
         carousel_assets = []
         carousel_labels = {}
         seen_hashes = set()
         if section == "layouts":
-            preview_plans = [plan for plan in layouts if plan.asset_id and (
-                plan.asset.asset_type == "unit_crop" or plan_source_kind(plan) == "precut_source")]
+            preview_plans = [plan for plan in layouts if plan.asset_id]
             preview_assets = [plan.asset for plan in preview_plans]
             carousel_labels = {plan.asset_id: plan.display_title for plan in preview_plans}
         elif section == "floor-plans":
             preview_assets = [plan.asset for plan in floor_plans if plan.asset_id]
             carousel_labels = {plan.asset_id: plan.display_title for plan in floor_plans}
+        elif section == "project-images":
+            preview_assets = []
         else:
             preview_assets = amenities
         for asset in preview_assets:
@@ -1332,7 +1474,10 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                 "next": dashboard_url(project_ids[position + 1]) if position + 1 < len(project_ids) else None,
                 "position": position + 1, "total": len(project_ids),
             },
-            "counts": {"amenities": amenities.count(), "floorPlans": len(floor_plans), "layouts": len(layouts)},
+            "counts": {"amenities": amenities.count(), "floorPlans": len(floor_plans), "layouts": len(layouts),
+                       "projectImages": project_image_count},
+            "project_picture_form": ProjectMediaPictureForm(instance=project) if section == "project-images" else None,
+            "has_project_picture": section == "project-images" and (bool(project.project_pic) or first_picture_document(project) is not None),
             "hidden_layout_count": max(0, len(all_layouts) + len(added_layouts) + len(manual_layouts) - len(layouts)) if not boundary_only else 0,
             "carousel": [{
                 "imageUrl": reverse("floor-plan-asset-media", kwargs={"asset_id": asset.id}),

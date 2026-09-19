@@ -195,6 +195,8 @@ dialog::backdrop { background: #122b2266; }
 .detail-price { font-size: 26px !important; font-weight: 700; }
 .project-open { width: 100%; height: 100%; border: 0; background: transparent; color: inherit; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 28px 50px; }
 .project-open span { font-size: 12px; overflow-wrap: anywhere; }
+.project-open:has(.project-picture) { padding: 0; }
+.project-picture { display: block; width: 100%; height: 100%; object-fit: contain; }
 .detail-dialog h2, .layout-details h4 { overflow-wrap: anywhere; }
 .gallery-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 16px 0; font-size: 12px; }
 .gallery-category { flex: 1; min-width: 120px; }

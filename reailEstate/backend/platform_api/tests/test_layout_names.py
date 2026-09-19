@@ -147,7 +147,11 @@ def test_dashboard_layout_explorer_names_only_and_preserves_controls(source, cli
     response = client.get(url, {"section": "layouts", "include_candidates": "1"})
     assert response.status_code == 200
     html = response.content.decode()
-    assert "data-layout-explorer" in html and "data-carousel" not in html
+    assert "data-layout-explorer" in html and "data-carousel" in html
+    assert "Layout previews" in html
+    tabs = html.split('class="media-tabs"', 1)[1].split("</nav>", 1)[0]
+    assert tabs.index("Project images") < tabs.index("Amenities") < tabs.index("Floor plans") < tabs.index("Layouts")
+    assert html.index('class="media-tabs"') < html.index("data-carousel")
     assert 'data-layout-divider role="separator"' in html
     assert 'aria-controls="layout-directory"' in html
     assert 'id="layout-directory"' in html
@@ -164,6 +168,78 @@ def test_dashboard_layout_explorer_names_only_and_preserves_controls(source, cli
     assert "Update this unit crop" in html and "Raw extraction and provenance" in html
     assert "data-layout-explorer" not in client.get(url, {"section": "floor-plans"}).content.decode()
     assert "data-layout-explorer" not in client.get(url, {"section": "amenities"}).content.decode()
+
+
+@pytest.mark.django_db
+def test_dashboard_project_images_select_upload_and_restore_automatic(source, client):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from django.urls import reverse
+
+    plan, actor = source
+    project = plan.project
+    client.force_login(actor)
+    url = reverse("admin:platform_api_project_media_dashboard", args=[project.pk]) + "?section=project-images"
+    response = client.get(url)
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert "Project images (1)" in html
+    assert 'enctype="multipart/form-data"' in html
+    assert f'value="{plan.asset_id}"' in html
+    assert "Save project picture" in html
+    assert "Evaluation queue" not in html and "data-layout-explorer" not in html
+    original_name = project.submitted_name
+    with storage.open(plan.asset.object_key, "rb") as stream:
+        original_bytes = stream.read()
+    for choice in (str(plan.asset_id), "upload", "automatic"):
+        payload = {"action": "save_project_picture", "version": project.updated_at.isoformat(),
+                   "project_picture_source": "" if choice == "upload" else choice}
+        if choice == "upload":
+            payload["project_pic"] = SimpleUploadedFile("cover.png", original_bytes, content_type="image/png")
+        response = client.post(url, payload)
+        assert response.status_code == 302 and response.url.endswith("?section=project-images")
+        project.refresh_from_db()
+        assert bool(project.project_pic) == (choice != "automatic")
+        assert project.submitted_name == original_name
+    assert AuditEvent.objects.filter(action="project.picture_changed", entity_id=project.pk).count() == 3
+    with storage.open(plan.asset.object_key, "rb") as stream:
+        assert stream.read() == original_bytes
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("restriction", ["stale", "retired", "foreign_image", "permission", "bad_upload"])
+def test_dashboard_project_images_reject_invalid_updates(source, client, django_user_model, restriction):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from django.urls import reverse
+
+    plan, actor = source
+    project = plan.project
+    payload = {"action": "save_project_picture", "version": project.updated_at.isoformat(),
+               "project_picture_source": str(plan.asset_id)}
+    if restriction == "stale":
+        project.save()
+    elif restriction == "retired":
+        project.status = "retired"
+        project.save()
+        payload["version"] = project.updated_at.isoformat()
+    elif restriction == "foreign_image":
+        project = Project.objects.create(organization=project.organization, submitted_name="Unrelated")
+        payload["version"] = project.updated_at.isoformat()
+    elif restriction == "permission":
+        actor = django_user_model.objects.create_user(username="picture-reader", is_staff=True)
+        actor.user_permissions.add(Permission.objects.get(codename="view_project", content_type__app_label="platform_api"))
+    else:
+        payload["project_picture_source"] = ""
+        payload["project_pic"] = SimpleUploadedFile("invalid.png", b"not an image", content_type="image/png")
+    client.force_login(actor)
+    url = reverse("admin:platform_api_project_media_dashboard", args=[project.pk]) + "?section=project-images"
+    if restriction == "permission":
+        html = client.get(url).content.decode()
+        assert "Save project picture" not in html and "fieldset disabled" in html
+    response = client.post(url, payload)
+    assert response.status_code == (403 if restriction == "permission" else 302)
+    project.refresh_from_db()
+    assert not project.project_pic
+    assert not AuditEvent.objects.filter(action="project.picture_changed").exists()
 
 
 @pytest.mark.parametrize("suffix", [

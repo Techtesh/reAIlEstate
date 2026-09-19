@@ -103,6 +103,140 @@ account export, and account deletion under `/api/v1/`.
 Key records are `Project`, `Building`, `HomeConfiguration`, `ProjectAmenity`,
 `ProjectFact`, `ProjectMetric`, `FloorPlan`, and `FloorPlanAsset`.
 
+#### Listing picture selection
+
+The media dashboard's `Project images` tab supports a `Project pic` upload and a
+thumbnail radio picker under `Project pic from documents`. These controls are not
+part of the project edit form. Selecting an extracted image verifies project
+ownership, clean scan state, byte length and checksum, then saves a normalized PNG
+as the explicit cover. Original evidence is unchanged. Choose one upload or one
+document selection per save. The admin change history records the form change.
+
+The `Project images` tab sits alongside Amenities, Floor plans and Layouts. Its upload/selection form saves
+only the listing cover, requires project change permission, rejects stale edits
+and retired projects, and records `project.picture_changed`. View-only users can
+inspect the image choices but cannot save. The Layouts tab includes an image
+carousel as well as its existing searchable layout directory and editing controls.
+
+Without an explicit cover, the picture endpoint renders page 1 of the earliest
+clean PDF and caches the derived image briefly by document ID and checksum.
+Automatic document previews are public only when `PROJECT_PUBLIC_PREVIEW_ENABLED`
+is enabled; otherwise an admin must select or upload the public cover. Selecting
+`Automatic` clears the explicit cover and restores this fallback. Building
+silhouettes are not inferred from the broad `general` category, which can also
+include interiors; choose the appropriate building image from the thumbnails.
+
+The `projectPic` API field feeds listing cards. Missing/unreadable images retain
+the existing placeholder. See
+[`backend/platform_api/project_pictures.py`](backend/platform_api/project_pictures.py)
+for source validation and fallback rendering. Migration `0015` adds the cover field.
+
+#### Project transit map
+
+The project edit page includes a compact Google directions map with Metro and
+Railway views. `project_transit_maps` uses the saved project coordinates and
+saved station routes; it makes no provider API calls on page load. Each view
+defaults to the shortest available saved walking distance, combining existing,
+upcoming and unverified metro candidates. Upcoming stops retain their service-status label;
+walking directions to a planned stop do not imply operating metro service.
+When project coordinates are missing, the latest saved manual pin can be shown
+as a labelled preview without applying or approving it. Views without saved
+routes show the pin map instead; missing pins show an empty state. Both link to
+External sources for location and route review.
+Google frames are allowed by CSP only on the project change page. The embed
+receives route coordinates, not the server API key. Saved distances may differ
+from Google's current displayed route, and are not a globally verified nearest
+station claim.
+
+Committing a new pin generates and saves nearby walking/driving routes when
+`GOOGLE_MAPS_API_KEY` is configured. Existing draft routes are preserved without
+another lookup. `Generate directions` on the project page refreshes routes from
+the saved reference with a 5, 10 or 20 km search radius; manual pins do not require
+a Google place ID or approval. These POST actions retain the location's review
+state, check concurrent changes, and keep the pin if generation fails. Saved
+route origins are used for the directions rather than substituting a different
+approved location. Page loads never invoke paid lookup APIs.
+
+Configure the backend environment with a server-side Google Maps key enabled for
+Places API (New) and Routes API, then restart the backend. Do not place this key
+in browser code or source control. Upcoming metro candidates additionally require
+the authority-backed `PROJECT_METRO_CATALOGUE` / `PROJECT_METRO_CATALOGUE_FILE`;
+Google's station search alone does not verify upcoming service.
+
+Routing reads unverified candidates from the `platform_api_stationcandidate`
+PostgreSQL table by default. Up to five nearby candidates are routed as a separate
+unverified group. These candidates are not evidence of operational or upcoming
+service. Route generation uses place IDs only when both
+the building and station have valid IDs; otherwise both endpoints use coordinates.
+The saved external directions link retains this choice. The compact embedded map
+uses coordinates. Regenerate directions explicitly to refresh existing results.
+
+##### Project fields and station choices
+
+- Project status and verification status use Django `TextChoices`, rendered as
+  dropdowns. Verification refers to the registry record, not location approval.
+- The project form omits duplicate latitude/longitude inputs. Manage the pin under
+   **External sources**: review it, confirm it, and use **Apply reviewed location**.
+   This fills the stored coordinates through the audited approval path. Generating
+  directions or selecting a station never approves the building pin. The configured
+  second-reviewer policy still applies.
+- The details page groups metadata at the top, reference/media links and route
+   controls on the left, and the transit map on the right. Address and locality
+   follow beneath them. These sections stack on mobile; existing coordinates are
+   preserved when saving the form.
+- Under **External sources > Saved station directions**, select one **Railway
+  station** and one **Metro station**, then **Save displayed stations**. The Metro
+  selector combines all three metro groups. Each selector can instead use
+  **Automatic (shortest available walking route)**. A station with no returned
+  walking distance can be explicitly chosen, but no distance is invented.
+- Choices are saved in `platform_api_project.transit_station_choices` and audited.
+  They survive refresh when the station identity and coordinates still match. If
+  a chosen station is absent from refreshed results, the display falls back to
+  the shortest available route. Re-select after a coordinate correction. Saving
+  checks the project version and route snapshot to reject stale submissions.
+
+##### Station catalogue and corrections queue
+
+1. Apply migrations and import the original CSV once, from the workspace root:
+
+   ```powershell
+   $env:DATABASE_BACKEND = 'postgresql'
+   & './reailEstate/backend/.venv/Scripts/python.exe' './reailEstate/backend/manage.py' migrate
+   & './reailEstate/backend/.venv/Scripts/python.exe' './reailEstate/backend/manage.py' import_station_candidates './reailEstate/backend/config/mmr-metro-candidates.csv'
+   ```
+
+2. Open **Active queue > Station corrections**, or the **Station corrections
+   queue** sidebar link. Repeated equal coordinates are deduplicated; conflicting
+   or invalid coordinates produce `needs_review=true` rows excluded from routing.
+   `issue` explains the correction, and `coordinate_options` preserves submitted
+   alternatives. Re-importing never overwrites existing database edits.
+3. In **Station candidates**, set the correct `latitude` and `longitude`, retain
+   `active=true`, clear `needs_review`, and clear the resolved `issue`. `sequence`
+   orders schematic lines; inactive or unresolved rows break those lines. Changing
+   coordinates does not verify service status or station access.
+4. A PostgreSQL database viewer may edit the same table directly. Connect to the
+   configured application database (locally `realestate`, port `15432`), using
+   credentials from the ignored local configuration, not copied into documentation.
+   Select the row by UUID; edit both coordinates together, `needs_review`, `issue`,
+   and `updated_at`. Do not change its UUID or overwrite `coordinate_options`.
+   Database constraints enforce coordinate ranges and require coordinates when
+   `needs_review=false`. Direct SQL bypasses Django admin audit logging; prefer
+   the admin editor or keep a separate change record.
+5. Reload the buyer map to see current catalogue positions. For each affected
+   project, use **Generate directions** to refresh saved distances and endpoints,
+   then confirm the displayed-station choices. Existing route snapshots are not
+   silently rewritten, and no paid API call occurs just from editing a station.
+
+The initial import leaves six conflicts: **BSNL Metro, Diamond Garden, Mandale,
+Mankhurd, Shivaji Chowk** (Line 2B), and **Pandurang Wadi** (Line 9). An admin must
+check the actual station pin and choose or replace the listed coordinate pairs.
+These issues belong to the corrections queue, not the project's route-error panel.
+
+`PROJECT_MAP_STATION_CANDIDATES_FILE` is now empty by default. Setting it explicitly
+enables the legacy CSV read path and bypasses database candidates; leave it unset
+for database editing. Authority-backed service evidence continues to use the
+separate metro catalogue configuration.
+
 ### 3. Buyer requirement profile flow
 
 1. [`frontend/src/Requirements.tsx`](frontend/src/Requirements.tsx) maintains the

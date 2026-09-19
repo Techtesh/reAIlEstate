@@ -110,6 +110,11 @@
   {% if saved_routes %}
   <section class="saved-routes-panel" aria-labelledby="saved-routes-heading">
     <h2 id="saved-routes-heading">Saved station directions</h2>
+    <form method="post">
+      {% csrf_token %}
+      {{ station_choice_form.as_p }}
+      <button type="submit" name="action" value="save_station_choices" {% if original.status == 'retired' or original.status == 'merged' %}disabled{% endif %}>Save displayed stations</button>
+    </form>
     {% include "admin/platform_api/station_routes.html" with routes=saved_routes %}
   </section>
   {% elif has_google_reference %}
@@ -158,6 +163,10 @@
       <p><strong>Manual location / {{ reference.resolution.reviewState|default:"unreviewed" }}</strong> &middot;
         Latitude {{ reference.manual_details.location.latitude }} &middot; Longitude {{ reference.manual_details.location.longitude }} &middot;
         <a href="{{ reference.manual_details.sourceUrl }}" target="_blank" rel="noopener noreferrer">View pin on Google Maps</a></p>
+      <form method="post">{% csrf_token %}
+        <input type="hidden" name="reference_id" value="{{ reference.pk }}">
+        <button type="submit" name="action" value="retry_saved_routes" {% if not maps_configured %}disabled{% endif %}>Generate station directions</button>
+      </form>
       {% if reference.can_accept_manual %}<form method="post">{% csrf_token %}
         <input type="hidden" name="reference_id" value="{{ reference.pk }}">
         <input type="hidden" name="project_version" value="{{ original.updated_at|date:'c' }}">

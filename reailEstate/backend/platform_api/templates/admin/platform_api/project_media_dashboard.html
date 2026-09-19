@@ -17,7 +17,7 @@
 
 {% block extrastyle %}
 {{ block.super }}
-<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}?v=20260916-resizable-layouts">
+<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}?v=20260918-project-images">
 {% endblock %}
 
 {% block content %}
@@ -48,7 +48,21 @@
     {% if can_report %}{% include "admin/platform_api/cart_icon.html" with count=draft_crop_count only %}{% endif %}
   </nav>
 
-  {% if carousel and section != 'layouts' %}
+  <nav class="media-tabs" aria-label="Project media sections">
+    <a class="{% if section == 'project-images' %}active{% endif %}" href="?section=project-images">Project images ({{ counts.projectImages }})</a>
+    <a class="{% if section == 'amenities' %}active{% endif %}" href="?section=amenities">Amenities ({{ counts.amenities }})</a>
+    <a class="{% if section == 'floor-plans' %}active{% endif %}" href="?section=floor-plans">Floor plans ({{ counts.floorPlans }})</a>
+    <a class="{% if section == 'layouts' %}active{% endif %}" href="?section=layouts">Layouts ({{ counts.layouts }})</a>
+    {% if can_report %}
+      {% if section == 'project-images' %}
+      <a class="button media-primary media-add" href="#project-image-form">Add project image</a>
+      {% else %}
+      <a class="button media-primary media-add" href="{{ add_source_pages_url }}?category={{ section }}">{% if section == 'layouts' %}Add missing layout{% elif section == 'floor-plans' %}Add missing floor-plan pages{% else %}Add missing amenity pages{% endif %}</a>
+      {% endif %}
+    {% endif %}
+  </nav>
+
+  {% if carousel %}
     <section class="carousel" data-carousel aria-labelledby="media-preview-heading">
       <h2 id="media-preview-heading">{% if section == 'layouts' %}Layout previews{% elif section == 'floor-plans' %}Floor-plan previews{% else %}Amenity previews{% endif %}</h2>
       {% for slide in carousel %}
@@ -65,15 +79,6 @@
     </section>
   {% endif %}
 
-  <nav class="media-tabs" aria-label="Project media sections">
-    <a class="{% if section == 'amenities' %}active{% endif %}" href="?section=amenities">Amenities ({{ counts.amenities }})</a>
-    <a class="{% if section == 'floor-plans' %}active{% endif %}" href="?section=floor-plans">Floor plans ({{ counts.floorPlans }})</a>
-    <a class="{% if section == 'layouts' %}active{% endif %}" href="?section=layouts">Layouts ({{ counts.layouts }})</a>
-    {% if can_report %}
-      <a class="button media-primary media-add" href="{{ add_source_pages_url }}?category={{ section }}">{% if section == 'layouts' %}Add missing layout{% elif section == 'floor-plans' %}Add missing floor-plan pages{% else %}Add missing amenity pages{% endif %}</a>
-    {% endif %}
-  </nav>
-
   {% if boundary_review_count or boundary_only %}
   <section class="module media-panel boundary-banner" aria-labelledby="boundary-review-heading">
     <h2 id="boundary-review-heading">Boundary review</h2>
@@ -85,7 +90,7 @@
   </section>
   {% endif %}
 
-  {% if can_report %}
+  {% if can_report and section != 'project-images' %}
   {% if section == 'layouts' %}
   <section class="module media-panel" id="draft-crop-cart">
     <h2>Draft cart for this project</h2>
@@ -138,7 +143,29 @@
   </section>
   {% endif %}
 
-  {% if section == 'amenities' %}
+  {% if section == 'project-images' %}
+    <section class="project-images" aria-labelledby="project-images-heading">
+      <h2 id="project-images-heading">Project images</h2>
+      {% if has_project_picture %}
+      <figure class="project-cover-preview">
+        <a href="{% url 'project-picture' original.pk %}" target="_blank" rel="noopener"><img src="{% url 'project-picture' original.pk %}?v={{ original.updated_at|date:'U' }}" alt="Current cover for {{ original.submitted_name }}"></a>
+        <figcaption>{% if original.project_pic %}Current listing cover{% else %}Automatic cover: first PDF page{% endif %}</figcaption>
+      </figure>
+      {% else %}<p>No listing cover is available.</p>{% endif %}
+      <form method="post" enctype="multipart/form-data" id="project-image-form" action="?section=project-images">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save_project_picture">
+        <input type="hidden" name="version" value="{{ original.updated_at.isoformat }}">
+        <fieldset{% if not can_report %} disabled{% endif %}>
+          <legend>Listing cover</legend>
+          <div class="project-image-upload">{{ project_picture_form.project_pic.as_field_group }}</div>
+          <h3>{{ project_picture_form.project_picture_source.label }}</h3>
+          {{ project_picture_form.project_picture_source }}
+        </fieldset>
+        {% if can_report %}<div class="media-actions"><button type="submit" class="default">Save project picture</button></div>{% endif %}
+      </form>
+    </section>
+  {% elif section == 'amenities' %}
     <section class="module media-panel">
       <h2>Project amenities</h2>
       <table><thead><tr><th>Amenity</th><th>Category</th><th>Availability</th><th>Distance</th><th>Travel time</th></tr></thead><tbody>

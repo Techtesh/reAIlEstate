@@ -16,6 +16,9 @@
         {% endif %}
         <tr><th scope="row"><a href="{% url 'admin:platform_api_project_changelist' %}?google_match=incomplete">Maps: incomplete data</a></th></tr>
         <tr><th scope="row"><a href="{% url 'admin:platform_api_project_changelist' %}?maharera=missing">MahaRERA: missing ID</a></th></tr>
+        {% if perms.platform_api.view_stationcandidate or perms.platform_api.change_stationcandidate %}
+        <tr><th scope="row"><a href="{% url 'admin:platform_api_stationcandidate_changelist' %}?needs_review__exact=1">Station corrections queue</a></th></tr>
+        {% endif %}
         {% if image_navigation %}
         <tr><th scope="row">
           <nav aria-label="Quick-link record navigation">

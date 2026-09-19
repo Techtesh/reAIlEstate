@@ -10,6 +10,12 @@ import { Empty, errorMessage, SignInPrompt } from './App'
 export type CatalogueProps = { projects: Project[]; user: User | null; loading: boolean; error: string; onRetry: () => void; savedIds: string[]; busy: boolean; toggleShortlist: (project: Project) => Promise<void>; onSignIn: () => void }
 type BrowseProps = CatalogueProps & { title: string; eyebrow: string; matches: Match[]; shortlist?: boolean; snapshot?: Snapshot }
 export function Browse(props: BrowseProps) { return <BrowseSession key={props.user?.id ?? 'guest'} {...props} /> }
+function ProjectPicture({ project }: { project: Project }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  return project.projectPic && failedUrl !== project.projectPic
+    ? <img className="project-picture" src={project.projectPic} alt={project.submittedName} loading="lazy" onError={() => setFailedUrl(project.projectPic ?? null)} />
+    : <><Building2 size={56} strokeWidth={.9} /><span>{project.submittedName}</span></>
+}
 function BrowseSession({ title, eyebrow, projects: publishedProjects, matches, user, loading, error, onRetry, savedIds, busy, toggleShortlist, onSignIn, shortlist, snapshot }: BrowseProps) {
   const [params, setParams] = useSearchParams()
   const browsing = useLocation().pathname === '/browse'
@@ -62,7 +68,7 @@ function BrowseSession({ title, eyebrow, projects: publishedProjects, matches, u
           const areas = project.configurations.flatMap(item => [Number(item.carpetAreaMin), Number(item.carpetAreaMax)]).filter(value => value > 0)
           const known = match?.components.filter(component => component.status === 'available' && component.score != null).sort((left, right) => (right.score ?? 0) - (left.score ?? 0)).slice(0, 2)
           return <article className={`project-card${selected === project.id ? ' selected' : ''}`} key={project.id} id={`project-${project.id}`} onMouseEnter={() => setSelected(project.id)} onFocus={() => setSelected(project.id)}>
-            <div className="project-visual"><button className="project-open" aria-label={`View ${project.submittedName} details and media`} onClick={() => setDetail(project)}><Building2 size={56} strokeWidth={.9} /><span>{project.submittedName}</span></button>{match && <span className="rank-tag">#{match.rank} match</span>}<button className={`save-project icon-button${saved ? ' saved' : ''}`} title={project.status !== 'published' ? 'Shortlisting requires a published listing' : saved ? 'Remove from shortlist' : 'Add to shortlist'} aria-label={`${saved ? 'Remove' : 'Shortlist'} ${project.submittedName}`} aria-pressed={saved} disabled={busy || project.status !== 'published'} onClick={() => void toggleShortlist(project)}><Heart size={21} fill={saved ? 'currentColor' : 'none'} /></button></div>
+            <div className="project-visual"><button className="project-open" aria-label={`View ${project.submittedName} details and media`} onClick={() => setDetail(project)}><ProjectPicture project={project} /></button>{match && <span className="rank-tag">#{match.rank} match</span>}<button className={`save-project icon-button${saved ? ' saved' : ''}`} title={project.status !== 'published' ? 'Shortlisting requires a published listing' : saved ? 'Remove from shortlist' : 'Add to shortlist'} aria-label={`${saved ? 'Remove' : 'Shortlist'} ${project.submittedName}`} aria-pressed={saved} disabled={busy || project.status !== 'published'} onClick={() => void toggleShortlist(project)}><Heart size={21} fill={saved ? 'currentColor' : 'none'} /></button></div>
             <div className="project-content">
               {project.status !== 'published' && <p className="processing-label">{projectStatusLabel(project)}</p>}
               <div className="price-row"><strong>{inr(lowestPrice(project))}</strong>{match && <span className="match-score">{Number(match.score).toFixed(0)}<small>% match</small></span>}</div>

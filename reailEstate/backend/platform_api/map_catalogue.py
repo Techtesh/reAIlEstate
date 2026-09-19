@@ -5,10 +5,10 @@ from uuid import NAMESPACE_URL, uuid5
 from django.conf import settings
 
 from .external_sources import coordinates, metro_catalogue
-from .models import ReviewTask
+from .models import ReviewTask, StationCandidate
 
 
-def map_stations():
+def map_stations(*, include_saved=True):
     stations = {}
     lines = []
     warnings = []
@@ -33,6 +33,8 @@ def map_stations():
             "asOf": record.get("asOf") if source == "authority" else as_of,
             "sourceUrl": record["sourceUrl"] if source == "authority" else None,
         }
+        if record.get("candidateId"):
+            stations[key]["candidateId"] = record["candidateId"]
         return key
 
     candidate_file = getattr(settings, "PROJECT_MAP_STATION_CANDIDATES_FILE", "")
@@ -92,23 +94,45 @@ def map_stations():
                      for kind, name, station_ids in segments if len(station_ids) >= 2]
         except (OSError, UnicodeError, csv.Error, ValueError):
             warnings.append("candidates_unavailable")
+    else:
+        segment, previous_group = [], None
+        for candidate in StationCandidate.objects.all():
+            group = (candidate.kind, candidate.line)
+            if group != previous_group or not candidate.active or candidate.needs_review:
+                segment = []
+            previous_group = group
+            if not candidate.active or candidate.needs_review:
+                continue
+            station_id = add({"name": candidate.name, "kind": candidate.kind, "line": candidate.line,
+                "location": {"latitude": float(candidate.latitude), "longitude": float(candidate.longitude)},
+                "candidateId": str(candidate.pk)}, "user_candidate")
+            if not station_id or not candidate.line:
+                segment = []
+                continue
+            segment.append(station_id)
+            if len(segment) == 2:
+                lines.append({"id": str(uuid5(NAMESPACE_URL, repr(segment))), "kind": candidate.kind,
+                    "name": candidate.line, "stationIds": segment, "geometryStatus": "schematic_unverified",
+                    "source": "user_candidate"})
 
     references = ReviewTask.objects.filter(
         project__status="published", task_type="external_sources", state="resolved",
         resolution__reviewState="accepted", resolution__stationRoutes__isnull=False,
     ).order_by("project_id", "-created_at", "-pk")
     seen_projects = set()
-    for task in references.iterator():
+    for task in references.iterator() if include_saved else ():
         if task.project_id in seen_projects:
             continue
         seen_projects.add(task.project_id)
         routes = task.resolution.get("stationRoutes")
         if not isinstance(routes, dict) or not isinstance(routes.get("groups"), list):
             continue
-        for group in routes["groups"][:3]:
+        for group in routes["groups"][:4]:
             if not isinstance(group, dict) or not isinstance(group.get("stations"), list):
                 continue
             for station in group["stations"][:15]:
+                if isinstance(station, dict) and (station.get("candidateId") or station.get("source") == "user_candidate"):
+                    continue
                 add(station, "saved_reference", as_of=routes.get("retrievedAt"))
     try:
         for station in metro_catalogue():

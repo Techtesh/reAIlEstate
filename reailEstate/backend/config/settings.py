@@ -175,7 +175,7 @@ if _public_preview not in {'true', 'false'}:
     raise ValueError('PROJECT_PUBLIC_PREVIEW_ENABLED must be true or false.')
 PROJECT_PUBLIC_PREVIEW_ENABLED = _public_preview == 'true'
 PROJECT_MAP_STATION_CANDIDATES_FILE = os.environ.get(
-    'PROJECT_MAP_STATION_CANDIDATES_FILE', str(BASE_DIR / 'config' / 'mmr-metro-candidates.csv'))
+    'PROJECT_MAP_STATION_CANDIDATES_FILE', '')
 PROJECT_METRO_SOURCE_HOSTS = ('mmrda.maharashtra.gov.in', 'www.mmrda.maharashtra.gov.in',
                             'mmrcl.com', 'www.mmrcl.com', 'mmmocl.co.in', 'www.mmmocl.co.in',
                             'mahametro.org', 'www.mahametro.org')

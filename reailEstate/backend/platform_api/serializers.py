@@ -131,6 +131,7 @@ class TransactionLinkSerializer(serializers.ModelSerializer):
 
 
 class ProjectListSerializer(serializers.ModelSerializer):
+    project_pic = serializers.SerializerMethodField()
     configurations = serializers.SerializerMethodField()
     amenities = serializers.SerializerMethodField()
 
@@ -146,6 +147,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
         accepted_location = bool(reference and reference.state == "resolved" and reference.resolution.get("reviewState") == "accepted")
         return {
             "id": str(instance.pk), "submitted_name": instance.submitted_name, "locality": instance.locality,
+            "project_pic": self.get_project_pic(instance),
             "status": instance.status, "maha_rera_id": "", "verification_status": "unavailable",
             "verification_checked_at": None, "updated_at": instance.updated_at.isoformat(),
             "latitude": str(instance.latitude) if accepted_location and instance.latitude is not None else None,
@@ -155,7 +157,15 @@ class ProjectListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Project
-        fields = ["id", "submitted_name", "maha_rera_id", "locality", "status", "verification_status", "verification_checked_at", "latitude", "longitude", "configurations", "amenities", "updated_at"]
+        fields = ["id", "submitted_name", "project_pic", "maha_rera_id", "locality", "status", "verification_status", "verification_checked_at", "latitude", "longitude", "configurations", "amenities", "updated_at"]
+
+    def get_project_pic(self, obj):
+        from django.conf import settings
+        from .project_pictures import first_picture_document
+
+        available = bool(obj.project_pic) or (
+            settings.PROJECT_PUBLIC_PREVIEW_ENABLED and first_picture_document(obj) is not None)
+        return f"/api/v1/projects/{obj.pk}/picture?v={obj.updated_at.timestamp()}" if available else None
 
     def get_configurations(self, obj):
         items = HomeConfiguration.objects.filter(building__project=obj, fact_set_version__lte=obj.published_fact_set_version)

@@ -30,6 +30,7 @@ from .views import (
     PlaceSuggestView,
     ProjectComparisonView,
     ProjectGalleryView,
+    ProjectPictureView,
     ProjectFloorPlanListView,
     ProjectIngestionQueueView,
     ProjectIngestionRunListView,
@@ -78,6 +79,7 @@ router.register("admin/feature-flags", FeatureFlagAdminViewSet, basename="admin-
 urlpatterns = [
     path("map-stations", MapStationListView.as_view()),
     path("projects/<uuid:project_id>/gallery", ProjectGalleryView.as_view(), name="project-gallery"),
+    path("projects/<uuid:project_id>/picture", ProjectPictureView.as_view(), name="project-picture"),
     path("amenities", BuyerAmenityListView.as_view()),
     path("", include(router.urls)),
     path("auth/login", SessionLoginView.as_view()),

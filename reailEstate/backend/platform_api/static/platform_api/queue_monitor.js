@@ -34,6 +34,22 @@
     });
     return form;
   };
+  const jobActions = job => {
+    const actions = document.createElement("div");
+    actions.className = "media-actions";
+    if (job.canRequeue) {
+      const form = document.getElementById("requeue-dead-letter-form").content.firstElementChild.cloneNode(true);
+      form.elements.namedItem("message_id").value = job.id;
+      form.elements.namedItem("version").value = job.deleteVersion;
+      form.addEventListener("submit", event => {
+        if (!window.confirm(`Requeue this dead-letter job for ${job.project}?`)) event.preventDefault();
+      });
+      actions.append(form);
+    }
+    const remove = deleteAction(job);
+    if (remove instanceof Node) actions.append(remove);
+    return actions.childElementCount ? actions : "";
+  };
   const stateLabel = job => job.state === "dead_letter" ? "Dead letter" : (
     job.state === "retrying" ? "Failed (retry queued)" : job.state);
   const render = snapshot => {
@@ -45,7 +61,7 @@
       Object.entries(job.progress).map(([key, value]) => `${key}: ${value}`).join(", "), job.attempts,
       [time(job.retryAt), job.error].filter(Boolean).join(" / ")]), 6);
     fill("queue-recent", snapshot.jobs.filter(job => ["completed", "dead_letter"].includes(job.state))
-      .map(job => [job.project, `${job.label} (${job.kind})`, stateLabel(job), time(job.updatedAt), job.attempts, job.error, deleteAction(job)]), 7);
+      .map(job => [job.project, `${job.label} (${job.kind})`, stateLabel(job), time(job.updatedAt), job.attempts, job.error, jobActions(job)]), 7);
     status.textContent = `Updated ${time(snapshot.updatedAt)}`;
   };
   render(JSON.parse(document.getElementById("queue-initial").textContent));

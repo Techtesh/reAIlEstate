@@ -219,6 +219,35 @@ def test_dead_letter_delete_is_confirmed_audited_and_preserves_operation(client,
     assert AuditEvent.objects.filter(action="queue.dead_letter_deleted", entity_id=job.pk, actor=owner).exists()
 
 
+def test_dead_letter_can_be_requeued_from_monitor(client, django_user_model):
+    from django.urls import reverse
+    from platform_api.models import AuditEvent
+
+    owner = django_user_model.objects.create_superuser(username="requeue-job", password=None)
+    job = make_job(owner)
+    operation = Operation.objects.get(pk=job.payload["operationId"])
+    operation.state = "failed"
+    operation.error_code = "PROVIDER_UNAVAILABLE"
+    operation.result = {"failureCategory": "PROVIDER", "retryable": True}
+    operation.save()
+    job.dead_lettered_at = timezone.now()
+    job.last_error_code = "PROVIDER_UNAVAILABLE"
+    job.attempts = 3
+    job.save()
+    row = next(row for row in queue_snapshot(owner)["jobs"] if row["id"] == str(job.pk))
+    assert row["canRequeue"]
+    client.force_login(owner)
+    response = client.post(reverse("admin:platform_api_project_jobs"), {
+        "action": "requeue_dead_letter", "message_id": str(job.pk), "version": row["deleteVersion"],
+    })
+    assert response.status_code == 302
+    job.refresh_from_db()
+    operation.refresh_from_db()
+    assert job.dead_lettered_at is None and job.attempts == 0 and job.last_error_code == ""
+    assert operation.state == "pending" and operation.error_code == "" and operation.result == {}
+    assert AuditEvent.objects.filter(action="queue.dead_letter_requeued", entity_id=job.pk, actor=owner).exists()
+
+
 @pytest.mark.parametrize("state", ["pending", "completed", "running", "retried"])
 def test_dead_letter_delete_rejects_nonterminal_or_retried_job(django_user_model, state):
     from django.core.exceptions import ValidationError

@@ -12,6 +12,159 @@ from platform_api.external_sources_admin import RegistryEvidenceForm, commit_ref
 from platform_api.models import AuditEvent, Organization, Project, ReviewTask, VerificationSnapshot
 
 
+@pytest.mark.parametrize("origin_id,destination_id,expected", [
+    ("building-id", "station-id", "places"), (None, "station-id", "coordinates"),
+    ("building-id", None, "coordinates"), (None, None, "coordinates"),
+    ("https://maps.google.com/search", "station-id", "coordinates"),
+])
+def test_route_endpoint_options(monkeypatch, origin_id, destination_id, expected):
+    from urllib.parse import parse_qs, urlsplit
+
+    maps = GoogleProjectMaps()
+    request = Mock(return_value={"routes": [{"distanceMeters": 1200, "duration": "900s"}]})
+    monkeypatch.setattr(maps, "_request", request)
+    origin = {"latitude": 19.1, "longitude": 72.9, "placeId": origin_id}
+    destination = {"latitude": 19.2, "longitude": 73.0, "placeId": destination_id}
+    result = maps.route(origin, destination, "WALK")
+    assert result["endpointMode"] == expected and result["status"] == "available"
+    body = request.call_args.args[2]
+    assert body["travelMode"] == "WALK"
+    query = parse_qs(urlsplit(result["directionsUrl"]).query)
+    if expected == "places":
+        assert body["origin"] == {"placeId": origin_id}
+        assert body["destination"] == {"placeId": destination_id}
+        assert query["origin_place_id"] == [origin_id] and query["destination_place_id"] == [destination_id]
+    else:
+        assert body["origin"] == {"location": {"latLng": {"latitude": 19.1, "longitude": 72.9}}}
+        assert body["destination"] == {"location": {"latLng": {"latitude": 19.2, "longitude": 73.0}}}
+        assert "origin_place_id" not in query and "destination_place_id" not in query
+
+
+def test_station_routes_include_csv_candidates_and_endpoint_modes(settings, tmp_path):
+    path = tmp_path / "stations.csv"
+    path.write_text("name,line,latitude,longitude\nKasarvadavali,Line 4,19.285,72.9615\n"
+                    "Kasarvadavali,Line 4,19.285,72.9615\nConflict,Line 4,19.28,72.96\n"
+                    "Conflict,Line 4,19.29,72.95\nFar away,Line 1,18,72\n", encoding="utf-8")
+    settings.PROJECT_MAP_STATION_CANDIDATES_FILE = str(path)
+    settings.PROJECT_METRO_CATALOGUE = []
+    maps = GoogleProjectMaps()
+    maps.nearby = Mock(side_effect=lambda origin, kind, radius: [
+        {"name": "Known station", "kind": kind, "serviceStatus": "existing_candidate",
+         "placeId": "station-id", "location": {"latitude": 19.27, "longitude": 72.98}}
+    ] if kind == "railway" else [])
+    maps._request = Mock(return_value={"routes": [{"distanceMeters": 1200, "duration": "900s"}]})
+    result = station_routes({"location": {"latitude": 19.2701641, "longitude": 72.9726405},
+                             "placeId": "building-id"}, 10000, maps)
+    assert result["candidateCount"] == 1
+    railway = result["groups"][0]["stations"][0]
+    candidate = result["groups"][3]["stations"][0]
+    assert railway["walking"]["endpointMode"] == "places"
+    assert candidate["name"] == "Kasarvadavali"
+    assert candidate["serviceStatus"] == "unverified"
+    assert candidate["walking"]["endpointMode"] == "coordinates"
+    assert result["groups"][2]["stations"] == []
+    assert result["errors"] == []
+
+
+@pytest.mark.django_db
+def test_database_station_import_and_editing(settings, tmp_path, client, django_user_model):
+    from decimal import Decimal
+    from django.core.management import call_command
+    from django.urls import reverse
+    from platform_api.map_catalogue import map_stations
+    from platform_api.models import StationCandidate
+
+    settings.PROJECT_MAP_STATION_CANDIDATES_FILE = ""
+    settings.PROJECT_METRO_CATALOGUE = []
+    path = tmp_path / "stations.csv"
+    path.write_text("name,line,latitude,longitude\nOne,Line 4,19.1,72.9\nOne,Line 4,19.1,72.9\n"
+                    "Conflict,Line 4,19.2,72.9\nTwo,Line 4,19.3,72.9\n"
+                    "Conflict,Line 4,19.4,72.9\nThree,Line 4,19.5,72.9\n", encoding="utf-8")
+    call_command("import_station_candidates", str(path))
+    assert StationCandidate.objects.count() == 4
+    conflict = StationCandidate.objects.get(name="Conflict")
+    assert conflict.needs_review and conflict.latitude is None and len(conflict.coordinate_options) == 2
+    catalogue = map_stations(include_saved=False)
+    assert {row["name"] for row in catalogue["stations"]} == {"One", "Two", "Three"}
+    assert len(catalogue["lines"]) == 1
+    conflict.latitude, conflict.longitude, conflict.needs_review = Decimal("19.25"), Decimal("72.95"), False
+    conflict.full_clean()
+    conflict.save()
+    call_command("import_station_candidates", str(path))
+    conflict.refresh_from_db()
+    assert conflict.latitude == Decimal("19.25") and not conflict.needs_review
+    catalogue = map_stations(include_saved=False)
+    assert len(catalogue["stations"]) == 4
+    assert len(catalogue["lines"][0]["stationIds"]) == 4
+    assert all(row["serviceStatus"] == "unverified" for row in catalogue["stations"])
+    assert next(row for row in catalogue["stations"] if row["name"] == "Conflict")["location"]["latitude"] == 19.25
+    published = Project.objects.create(organization=Organization.objects.create(legal_name="Station snapshots"),
+        submitted_name="Published", status="published")
+    ReviewTask.objects.create(project=published, task_type="external_sources", state="resolved", resolution={
+        "reviewState": "accepted", "stationRoutes": {"groups": [{"stations": [{
+            "name": "Old coordinates", "kind": "metro", "line": "Line 4", "source": "user_candidate",
+            "location": {"latitude": 19.0, "longitude": 72.0}}]}]}})
+    assert "Old coordinates" not in {row["name"] for row in map_stations()["stations"]}
+    actor = django_user_model.objects.create_superuser(username="station-editor", password="test-only")
+    client.force_login(actor)
+    assert client.get(reverse("admin:platform_api_stationcandidate_changelist"), {"needs_review__exact": "1"}).status_code == 200
+
+
+@pytest.mark.django_db
+def test_station_choices_save_render_and_reject_stale(client, django_user_model):
+    from django.urls import reverse
+    from platform_api.external_sources_admin import (
+        project_transit_maps, route_revision, save_transit_station_choices, station_choice_key,
+    )
+
+    actor = django_user_model.objects.create_superuser(username="station-selector", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Choices"),
+        submitted_name="Choice project", latitude=19.1, longitude=72.9)
+    stations = [{"name": name, "kind": kind, "serviceStatus": status,
+        "location": {"latitude": 19.2, "longitude": 72.95},
+        "walking": {"status": "available", "distanceMeters": distance}} for name, kind, status, distance in (
+            ("Existing", "metro", "existing_candidate", 100), ("Upcoming", "metro", "planned", 300),
+            ("Unverified", "metro", "unverified", 200), ("Rail", "railway", "existing_candidate", 500))]
+    routes = {"groups": [{"label": station["name"], "stations": [station]} for station in stations], "errors": [
+        "Some station catalogue candidates are unavailable or invalid. Review the candidate CSV."]}
+    task = ReviewTask.objects.create(project=project, task_type="external_sources", resolution={
+        "googlePlaceId": "building", "stationRoutes": routes})
+    client.force_login(actor)
+    url = reverse("admin:platform_api_project_external_sources", args=[project.pk])
+    form = client.get(url).context["station_choice_form"]
+    assert len(form.fields["metro"].choices) == 4 and len(form.fields["railway"].choices) == 2
+    data = {"action": "save_station_choices", "project_version": project.updated_at.isoformat(),
+        "route_revision": route_revision(routes), "metro": station_choice_key(stations[1]),
+        "railway": station_choice_key(stations[3])}
+    assert client.post(url, data).status_code == 302
+    project.refresh_from_db()
+    assert project_transit_maps(project)["views"][0]["station"] == "Upcoming"
+    assert project_transit_maps(project)["views"][0]["selected"]
+    assert project_transit_maps(project)["views"][0]["errors"] == []
+    assert AuditEvent.objects.filter(action="project.transit_stations_selected", entity_id=project.pk).count() == 1
+    with pytest.raises(ValueError, match="changed"):
+        save_transit_station_choices(project, actor, data)
+    data["project_version"] = project.updated_at.isoformat()
+    with pytest.raises(ValueError, match="Choose stations"):
+        save_transit_station_choices(project, actor, data | {"metro": "foreign-station"})
+    outsider = django_user_model.objects.create_user(username="unauthorized-stations", is_staff=True)
+    with pytest.raises(PermissionDenied):
+        save_transit_station_choices(project, outsider, data)
+    task.resolution["stationRoutes"]["groups"][1]["stations"][0]["walking"] = {"status": "unavailable"}
+    task.save()
+    assert project_transit_maps(project)["views"][0]["distance_meters"] is None
+    with pytest.raises(ValueError, match="changed"):
+        save_transit_station_choices(project, actor, data)
+    data["route_revision"] = route_revision(task.resolution["stationRoutes"])
+    save_transit_station_choices(project, actor, data | {"metro": "", "railway": ""})
+    project.refresh_from_db()
+    assert project_transit_maps(project)["views"][0]["station"] == "Existing"
+    project.status = "retired"
+    project.save()
+    with pytest.raises(ValueError, match="active canonical"):
+        save_transit_station_choices(project, actor, data)
+
+
 def test_invalid_coordinates_never_reach_routes():
     for latitude in (True, float("nan"), float("inf"), 91, "19.1"):
         with pytest.raises(ValueError):
@@ -22,6 +175,25 @@ def test_no_google_key_fails_closed(settings):
     settings.GOOGLE_MAPS_API_KEY = ""
     with pytest.raises(ValueError, match="not configured"):
         GoogleProjectMaps().search("Example project, Thane, Maharashtra")
+
+
+@pytest.mark.parametrize("reason", ["SERVICE_DISABLED", "API_KEY_SERVICE_BLOCKED", "BILLING_DISABLED", "UNKNOWN_REASON"])
+def test_maps_error_reasons_do_not_expose_provider_payload(settings, monkeypatch, reason):
+    from io import BytesIO
+    from urllib.error import HTTPError
+    from platform_api import external_sources
+
+    settings.GOOGLE_MAPS_API_KEY = "private-test-key"
+    payload = {"error": {"message": "private-test-key private-provider-text",
+        "details": [{"reason": reason, "metadata": {"consumer": "private-project"}}]}}
+    monkeypatch.setattr(external_sources, "urlopen", Mock(side_effect=HTTPError(
+        "https://routes.googleapis.com/directions/v2:computeRoutes", 403, "Denied", {},
+        BytesIO(json.dumps(payload).encode()))))
+    result = GoogleProjectMaps().route({"latitude": 19.1, "longitude": 72.9},
+                                      {"latitude": 19.2, "longitude": 72.9}, "WALK")
+    assert result["status"] == "unavailable" and "HTTP 403" in result["error"]
+    assert "private" not in result["error"]
+    assert (reason in result["error"]) == (reason != "UNKNOWN_REASON")
 
 
 @pytest.mark.parametrize("link", [
@@ -69,6 +241,227 @@ def test_map_preview_selected_match_uses_only_coordinates():
     assert urlsplit(preview).netloc == "www.openstreetmap.org"
     assert parse_qs(urlsplit(preview).query)["marker"] == ["19.1,72.9"]
     assert "private" not in preview
+
+
+def test_project_transit_maps_select_nearest_across_metro_statuses(monkeypatch):
+    from urllib.parse import parse_qs, urlsplit
+    from platform_api import external_sources_admin as sources
+
+    def station(name, kind, distance, status="operational"):
+        return {"name": name, "kind": kind, "serviceStatus": status,
+                "location": {"latitude": 19.2, "longitude": 72.9},
+                "walking": {"status": "available", "distanceMeters": distance}}
+
+    routes = {"groups": [{"stations": [station("Existing metro", "metro", 1400),
+        station("Upcoming metro", "metro", 700, "under_construction"),
+        station("Far railway", "railway", 3500), station("Near railway", "railway", 1800),
+        station("Invalid distance", "metro", -1), station("Invalid bool", "railway", True),
+        {"kind": "metro", "walking": {"status": "unavailable"}}, None]}]}
+    monkeypatch.setattr(sources, "saved_station_routes", lambda project: routes)
+    result = sources.project_transit_maps(SimpleNamespace(latitude=19.1, longitude=72.8))
+    metro, railway = result["views"]
+    assert metro["station"] == "Upcoming metro" and metro["service_status"] == "Upcoming: under construction"
+    assert railway["station"] == "Near railway"
+    assert urlsplit(metro["embed_url"]).netloc == "maps.google.com"
+    query = parse_qs(urlsplit(metro["embed_url"]).query)
+    assert query == {"saddr": ["19.1,72.8"], "daddr": ["19.2,72.9"], "dirflg": ["w"], "output": ["embed"]}
+    assert "travelmode=walking" in metro["directions_url"]
+    routes["originPlaceId"] = "building-id"
+    routes["groups"][0]["stations"][1]["placeId"] = "station-id"
+    routes["groups"][0]["stations"][1]["walking"]["endpointMode"] = "places"
+    metro = sources.project_transit_maps(SimpleNamespace(latitude=19.1, longitude=72.8))["views"][0]
+    link = parse_qs(urlsplit(metro["directions_url"]).query)
+    assert link["origin_place_id"] == ["building-id"]
+    assert link["destination_place_id"] == ["station-id"]
+    routes["groups"][0]["stations"][1]["walking"]["endpointMode"] = "coordinates"
+    metro = sources.project_transit_maps(SimpleNamespace(latitude=19.1, longitude=72.8))["views"][0]
+    assert "origin_place_id" not in parse_qs(urlsplit(metro["directions_url"]).query)
+    routes["origin"] = {"latitude": 19.3, "longitude": 72.7}
+    metro = sources.project_transit_maps(SimpleNamespace(latitude=19.1, longitude=72.8))["views"][0]
+    assert metro["different_origin"]
+    assert parse_qs(urlsplit(metro["embed_url"]).query)["saddr"] == ["19.3,72.7"]
+    routes["origin"] = {"latitude": 99, "longitude": 72.7}
+    assert sources.project_transit_maps(SimpleNamespace(latitude=19.1, longitude=72.8))["views"][0]["station"] is None
+
+
+@pytest.mark.django_db
+def test_transit_route_denial_is_visible_and_escaped(client, django_user_model, monkeypatch):
+    from django.urls import reverse
+    from platform_api import external_sources_admin as sources
+
+    actor = django_user_model.objects.create_superuser(username="route-diagnostics", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Route diagnostics"),
+        submitted_name="Pinned project", latitude=19.1, longitude=72.9)
+    error = "Google Maps request failed (HTTP 403). Check API access, billing and quota."
+    station = {"kind": "metro", "walking": {"status": "unavailable", "error": error}}
+    monkeypatch.setattr(sources, "saved_station_routes", lambda project: {
+        "groups": [{"stations": [station, station]}], "errors": ["<provider error>"]})
+    result = sources.project_transit_maps(project)
+    assert result["views"][0]["errors"] == ["<provider error>", error]
+    assert result["views"][0]["access_denied"]
+    assert result["views"][0]["station"] is None
+    assert not result["views"][1]["access_denied"]
+    client.force_login(actor)
+    response = client.get(reverse("admin:platform_api_project_change", args=[project.pk]))
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert "Directions lookup failed" in html and "HTTP 403" in html
+    assert "Routes API is enabled" in html
+    assert "&lt;provider error&gt;" in html and "<provider error>" not in html
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("latitude,longitude", [(None, None), (91, 72), (float("nan"), 72), (19, 72)])
+def test_project_transit_maps_missing_data_has_empty_views(monkeypatch, latitude, longitude):
+    from platform_api import external_sources_admin as sources
+
+    monkeypatch.setattr(sources, "saved_station_routes", lambda project: None)
+    result = sources.project_transit_maps(Project(pk=uuid4(), latitude=latitude, longitude=longitude))
+    assert result["has_location"] == (latitude == 19)
+    assert all(view["station"] is None for view in result["views"])
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("valid_pin", [True, False])
+def test_project_transit_maps_preview_manual_pin_without_approval(client, django_user_model, monkeypatch, valid_pin):
+    from urllib.parse import parse_qs, urlsplit
+    from django.urls import reverse
+    from platform_api import external_sources_admin as sources
+
+    actor = django_user_model.objects.create_superuser(username="pin-preview", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Pin preview"),
+                                     submitted_name="Manual pin project")
+    task = ReviewTask.objects.create(project=project, task_type="external_sources", state="open",
+        resolution={"manualLocation": {"location": {"latitude": 19.15 if valid_pin else 99, "longitude": 72.95}},
+                    "reviewState": "unreviewed"})
+    before_project = Project.objects.values().get(pk=project.pk)
+    before_task = ReviewTask.objects.values().get(pk=task.pk)
+    monkeypatch.setattr(sources, "saved_station_routes", lambda project: None)
+    result = sources.project_transit_maps(project)
+    assert result["has_location"] == valid_pin
+    if valid_pin:
+        assert parse_qs(urlsplit(result["pin_embed_url"]).query)["q"] == ["19.15,72.95"]
+        assert "not applied" in result["location_label"]
+    else:
+        assert "pin_embed_url" not in result
+    client.force_login(actor)
+    response = client.get(reverse("admin:platform_api_project_change", args=[project.pk]))
+    assert response.status_code == 200
+    assert (b'title="Project pin - Metro view"' in response.content) == valid_pin
+    assert (b'title="Project pin - Railway view"' in response.content) == valid_pin
+    assert (b"No saved project location" in response.content) != valid_pin
+    assert Project.objects.values().get(pk=project.pk) == before_project
+    assert ReviewTask.objects.values().get(pk=task.pk) == before_task
+
+
+@pytest.mark.django_db
+def test_manual_pin_route_generation_preserves_review_and_rejects_changed_reference(monkeypatch, django_user_model):
+    from platform_api import external_sources_admin as sources
+
+    actor = django_user_model.objects.create_superuser(username="manual-routes", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Manual routes"),
+                                     submitted_name="Pinned project")
+    task = ReviewTask.objects.create(project=project, task_type="external_sources", state="open",
+        resolution={"manualLocation": {"location": {"latitude": 19.15, "longitude": 72.95}},
+                    "submittedBy": actor.pk, "reviewState": "unreviewed"})
+    before_project = Project.objects.values().get(pk=project.pk)
+    details = Mock(side_effect=AssertionError("Manual pins do not need Place Details"))
+    monkeypatch.setattr(GoogleProjectMaps, "details", details)
+    provider = Mock(return_value={"groups": [{"stations": []}], "errors": []})
+    monkeypatch.setattr(sources, "station_routes", provider)
+    routes = sources.refresh_google_routes(project, actor, task.pk, 10000)
+    assert routes["origin"] == {"latitude": 19.15, "longitude": 72.95}
+    assert provider.call_args.args[0]["location"] == routes["origin"]
+    assert sources.saved_station_routes(project) == routes
+    task.refresh_from_db()
+    assert task.state == "open" and task.resolution["reviewState"] == "unreviewed"
+    assert task.version == 2
+    assert Project.objects.values().get(pk=project.pk) == before_project
+    assert AuditEvent.objects.filter(action="project.google_station_routes_refreshed", entity_id=task.pk).count() == 1
+
+    def changed_during_lookup(*args):
+        ReviewTask.objects.filter(pk=task.pk).update(version=3)
+        return {"groups": [], "errors": []}
+
+    provider.side_effect = changed_during_lookup
+    with pytest.raises(ValueError, match="changed"):
+        sources.refresh_google_routes(project, actor, task.pk, 10000)
+    task.refresh_from_db()
+    assert task.resolution["stationRoutes"] == routes
+    details.assert_not_called()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("provider_failure", [False, True])
+def test_commit_pin_generates_directions_and_retry_returns_to_project(client, django_user_model, settings, tmp_path, monkeypatch, provider_failure):
+    from django.core.cache import cache
+    from django.urls import reverse
+    from platform_api import external_sources_admin as sources
+
+    settings.WORKSPACE_DATA_ROOT = tmp_path
+    settings.GOOGLE_MAPS_API_KEY = "test-only"
+    actor = django_user_model.objects.create_superuser(username="pin-route-submit", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Pin generation"),
+                                     submitted_name="Pinned project")
+    token = str(uuid4())
+    cache.set(draft_key(project, actor, token), {"projectVersion": project.updated_at.isoformat(),
+        "manualLocation": {"location": {"latitude": 19.15, "longitude": 72.95}}}, 900)
+    station = {"name": "Nearby station", "kind": "railway", "serviceStatus": "operational",
+        "location": {"latitude": 19.16, "longitude": 72.96},
+        "walking": {"status": "available", "distanceMeters": 1000}}
+    provider = Mock(return_value={"groups": [{"stations": [station]}], "errors": []})
+    if provider_failure:
+        provider.side_effect = ValueError("Provider failed")
+    monkeypatch.setattr(sources, "station_routes", provider)
+    client.force_login(actor)
+    url = reverse("admin:platform_api_project_external_sources", args=[project.pk])
+    response = client.post(url, {"action": "commit", "draft_token": token, "confirm": "on"})
+    assert response.status_code == 302
+    task = ReviewTask.objects.get(project=project)
+    assert ("stationRoutes" in task.resolution) != provider_failure
+    assert task.resolution["reviewState"] == "unreviewed"
+    assert provider.call_count == 1
+    client.post(url, {"action": "commit", "draft_token": token, "confirm": "on"})
+    assert provider.call_count == 1
+    change_url = reverse("admin:platform_api_project_change", args=[project.pk])
+    html = client.get(change_url).content.decode()
+    assert "Generate directions" in html and f'formaction="{url}"' in html
+    provider.side_effect = None
+    response = client.post(url, {"action": "retry_saved_routes", "reference_id": str(task.pk),
+                                 "return_to": "project", "radius": "10000"})
+    assert response.status_code == 302 and response.url == change_url + "#project-transit-heading"
+    assert provider.call_count == 2
+    assert sources.project_transit_maps(project)["views"][1]["station"] == "Nearby station"
+    project.refresh_from_db()
+    assert project.latitude is None and project.longitude is None
+    task.refresh_from_db()
+    assert task.state == "open" and task.resolution["reviewState"] == "unreviewed"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("restriction", ["missing_key", "view_only", "foreign_reference", "retired"])
+def test_generate_pin_routes_rejects_invalid_requests(client, django_user_model, settings, monkeypatch, restriction):
+    from django.contrib.auth.models import Permission
+    from django.urls import reverse
+    from platform_api import external_sources_admin as sources
+
+    settings.GOOGLE_MAPS_API_KEY = "" if restriction == "missing_key" else "test-only"
+    actor = django_user_model.objects.create_user(username="route-guard", is_staff=True, is_superuser=restriction != "view_only")
+    if restriction == "view_only":
+        actor.user_permissions.add(Permission.objects.get(codename="view_project", content_type__app_label="platform_api"))
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Guard tests"),
+        submitted_name="Pinned project", status="retired" if restriction == "retired" else "ingestion")
+    task = ReviewTask.objects.create(project=project, task_type="external_sources",
+        resolution={"manualLocation": {"location": {"latitude": 19.15, "longitude": 72.95}}})
+    provider = Mock(side_effect=AssertionError("Unauthorized provider call"))
+    monkeypatch.setattr(sources, "station_routes", provider)
+    client.force_login(actor)
+    response = client.post(reverse("admin:platform_api_project_external_sources", args=[project.pk]),
+        {"action": "retry_saved_routes", "reference_id": str(uuid4() if restriction == "foreign_reference" else task.pk)})
+    assert response.status_code == (403 if restriction == "view_only" else 200)
+    provider.assert_not_called()
+    task.refresh_from_db()
+    assert "stationRoutes" not in task.resolution
 
 
 def test_direct_location_short_link_uses_restricted_resolver(monkeypatch):
@@ -286,7 +679,9 @@ def test_google_route_distinguishes_no_route_and_failure(monkeypatch):
     assert "travelmode=driving" in result["directionsUrl"]
 
 
+@pytest.mark.django_db
 def test_route_ranking_and_authority_status_override(settings):
+    settings.PROJECT_MAP_STATION_CANDIDATES_FILE = ""
     origin = {"latitude": 19.2, "longitude": 72.9}
     settings.PROJECT_METRO_SOURCE_HOSTS = ("mmrda.maharashtra.gov.in",)
     settings.PROJECT_METRO_CATALOGUE = [{

@@ -91,22 +91,81 @@ class ProfileShare(TimestampedModel):
     revoked_at = models.DateTimeField(null=True, blank=True)
 
 
+def project_picture_path(instance, filename):
+    return f"project-pictures/{instance.pk}/{uuid.uuid4().hex}.png"
+
+
 class Project(TimestampedModel):
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        INGESTION = "ingestion", "Ingestion"
+        NEEDS_REVIEW = "needs_review", "Needs review"
+        PUBLISHED = "published", "Published"
+        RETIRED = "retired", "Retired"
+        MERGED = "merged", "Merged"
+
+    class VerificationStatus(models.TextChoices):
+        UNAVAILABLE = "unavailable", "Unavailable"
+        VERIFIED = "verified", "Verified"
+        UNVERIFIED = "unverified", "Unverified"
+        NOT_FOUND = "not_found", "Not found"
+        MISMATCH = "mismatch", "Mismatch"
+
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="projects")
     maha_rera_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
     submitted_name = models.CharField(max_length=255)
+    project_pic = models.ImageField("Project pic", upload_to=project_picture_path, blank=True,
+                                    help_text="Main image shown on buyer listing cards.")
     address = models.JSONField(default=dict)
     locality = models.CharField(max_length=128, blank=True)
-    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True,
+        help_text="Accepted project location. Apply a reviewed pin in External sources to populate these coordinates.")
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
-    status = models.CharField(max_length=32, default="draft")
+    status = models.CharField(max_length=32, default=Status.DRAFT, choices=Status.choices)
     published_fact_set_version = models.PositiveIntegerField(default=0)
     processing_attested = models.BooleanField(default=False)
-    verification_status = models.CharField(max_length=32, default="unavailable")
+    verification_status = models.CharField(max_length=32, default=VerificationStatus.UNAVAILABLE,
+        choices=VerificationStatus.choices)
     verification_checked_at = models.DateTimeField(null=True, blank=True)
+    transit_station_choices = models.JSONField(default=dict, blank=True)
 
     def __str__(self):
         return self.submitted_name
+
+
+class StationCandidate(TimestampedModel):
+    class Kind(models.TextChoices):
+        METRO = "metro", "Metro"
+        RAILWAY = "railway", "Railway"
+
+    name = models.CharField(max_length=255)
+    line = models.CharField(max_length=128, blank=True)
+    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.METRO)
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True,
+        validators=[MinValueValidator(-90), MaxValueValidator(90)])
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True,
+        validators=[MinValueValidator(-180), MaxValueValidator(180)])
+    sequence = models.PositiveIntegerField(default=0)
+    active = models.BooleanField(default=True)
+    needs_review = models.BooleanField(default=True,
+        help_text="Clear only after choosing valid coordinates. Service status remains unverified.")
+    issue = models.TextField(blank=True)
+    coordinate_options = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        ordering = ("kind", "line", "sequence", "name")
+        constraints = [
+            models.UniqueConstraint(fields=("kind", "name", "line"), name="unique_station_candidate"),
+            models.CheckConstraint(condition=models.Q(latitude__isnull=True) | models.Q(latitude__gte=-90, latitude__lte=90),
+                                   name="station_latitude_range"),
+            models.CheckConstraint(condition=models.Q(longitude__isnull=True) | models.Q(longitude__gte=-180, longitude__lte=180),
+                                   name="station_longitude_range"),
+            models.CheckConstraint(condition=models.Q(needs_review=True) | models.Q(latitude__isnull=False, longitude__isnull=False),
+                                   name="station_ready_coordinates"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.line or self.get_kind_display()})"
 
 
 class Building(TimestampedModel):

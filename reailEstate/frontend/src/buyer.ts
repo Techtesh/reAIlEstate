@@ -58,6 +58,7 @@ export type MapLine = {
   geometryStatus: 'schematic_unverified'; source: 'user_candidate';
 }
 export type Project = {
+  projectPic?: string | null;
   id: string; submittedName: string; locality: string; status: string; mahaReraId: string;
   verificationStatus: string; verificationCheckedAt: string | null; updatedAt: string;
   latitude?: string | null; longitude?: string | null; configurations: Configuration[]; amenities: string[];

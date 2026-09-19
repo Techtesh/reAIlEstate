@@ -72,10 +72,18 @@ def direct_location(latitude=None, longitude=None, maps_url=""):
 
 
 def route_link(origin, destination, mode):
-    return "https://www.google.com/maps/dir/?" + urlencode({
+    parameters = {
         "api": 1, "origin": f"{origin['latitude']},{origin['longitude']}",
         "destination": f"{destination['latitude']},{destination['longitude']}", "travelmode": mode,
-    })
+    }
+    if route_uses_places(origin, destination):
+        parameters.update(origin_place_id=origin["placeId"], destination_place_id=destination["placeId"])
+    return "https://www.google.com/maps/dir/?" + urlencode(parameters)
+
+
+def route_uses_places(origin, destination):
+    return all(isinstance(point.get("placeId"), str) and
+               re.fullmatch(r"[A-Za-z0-9_-]{1,255}", point["placeId"]) for point in (origin, destination))
 
 
 class GoogleProjectMaps:
@@ -96,6 +104,26 @@ class GoogleProjectMaps:
                 raise ValueError("Invalid provider response.")
             return result
         except HTTPError as exc:
+            reasons = {
+                "SERVICE_DISABLED": "Enable this API in the Google Cloud project owning the key.",
+                "API_KEY_SERVICE_BLOCKED": "Allow this API in the key's API restrictions.",
+                "API_KEY_HTTP_REFERRER_BLOCKED": "Use a server key with suitable IP restrictions, not website referrers.",
+                "API_KEY_IP_ADDRESS_BLOCKED": "Allow the server's outbound public IP in the key restrictions.",
+                "BILLING_DISABLED": "Enable billing for the Google Cloud project.",
+                "API_KEY_INVALID": "The configured API key is invalid.",
+            }
+            reason = None
+            try:
+                error_data = exc.read(65537)
+                if len(error_data) <= 65536:
+                    details = json.loads(error_data).get("error", {}).get("details", [])
+                    reason = next((detail.get("reason") for detail in details
+                        if isinstance(detail, dict) and detail.get("reason") in reasons), None)
+            except (OSError, ValueError, AttributeError, TypeError):
+                pass
+            if reason:
+                service = "Routes API" if endpoint.startswith("https://routes.googleapis.com/") else "Places API"
+                raise ValueError(f"Google {service} request failed (HTTP {exc.code}, {reason}). {reasons[reason]}") from None
             raise ValueError(f"Google Maps request failed (HTTP {exc.code}). Check API access, billing and quota.") from None
         except (URLError, TimeoutError, OSError, json.JSONDecodeError):
             raise ValueError("Google Maps is temporarily unavailable. Retry the lookup.") from None
@@ -155,17 +183,20 @@ class GoogleProjectMaps:
     def route(self, origin, destination, mode):
         if mode not in {"WALK", "DRIVE"}:
             raise ValueError("Choose walking or driving.")
+        origin_location, destination_location = coordinates(origin), coordinates(destination)
+        use_places = route_uses_places(origin, destination)
         link = route_link(origin, destination, "walking" if mode == "WALK" else "driving")
+        provenance = {"directionsUrl": link, "endpointMode": "places" if use_places else "coordinates"}
         try:
             response = self._request("https://routes.googleapis.com/directions/v2:computeRoutes",
                                      "routes.distanceMeters,routes.duration", {
-                                         "origin": {"location": {"latLng": coordinates(origin)}},
-                                         "destination": {"location": {"latLng": coordinates(destination)}},
+                                         "origin": {"placeId": origin["placeId"]} if use_places else {"location": {"latLng": origin_location}},
+                                         "destination": {"placeId": destination["placeId"]} if use_places else {"location": {"latLng": destination_location}},
                                          "travelMode": mode, "computeAlternativeRoutes": False, "units": "METRIC",
                                      })
             routes = response.get("routes", [])
             if not routes:
-                return {"status": "no_route", "directionsUrl": link}
+                return {"status": "no_route", **provenance}
             distance, duration = routes[0].get("distanceMeters"), routes[0].get("duration", "")
             if type(distance) is not int or distance < 0 or not re.fullmatch(r"\d+(?:\.\d+)?s", duration):
                 raise ValueError("Invalid route response.")
@@ -173,9 +204,9 @@ class GoogleProjectMaps:
             if not math.isfinite(seconds):
                 raise ValueError("Invalid route duration.")
             return {"status": "available", "distanceMeters": distance, "minutes": round(seconds / 60, 1),
-                    "directionsUrl": link}
+                    **provenance}
         except ValueError as exc:
-            return {"status": "unavailable", "directionsUrl": link, "error": str(exc)}
+            return {"status": "unavailable", **provenance, "error": str(exc)}
 
 
 def metro_catalogue():
@@ -202,7 +233,7 @@ def metro_catalogue():
     return result
 
 
-def nearby_catalogue(origin, radius):
+def nearby_catalogue(origin, radius, *, records=None):
     from math import asin, cos, radians, sin, sqrt
     def distance(item):
         location = item["location"]
@@ -210,7 +241,7 @@ def nearby_catalogue(origin, radius):
         longitude_delta = radians(location["longitude"] - origin["longitude"])
         value = sin(latitude_delta / 2) ** 2 + cos(radians(origin["latitude"])) * cos(radians(location["latitude"])) * sin(longitude_delta / 2) ** 2
         return 6371000 * 2 * asin(min(1, sqrt(value)))
-    candidates = [(distance(item), item) for item in metro_catalogue()]
+    candidates = [(distance(item), item) for item in (metro_catalogue() if records is None else records)]
     return [item for meters, item in sorted(candidates, key=lambda pair: pair[0]) if meters <= radius][:5]
 
 
@@ -230,22 +261,34 @@ def station_routes(place, radius, maps=None):
     authority_ids = {station["placeId"] for station in authority_stations if station.get("placeId")}
     stations = [station for station in stations if station.get("placeId") not in authority_ids]
     stations.extend(authority_stations)
+    from .map_catalogue import map_stations
+
+    catalogue = map_stations(include_saved=False)
+    authority_names = {station["name"].strip().casefold() for station in authority_stations}
+    user_stations = nearby_catalogue(origin, radius, records=[station for station in catalogue["stations"]
+        if station["source"] == "user_candidate" and station["kind"] == "metro"
+        and station["name"].strip().casefold() not in authority_names])
+    stations.extend(user_stations)
     with ThreadPoolExecutor(max_workers=4) as executor:
-        jobs = [(station, mode, executor.submit(maps.route, origin, station["location"], travel))
+        jobs = [(station, mode, executor.submit(maps.route, origin | {"placeId": place.get("placeId")},
+            station["location"] | {"placeId": station.get("placeId")}, travel))
                 for station in stations for mode, travel in (("walking", "WALK"), ("driving", "DRIVE"))]
         for station, mode, future in jobs:
             station[mode] = future.result()
     groups = []
     for kind, upcoming, label in (("railway", False, "Railway stations"), ("metro", False, "Existing metro candidates"),
-                                   ("metro", True, "Upcoming metro")):
+                                   ("metro", True, "Upcoming metro"), ("metro", None, "Unverified metro candidates")):
         candidates = [station for station in stations if station["kind"] == kind and
-                      (station["serviceStatus"] in {"planned", "under_construction"}) == upcoming]
+                      ((station.get("source") == "user_candidate") if upcoming is None else
+                       station.get("source") != "user_candidate" and
+                       (station["serviceStatus"] in {"planned", "under_construction"}) == upcoming)]
         nearest = {}
         for mode in ("walking", "driving"):
             routed = [station for station in candidates if station[mode]["status"] == "available"]
             nearest[mode] = min(routed, key=lambda station: station[mode]["distanceMeters"])["name"] if routed else None
         groups.append({"label": label, "stations": candidates, "nearest": nearest})
     return {"groups": groups, "errors": errors, "radiusMeters": radius, "retrievedAt": timezone.now().isoformat(),
+            "candidateCount": len(user_stations), "originPlaceId": place.get("placeId"),
             "isNearestVerified": False, "catalogueConfigured": bool(getattr(settings, "PROJECT_METRO_CATALOGUE", []))}
 
 

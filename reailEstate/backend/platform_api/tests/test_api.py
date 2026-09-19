@@ -8,9 +8,125 @@ from rest_framework.test import APIClient
 from platform_api.models import Consent, RequirementProfile
 
 
+@pytest.mark.django_db
+def test_project_picture_upload_visibility_and_clear(settings, tmp_path):
+    from io import BytesIO
+    from PIL import Image
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from platform_api.admin import ProjectAdminForm, ProjectPictureWidget
+    from platform_api.models import Organization, Project
+    from platform_api.serializers import ProjectListSerializer
+
+    settings.MEDIA_ROOT = tmp_path
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Pictures"),
+                                     submitted_name="Project with picture", status="published")
+    assert ProjectListSerializer(project).data["project_pic"] is None
+    image = BytesIO()
+    Image.new("RGB", (100, 60), "green").save(image, format="JPEG")
+    form = ProjectAdminForm(instance=project, files={"project_pic": SimpleUploadedFile("cover.jpg", image.getvalue())})
+    form.cleaned_data = {"project_pic": form.fields["project_pic"].clean(form.files["project_pic"])}
+    picture = form.clean_project_pic()
+    assert picture.content_type == "image/png"
+    project.project_pic = picture
+    project.save()
+    path = f"/api/v1/projects/{project.pk}/picture"
+    assert ProjectPictureWidget().format_value(project.project_pic).url == path
+    guest = APIClient()
+    for state, expected in [("published", 200), ("ingestion", 200), ("needs_review", 200), ("draft", 404), ("withdrawn", 404), ("retired", 404), ("merged", 404)]:
+        project.status = state
+        project.save()
+        response = guest.get(path)
+        assert response.status_code == expected
+        response.close()
+    project.status = "ingestion"
+    project.save()
+    data = guest.get("/api/v1/projects/?includeProcessing=true").json()["results"][0]
+    assert data["projectPic"].startswith(path)
+    project.address = {"mergedIntoProjectId": "other"}
+    project.save()
+    assert guest.get(path).status_code == 404
+    project.project_pic = ""
+    project.save()
+    assert ProjectListSerializer(project).data["project_pic"] is None
+    assert guest.get(path).status_code == 404
+
+
+
 @pytest.fixture
 def user(db):
     return User.objects.create_user(username="buyer", password="safe-test-password")
+
+
+@pytest.mark.django_db
+def test_project_picture_document_selection_and_default(settings, tmp_path, user, monkeypatch):
+    import hashlib
+    from io import BytesIO
+    from PIL import Image
+    from django.core.files.base import ContentFile
+    from platform_api.admin import ProjectAdminForm
+    from platform_api.artifact_storage import storage
+    from platform_api.models import AgentWorkflowRun, EvidenceDocument, FloorPlanAsset, IngestionRun, Organization, Project
+    from platform_api import project_pictures
+
+    settings.MEDIA_ROOT = tmp_path
+    settings.PROJECT_PUBLIC_PREVIEW_ENABLED = True
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Picture choices"),
+                                     submitted_name="Picture choices", status="ingestion")
+    document = EvidenceDocument.objects.create(project=project, uploaded_by=user, original_name="brochure.pdf",
+        object_key="brochure.pdf", declared_media_type="application/pdf", byte_length=1, sha256="test-source",
+        scan_status="clean", retention_until=timezone.now() + timedelta(days=30))
+    run = IngestionRun.objects.create(project=project, document=document)
+    workflow = AgentWorkflowRun.objects.create(project=project, document=document, ingestion_run=run)
+    image = BytesIO()
+    Image.new("RGB", (100, 60), "green").save(image, format="PNG")
+    content = image.getvalue()
+    asset = FloorPlanAsset.objects.create(project=project, document=document, workflow_run=workflow, page_number=2,
+        object_key=storage.save("extracted.png", ContentFile(content)), byte_length=len(content),
+        sha256=hashlib.sha256(content).hexdigest(), pixel_width=100, pixel_height=60, detector_version="test")
+    payload = {"organization": str(project.organization_id), "submitted_name": project.submitted_name,
+        "status": "ingestion", "address": '{"city": "Thane"}', "locality": "", "published_fact_set_version": 0,
+        "verification_status": project.verification_status, "project_picture_source": str(asset.pk)}
+    form = ProjectAdminForm(instance=project, data=payload)
+    assert form.is_valid(), form.errors
+    form.save()
+    project.refresh_from_db()
+    assert project.project_pic
+    with project.project_pic.open("rb") as picture:
+        assert picture.read() == content
+    assert b"brochure.pdf" in str(form["project_picture_source"]).encode()
+    assert storage.exists(asset.object_key)
+    other = Project.objects.create(organization=project.organization, submitted_name="Other project")
+    with pytest.raises(ValueError, match="no longer available"):
+        project_pictures.extracted_picture(other, asset.pk)
+    asset.sha256 = "incorrect"
+    asset.save()
+    with pytest.raises(ValueError, match="checksum"):
+        project_pictures.extracted_picture(project, asset.pk)
+    form = ProjectAdminForm(instance=project, data=dict(payload, project_picture_source="automatic"))
+    assert form.is_valid(), form.errors
+    form.save()
+    project.refresh_from_db()
+    assert not project.project_pic
+    rendered = []
+
+    def render_first_page(source, pages):
+        rendered.append((source.pk, pages))
+        return [(1, content)]
+
+    monkeypatch.setattr(project_pictures, "render_source_pages", render_first_page)
+    guest = APIClient()
+    path = f"/api/v1/projects/{project.pk}/picture"
+    response = guest.get(path)
+    assert response.status_code == 200
+    assert b"".join(response.streaming_content) == content
+    response.close()
+    assert rendered == [(document.pk, [1])]
+    settings.PROJECT_PUBLIC_PREVIEW_ENABLED = False
+    assert guest.get(path).status_code == 404
+    settings.PROJECT_PUBLIC_PREVIEW_ENABLED = True
+    document.scan_status = "pending"
+    document.save()
+    assert guest.get(path).status_code == 404
 
 
 @pytest.fixture
