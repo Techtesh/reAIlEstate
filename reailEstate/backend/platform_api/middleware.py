@@ -30,7 +30,7 @@ class CorrelationIdMiddleware:
         response = self.get_response(request)
         response["X-Correlation-ID"] = str(request.correlation_id)
         response["X-Content-Type-Options"] = "nosniff"
-        response["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
         response["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(self)"
         policy = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
         match = getattr(request, "resolver_match", None)
@@ -41,5 +41,7 @@ class CorrelationIdMiddleware:
                 "; script-src 'self'; style-src 'self' 'unsafe-inline'; "
                 "img-src 'self'; font-src 'self'; connect-src 'self'; form-action 'self'"
             )
+            if match.url_name == "platform_api_project_external_sources":
+                policy += "; frame-src https://www.openstreetmap.org"
         response["Content-Security-Policy"] = policy
         return response

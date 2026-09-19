@@ -9,6 +9,7 @@
     "published published . ."
     "attested attested attested attested"
     "verification verification checked checked"
+    "google google google google"
     "outputs outputs outputs outputs"
     "media media media media";
   column-gap: 24px;
@@ -28,6 +29,7 @@
 #project_form .project-details-grid > .field-processing_attested { grid-area: attested; }
 #project_form .project-details-grid > .field-verification_status { grid-area: verification; }
 #project_form .project-details-grid > .field-verification_checked_at { grid-area: checked; }
+#project_form .project-details-grid > .field-google_location_reference { grid-area: google; }
 #project_form .project-details-grid > .field-extraction_outputs { grid-area: outputs; }
 #project_form .project-details-grid > .field-media_dashboard_link { grid-area: media; }
 #project_form .project-details-grid .form-row > div,

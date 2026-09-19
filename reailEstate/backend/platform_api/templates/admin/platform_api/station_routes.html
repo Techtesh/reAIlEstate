@@ -1,0 +1,18 @@
+<p>Google Maps &middot; Retrieved {{ routes.retrievedAt }} &middot; Search radius {{ routes.radiusMeters }} m</p>
+<p>Shortest returned route among up to five Google candidates per category and five authority-catalogue candidates. Not a verified global nearest station.</p>
+<p>Walking routes may omit pedestrian paths. Driving estimates exclude live traffic. Upcoming stations are proposed locations, not evidence of metro service or public access.</p>
+{% for error in routes.errors %}<p class="errornote">{{ error }}</p>{% endfor %}
+{% if not routes.catalogueConfigured %}<p class="errornote">Authority metro catalogue unavailable. Google listings do not verify operating status.</p>{% endif %}
+{% for group in routes.groups %}
+  <h3>{{ group.label }}</h3>
+  <p>Shortest returned walking route: <strong>{{ group.nearest.walking|default:"Unavailable" }}</strong>. Driving: <strong>{{ group.nearest.driving|default:"Unavailable" }}</strong>.</p>
+  <div class="table-scroll"><table>
+    <thead><tr><th scope="col">Station</th><th scope="col">Status / source</th><th scope="col">Walking route</th><th scope="col">Driving route</th></tr></thead>
+    <tbody>{% for station in group.stations %}<tr>
+      <td><a href="{{ station.sourceUrl }}" target="_blank" rel="noopener noreferrer">{{ station.name }}</a><br>{{ station.line }}{% for attribution in station.attributions %}<br>{{ attribution }}{% endfor %}</td>
+      <td>{{ station.serviceStatus }}<br>{% if station.asOf %}Evidence date: {{ station.asOf }}<br>{% endif %}<a href="{{ station.statusSourceUrl }}" target="_blank" rel="noopener noreferrer">Source</a></td>
+      <td>{% if station.walking.status == 'available' %}{{ station.walking.distanceMeters }} m &middot; {{ station.walking.minutes }} min{% else %}{{ station.walking.status }}{% if station.walking.error %}<br>{{ station.walking.error }}{% endif %}{% endif %}<br>{% if station.walking.directionsUrl %}<a href="{{ station.walking.directionsUrl }}" target="_blank" rel="noopener noreferrer">Walking directions</a>{% endif %}</td>
+      <td>{% if station.driving.status == 'available' %}{{ station.driving.distanceMeters }} m &middot; {{ station.driving.minutes }} min{% else %}{{ station.driving.status }}{% if station.driving.error %}<br>{{ station.driving.error }}{% endif %}{% endif %}<br>{% if station.driving.directionsUrl %}<a href="{{ station.driving.directionsUrl }}" target="_blank" rel="noopener noreferrer">Driving directions</a>{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="4">No candidates returned in this search scope.</td></tr>{% endfor %}</tbody>
+  </table></div>
+{% endfor %}

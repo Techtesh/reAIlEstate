@@ -7,6 +7,7 @@ from .views import (
     AccountExportView,
     AuditEventAdminView,
     AmenityAdminViewSet,
+    BuyerAmenityListView,
     ComparisonShareViewSet,
     ConsentViewSet,
     CurrentUserView,
@@ -19,6 +20,7 @@ from .views import (
     FloorPlanAssetMediaView,
     IntegrationHealthAdminView,
     ManualFloorPlanCropsAdminView,
+    MapStationListView,
     MarkDocumentLayoutPageView,
     MediaPageView,
     NotificationSubscriptionViewSet,
@@ -27,6 +29,7 @@ from .views import (
     OrganizationViewSet,
     PlaceSuggestView,
     ProjectComparisonView,
+    ProjectGalleryView,
     ProjectFloorPlanListView,
     ProjectIngestionQueueView,
     ProjectIngestionRunListView,
@@ -73,6 +76,9 @@ router.register("admin/amenities", AmenityAdminViewSet, basename="admin-amenity"
 router.register("admin/feature-flags", FeatureFlagAdminViewSet, basename="admin-feature-flag")
 
 urlpatterns = [
+    path("map-stations", MapStationListView.as_view()),
+    path("projects/<uuid:project_id>/gallery", ProjectGalleryView.as_view(), name="project-gallery"),
+    path("amenities", BuyerAmenityListView.as_view()),
     path("", include(router.urls)),
     path("auth/login", SessionLoginView.as_view()),
     path("auth/logout", SessionLogoutView.as_view()),

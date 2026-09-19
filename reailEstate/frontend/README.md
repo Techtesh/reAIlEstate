@@ -1,0 +1,185 @@
+# MMR Homefinder Buyer Frontend
+
+React 19, TypeScript and Vite buyer experience backed by the existing Django API.
+It provides guided and summary requirements, ranked map/feed results, an explainable
+score sheet, published project details, comparisons and account-owned shortlists.
+
+## Run Locally
+
+Use Node.js 22.12+ and npm. From the workspace root:
+
+```powershell
+npm --prefix reailEstate/frontend ci
+npm --prefix reailEstate/frontend run dev
+```
+
+Open http://127.0.0.1:5173/. Django must already be running at
+http://127.0.0.1:8002/, using this workspace's database. See the
+[backend startup instructions](../backend/README.md#terminal-setup).
+Do not recreate the database, reingest samples or publish projects for frontend setup.
+
+The Vite proxy forwards `/api` to Django while preserving the incoming Host header
+for same-origin session cookies, CSRF checks and pagination links. Use the loopback
+address above consistently. No API credentials belong in frontend environment files.
+If port 5173 is occupied, use `npm --prefix reailEstate/frontend run dev -- --port 5176`.
+
+Sign in using an existing workspace account. Account creation is administered in
+Django; the buyer UI does not offer public registration. Guest requirements can be
+entered before signing in. Discover and Browse, published listing details, filters,
+and station layers are public. Saved requirements, matches, shortlists and comparisons
+require sign-in. Guest detail responses contain listing fields only, not internal evidence.
+
+## Matching Worker
+
+Submitting requirements creates a queued recommendation request. In a separate
+terminal, follow the backend terminal setup, then explicitly start the worker when
+you intend to process the workspace's pending recommendation jobs:
+
+```powershell
+& $Python manage.py process_outbox --event-type recommendations
+```
+
+This consumes recommendation work across this workspace, not just the current tab.
+It does not process extraction jobs. The frontend never starts a worker or runs
+layout evaluation. Without a worker, the results screen retains the queued state
+and offers a status check. See [queue commands](../backend/README.md#ingestion-and-evaluation-queues).
+
+## Routes and Data
+
+| Route | View |
+| --- | --- |
+| `/` | Published catalogue, locality/configuration filters, map and feed |
+| `/browse` | Public listing browser with metro and railway map layers |
+| `/requirements` | One canonical draft in guided or summary mode |
+| `/profiles` | Saved drafts and submitted-profile copies |
+| `/matches/{snapshotId}` | Ranked results, score sheet and snapshot metadata |
+| `/shortlist` | Saved projects in map/feed format |
+| `/privacy` | Consent, local storage and map-provider disclosure |
+
+- Discover, Browse, matches and shortlists use one Leaflet/OpenStreetMap map with
+  published property pins and local station layers. There is no Google iframe, title
+  banner or map-source switch. **On map** selects the property in the same map and
+  opens map view on mobile, preserving the current property filters.
+- Stations and schematic connections have matching line colours and marker labels
+  such as M1 and M2A. The Transit line selector isolates one line without filtering
+  projects, and the Line colours legend identifies the palette. It follows the supplied
+  Mumbai colour mapping: 1 blue; 2/2A/2B yellow; 3 aqua; 4/4A green; 5 orange; 6 pink;
+  7/7A/9 red; 8/10/11 black (colour unannounced); 12 mandarin. Hex shades are display
+  choices, not an independently verified operator style guide. Unknown-line stations
+  remain unconnected, and colours alone do not establish connections between branches.
+- Solid, opaque 7px segments have an 11px white outline for visibility on map tiles.
+  Below zoom 12, station badges shrink to 10px dots so they do not obscure the lines;
+  zooming in restores numbered 32px badges. Station titles and popups remain available.
+  Lines follow visible station layers without a separate schematic-lines toggle.
+  Schematic segments use adjacent same-line, same-kind rows in the local CSV,
+  not alphabetical station order or nearest-neighbour routing. Invalid/conflicting
+  records, line changes and repeated stops break segments; gaps are not bridged.
+  Hiding a station removes adjacent segments, and hiding unverified records also hides
+  these unverified schematics. Solid styling does not establish verified geometry or service.
+- CSV order, actual tracks, operating status and transfers remain unverified. Crossings
+  or shared coordinates do not establish interchange or through-service connections.
+  Accurate route geometry would need an authorized dataset; nothing is imported from
+  My Maps, and these display segments are not used for journey calculations.
+- Browse's **Show processing listings** toggle defaults off. Opting in adds labelled
+  `ingestion` and `needs_review` summaries via `includeProcessing=true`, preserving
+  filters in the URL. The choice is not stored as an account or browser preference.
+  Drafts, withdrawn and merged records remain hidden. Processing cards have no private
+  evidence, prices or configuration values; comparison and shortlist controls are disabled.
+  Project titles, image areas and map previews open a media/detail dialog. It includes
+  category filtering, thumbnails, previous/next images, full-size image links, layout
+  and room measurements, amenities and project evidence, with loading/retry/empty states.
+  The gallery API decides access, not the frontend sign-in state.
+  `PROJECT_PUBLIC_PREVIEW_ENABLED` is temporarily true by default on the local debug
+  backend: guests can view unreviewed project media/data, labelled as a temporary
+  public preview. With the flag off, processing media is restricted to project
+  editors/reviewers; public published galleries show approved media only. No raw
+  documents, private buyer data, publication or write permissions are opened.
+  Matches and shortlists remain published-only; withdrawn projects are omitted from snapshots.
+- Map pins use published coordinates or accepted processing-listing locations, not private destinations. Projects without
+  coordinates remain in the feed and are counted as unmapped.
+- Publication and MahaRERA verification are separate. Verified registry status is shown
+  only for published listings, on cards and marker outlines, and can be filtered.
+  Fact-based filters exclude processing summaries because their facts are not public.
+  A saved or accepted location does not publish a project.
+- Metro and railway layers come from `GET /api/v1/map-stations`; opening the map never
+  performs Google lookups or route calculations. Popups identify source, service status,
+  and evidence date when available. Unverified candidates have dashed markers and a toggle.
+- The local candidate CSV defaults to `backend/config/mmr-metro-candidates.csv`.
+  `PROJECT_MAP_STATION_CANDIDATES_FILE` can select another CSV or be empty to disable it.
+  Required columns: `name,line,latitude,longitude`; optional `kind` is `metro` (default)
+  or `railway`. These rows always remain unverified, are capped at 1,000 rows/1 MB,
+  and never enter the authority routing catalogue. Identical rows are deduplicated;
+  conflicting coordinates for the same name/line/kind are withheld.
+- Configured authority metro records retain their documented status. Accepted saved
+  station references belonging to published projects can add railway/metro markers,
+  but do not establish operating status. No unpublished project references are exposed.
+- Stations remain visible when the published project catalogue is empty or unavailable.
+  Complete the [workspace admin publication TODO](../../docs/10-mvp-backlog-and-traceability.md#workspace-admin-todo)
+  to make reviewed projects available in Browse; opening the map never publishes them.
+- OpenStreetMap tiles require network access and retain attribution. Tile failures
+  show a retry state without blocking the feed or project markers. Review the
+  [tile usage policy](https://operations.osmfoundation.org/policies/tiles/) before
+  deployment; use a suitable provider for traffic that exceeds public-service limits.
+- The catalogue API currently has no approved project-image field. Cards explicitly
+  show missing images rather than unrelated stock photographs.
+- Prices and score components retain unknown states. Scores come from the backend;
+  the UI never substitutes a fake score or silently relaxes hard constraints.
+- Locality destinations are manual entries. Live place search is unavailable.
+  Commute remains unknown without backend routing metrics. Locality preferences and
+  additional needs are saved but are not filters in the current scoring algorithm.
+
+## Privacy and Concurrency
+
+Budgets, destinations and notes stay in React memory until the user signs in and
+consents to saving. Only home preferences, weights and an owner-keyed opaque latest
+match URL are stored in session storage. No profile payloads or credentials are
+stored in browser globals, local storage, logs or test traces.
+
+Project and station data come from same-origin public APIs. OpenStreetMap receives
+the client's IP address, browser information and requested public map tile area,
+not requirement profiles or private destinations. The map no longer loads Google
+frames or scripts. CSP blocks all frames with `frame-src 'none'`.
+
+Consented, valid drafts autosave after one second. Explicit Save & exit can save
+partially completed drafts accepted by the backend. Writes use `If-Match`; a conflict
+offers the server version or a new profile, never an overwrite. Submitted versions
+are immutable. Submission retries retain their idempotency key unless the draft changes.
+Signing out or detecting session expiry clears private state and cancels in-flight
+requests. Refreshing an unsaved guest draft discards its sensitive fields.
+
+## Verification
+
+Run from the workspace root:
+
+```powershell
+npm --prefix reailEstate/frontend test
+npm --prefix reailEstate/frontend run lint
+npm --prefix reailEstate/frontend run build
+npm exec --prefix reailEstate/frontend -- playwright install chromium
+npm --prefix reailEstate/frontend run test:e2e
+```
+
+Browser tests start a separate temporary server on port 5175. Every API request is
+intercepted with synthetic fixtures; no live profiles, shortlists or project records
+are created. Tiles deliberately fail to exercise the retry fallback. Tests cover the
+combined project/station map without an embed, an empty published catalogue, station
+layers, schematic line separation and filtering, guest-to-score-sheet flow, version conflicts, session expiry, map/feed selection,
+comparison, persisted shortlists and 1440/390/320px layouts. They assert no uncaught
+browser errors or CSP violations. Screenshots are in ignored `test-results/`.
+Real OpenStreetMap rendering also requires a network-enabled browser check.
+
+To run the same browser suite against a production build:
+
+```powershell
+$env:BUYER_TEST_BUILD = 'preview'
+try { npm --prefix reailEstate/frontend run test:e2e }
+finally { Remove-Item Env:BUYER_TEST_BUILD -ErrorAction SilentlyContinue }
+```
+
+For local production-build inspection, `npm --prefix reailEstate/frontend run preview`
+serves http://127.0.0.1:5174/. Vite preview is not a production application server.
+Deployment must serve the SPA fallback, reverse-proxy `/api` on the same origin,
+enforce HTTPS and secure backend session settings, and apply the CSP and other
+response headers defined in [vite.config.ts](vite.config.ts). Fonts are bundled;
+OpenStreetMap is the allowed external tile origin, and frames are blocked.
+Preserve these directives in deployment.

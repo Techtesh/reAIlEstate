@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import json
 from unittest.mock import Mock
 from uuid import uuid4
 
@@ -23,6 +24,251 @@ def test_no_google_key_fails_closed(settings):
         GoogleProjectMaps().search("Example project, Thane, Maharashtra")
 
 
+@pytest.mark.parametrize("link", [
+    "https://www.google.com/maps/search/?api=1&query=19.15%2C72.95",
+    "https://www.google.com/maps?q=19.15,72.95",
+    "https://maps.google.com/?q=19.15,72.95",
+    "https://www.google.com/maps/place/Project/@20,73,17z/data=!3d19.15!4d72.95",
+])
+def test_direct_location_links_use_pin_coordinates_without_api(link, settings):
+    from platform_api.external_sources_admin import DirectLocationForm
+
+    settings.GOOGLE_MAPS_API_KEY = ""
+    form = DirectLocationForm({"maps_url": link})
+    assert form.is_valid(), form.errors
+    assert form.cleaned_data["reference"]["location"] == {"latitude": 19.15, "longitude": 72.95}
+
+
+@pytest.mark.parametrize("values", [
+    {}, {"latitude": "19"}, {"latitude": "NaN", "longitude": "72"},
+    {"latitude": "91", "longitude": "72"}, {"latitude": "19", "longitude": "181"},
+    {"maps_url": "https://www.google.com/maps/@19.15,72.95,15z"},
+    {"maps_url": "https://www.google.com/maps/dir/?query=19.15,72.95"},
+    {"maps_url": "https://google.com.evil.example/maps/?q=19.15,72.95"},
+    {"maps_url": "https://127.0.0.1/maps/?q=19.15,72.95"},
+    {"maps_url": "https://www.google.com/maps?q=19,72", "latitude": "19", "longitude": "72"},
+])
+def test_direct_location_rejects_invalid_or_ambiguous_inputs(values):
+    from platform_api.external_sources_admin import DirectLocationForm
+
+    assert not DirectLocationForm(values).is_valid()
+
+
+@pytest.mark.parametrize("draft", [None, {}, {"selected": {}}, {"manualLocation": {"location": {"latitude": float("nan"), "longitude": 72}}}])
+def test_map_preview_rejects_missing_or_invalid_locations(draft):
+    from platform_api.external_sources_admin import draft_map_url
+
+    assert draft_map_url(draft) == ""
+
+
+def test_map_preview_selected_match_uses_only_coordinates():
+    from urllib.parse import parse_qs, urlsplit
+    from platform_api.external_sources_admin import draft_map_url
+
+    preview = draft_map_url({"selected": {"name": "private draft text", "placeId": "private-id", "location": {"latitude": 19.1, "longitude": 72.9}}})
+    assert urlsplit(preview).netloc == "www.openstreetmap.org"
+    assert parse_qs(urlsplit(preview).query)["marker"] == ["19.1,72.9"]
+    assert "private" not in preview
+
+
+def test_direct_location_short_link_uses_restricted_resolver(monkeypatch):
+    from platform_api.external_sources_admin import DirectLocationForm
+    from platform_api.management.commands import import_google_project_place_decisions as command
+
+    resolver = Mock(return_value={"name": "Project", "location": {"latitude": 19.15, "longitude": 72.95}})
+    monkeypatch.setattr(command, "resolve_share_url", resolver)
+    form = DirectLocationForm({"maps_url": "https://maps.app.goo.gl/project"})
+    assert form.is_valid(), form.errors
+    resolver.assert_called_once_with("https://maps.app.goo.gl/project")
+    assert form.cleaned_data["reference"]["evidenceMethod"] == "manual_maps_link"
+    assert len(form.cleaned_data["reference"]["sourceUrlDigest"]) == 64
+    resolver.side_effect = ValueError("Google Maps share link could not be resolved.")
+    assert not DirectLocationForm({"maps_url": "https://maps.app.goo.gl/project"}).is_valid()
+
+
+@pytest.mark.django_db
+def test_direct_location_draft_commit_and_independent_approval(client, django_user_model, settings, monkeypatch, tmp_path):
+    from urllib.parse import parse_qs, urlsplit
+    from django.urls import reverse
+
+    settings.GOOGLE_MAPS_API_KEY = ""
+    settings.PROJECT_LOCATION_REQUIRE_SECOND_APPROVER = True
+    settings.WORKSPACE_DATA_ROOT = tmp_path
+    provider = Mock(side_effect=AssertionError("Direct location must not call Google APIs"))
+    monkeypatch.setattr(GoogleProjectMaps, "_request", provider)
+    actor = django_user_model.objects.create_superuser(username="direct-author", password="test-only")
+    reviewer = django_user_model.objects.create_superuser(username="direct-reviewer", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Direct locations"), submitted_name="Manual project")
+    url = reverse("admin:platform_api_project_external_sources", args=[project.pk])
+    client.force_login(actor)
+    response = client.get(url)
+    assert b"Direct project location" in response.content and b"Preview direct location" in response.content
+    assert client.post(url, {"action": "direct_location", "latitude": "19.15"}).status_code == 200
+    assert not ReviewTask.objects.exists()
+    response = client.post(url, {"action": "direct_location", "latitude": "19.15", "longitude": "72.95"})
+    assert response.status_code == 302
+    token = parse_qs(urlsplit(response.url).query)["draft"][0]
+    preview = client.get(response.url)
+    assert b"View pin on Google Maps" in preview.content
+    assert b'title="Draft project location map"' in preview.content
+    assert b"Latitude 19.15" not in preview.content
+    assert parse_qs(urlsplit(preview.context["draft_map_url"]).query)["marker"] == ["19.15,72.95"]
+    assert preview["Referrer-Policy"] == "same-origin"
+    assert {"private", "no-store"} <= set(preview["Cache-Control"].split(", "))
+    assert "frame-src https://www.openstreetmap.org" in preview["Content-Security-Policy"]
+    assert "frame-src" not in client.get(reverse("admin:platform_api_project_changelist"))["Content-Security-Policy"]
+    response = client.post(url, {"action": "commit", "draft_token": token, "confirm": "on"})
+    assert response.status_code == 302
+    project.refresh_from_db()
+    assert project.latitude is None and project.longitude is None
+    task = ReviewTask.objects.get(project=project)
+    assert task.resolution["manualLocation"]["location"] == {"latitude": 19.15, "longitude": 72.95}
+    assert task.resolution["submittedBy"] == actor.pk and task.resolution["reviewState"] == "unreviewed"
+    assert "googlePlaceId" not in task.resolution
+    listing = client.get(reverse("admin:platform_api_project_changelist"), {"google_match": "needs_lookup"})
+    assert not listing.context["cl"].queryset.exists()
+    data = {"action": "apply_manual", "confirm": "on", "reference_id": str(task.pk),
+            "project_version": project.updated_at.isoformat(), "reference_version": task.version}
+    assert b"different reviewer" in client.post(url, data).content
+    client.force_login(reviewer)
+    assert b"Apply reviewed location" in client.get(url).content
+    assert client.post(url, data).status_code == 302
+    project.refresh_from_db()
+    task.refresh_from_db()
+    assert float(project.latitude) == 19.15 and float(project.longitude) == 72.95
+    assert task.state == "resolved" and task.resolution["acceptedBy"] == reviewer.pk
+    assert task.resolution["approvalPolicy"] == {"secondApproverRequired": True, "selfApproved": False}
+    assert project.status == "draft" and project.published_fact_set_version == 0
+    assert AuditEvent.objects.filter(action="project.manual_location_accepted").count() == 1
+    provider.assert_not_called()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("case,second_approver_required", [
+    (case, required) for case in ("stale_project", "stale_reference", "other_project", "retired")
+    for required in (True, False)
+] + [("self_review", True)])
+def test_manual_reference_approval_rejects_unsafe_changes(django_user_model, case, settings, second_approver_required):
+    from platform_api.external_sources import direct_location
+    from platform_api.external_sources_admin import apply_manual_reference
+
+    settings.PROJECT_LOCATION_REQUIRE_SECOND_APPROVER = second_approver_required
+    reviewer = django_user_model.objects.create_superuser(username="manual-approval-reviewer", password="test-only")
+    author = django_user_model.objects.create_user(username="manual-location-author", is_staff=True)
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Approval guards"), submitted_name="Guarded project")
+    task = ReviewTask.objects.create(project=project, task_type="external_sources", resolution={
+        "manualLocation": direct_location(19.15, 72.95), "submittedBy": author.pk, "reviewState": "unreviewed"})
+    project_version, task_version = project.updated_at, task.version
+    if case == "stale_project":
+        project.save()
+    elif case == "stale_reference":
+        task.version += 1
+        task.save()
+    elif case == "other_project":
+        project = Project.objects.create(organization=project.organization, submitted_name="Other project")
+        project_version = project.updated_at
+    elif case == "retired":
+        project.status = "retired"
+        project.save()
+        project_version = project.updated_at
+    else:
+        task.resolution["submittedBy"] = reviewer.pk
+        task.save()
+    with pytest.raises(ValueError):
+        apply_manual_reference(project, reviewer, task.pk, project_version, task_version)
+    project.refresh_from_db()
+    task.refresh_from_db()
+    assert project.latitude is None and task.state == "open"
+    assert not AuditEvent.objects.filter(action="project.manual_location_accepted").exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("lookup_status", ["ambiguous", "no_match", "failed", "not_run"])
+@pytest.mark.parametrize("reference_kind", ["manual", "google"])
+def test_saved_location_leaves_unresolved_lists_for_review(client, django_user_model, settings, tmp_path, lookup_status, reference_kind):
+    from django.urls import reverse
+    from platform_api.external_sources import direct_location
+
+    settings.WORKSPACE_DATA_ROOT = tmp_path
+    path = tmp_path / "output" / "reports" / "google-project-places.json"
+    path.parent.mkdir(parents=True)
+    actor = django_user_model.objects.create_superuser(username="location-list-reviewer", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Location lists"), submitted_name="Manual location project")
+    path.write_text(json.dumps({"projects": [{"projectId": str(project.pk), "status": lookup_status}]}))
+    original_report = path.read_bytes()
+    client.force_login(actor)
+    url = reverse("admin:platform_api_project_changelist")
+    assert client.get(url, {"google_match": lookup_status}).context["cl"].queryset.filter(pk=project.pk).exists()
+    resolution = {"reviewState": "unreviewed"}
+    resolution.update({"manualLocation": direct_location(19.15, 72.95)} if reference_kind == "manual" else {"googlePlaceId": "test-place"})
+    task = ReviewTask.objects.create(project=project, task_type="external_sources", resolution=resolution)
+    for filter_value in (lookup_status, "needs_lookup", "missing_reference"):
+        response = client.get(url, {"google_match": filter_value})
+        assert response.status_code == 200
+        assert not response.context["cl"].queryset.filter(pk=project.pk).exists()
+    response = client.get(url, {"google_match": "awaiting_review"})
+    assert response.status_code == 200 and response.context["cl"].queryset.filter(pk=project.pk).exists()
+    assert b"Maps: incomplete data" in response.content
+    assert client.get(url, {"google_match": "incomplete"}).context["cl"].queryset.filter(pk=project.pk).exists()
+    task.resolution["reviewState"] = "accepted"
+    task.state = "resolved"
+    task.save()
+    assert not client.get(url, {"google_match": "awaiting_review"}).context["cl"].queryset.filter(pk=project.pk).exists()
+    assert not client.get(url, {"google_match": lookup_status}).context["cl"].queryset.filter(pk=project.pk).exists()
+    assert client.get(url, {"google_match": "incomplete"}).context["cl"].queryset.filter(pk=project.pk).exists()
+    project.latitude, project.longitude = 19.15, 72.95
+    project.save()
+    assert not client.get(url, {"google_match": "incomplete"}).context["cl"].queryset.filter(pk=project.pk).exists()
+    assert path.read_bytes() == original_report
+    project.refresh_from_db()
+    assert float(project.latitude) == 19.15
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("second_approver_required", [True, False])
+@pytest.mark.parametrize("source", ["manual", "google", "enrich"])
+def test_location_approval_policy(client, django_user_model, settings, monkeypatch, second_approver_required, source):
+    from django.urls import reverse
+    from platform_api import external_sources_admin as sources
+    from platform_api.external_sources import direct_location
+
+    settings.PROJECT_LOCATION_REQUIRE_SECOND_APPROVER = second_approver_required
+    actor = django_user_model.objects.create_superuser(username="single-location-reviewer", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Approval policy"), submitted_name="Policy project")
+    resolution = {"submittedBy": actor.pk, "reviewState": "unreviewed"}
+    resolution.update({"manualLocation": direct_location(19.15, 72.95)} if source == "manual" else {"googlePlaceId": "policy-place"})
+    task = ReviewTask.objects.create(project=project, task_type="external_sources", resolution=resolution)
+    details = Mock(return_value={"placeId": "policy-place", "location": {"latitude": 19.15, "longitude": 72.95}})
+    monkeypatch.setattr(sources.GoogleProjectMaps, "details", details)
+    monkeypatch.setattr(sources, "station_routes", Mock(return_value={"groups": [], "errors": []}))
+    client.force_login(actor)
+    response = client.get(reverse("admin:platform_api_project_external_sources", args=[project.pk]))
+    action = b'value="apply_manual"' if source == "manual" else b'value="apply_saved"'
+    assert (action in response.content) is not second_approver_required
+
+    def approve():
+        if source == "manual":
+            return sources.apply_manual_reference(project, actor, task.pk, project.updated_at, task.version)
+        if source == "google":
+            return sources.apply_google_reference(project, actor, task.pk)
+        return sources.enrich_google_reference(project, actor, task.pk, 10000)
+
+    if second_approver_required:
+        with pytest.raises(ValueError, match="different reviewer"):
+            approve()
+        details.assert_not_called()
+        assert not AuditEvent.objects.exists()
+    else:
+        approve()
+        project.refresh_from_db()
+        task.refresh_from_db()
+        assert task.state == "resolved" and float(project.latitude) == 19.15
+        assert task.resolution["acceptedBy"] == actor.pk
+        assert task.resolution["approvalPolicy"] == {"secondApproverRequired": False, "selfApproved": True}
+        assert AuditEvent.objects.get().metadata["selfApproved"] is True
+        assert project.status == "draft"
+
+
 def test_google_route_distinguishes_no_route_and_failure(monkeypatch):
     maps = GoogleProjectMaps()
     origin = {"latitude": 19.2, "longitude": 72.9}
@@ -30,7 +276,9 @@ def test_google_route_distinguishes_no_route_and_failure(monkeypatch):
     monkeypatch.setattr(maps, "_request", request)
     assert maps.route(origin, origin, "WALK")["status"] == "no_route"
     request.side_effect = ValueError("Provider down")
-    assert maps.route(origin, origin, "WALK")["status"] == "unavailable"
+    unavailable = maps.route(origin, origin, "WALK")
+    assert unavailable["status"] == "unavailable"
+    assert unavailable["error"] == "Provider down"
     request.side_effect = None
     request.return_value = {"routes": [{"distanceMeters": 800, "duration": "600s"}]}
     result = maps.route(origin, origin, "DRIVE")
@@ -80,6 +328,45 @@ def test_draft_key_is_owner_and_project_bound():
 
 
 @pytest.mark.django_db
+def test_project_source_columns_and_filters(client, django_user_model, settings, tmp_path):
+    from django.urls import reverse
+
+    settings.WORKSPACE_DATA_ROOT = tmp_path
+    report_path = tmp_path / "output" / "reports" / "google-project-places.json"
+    report_path.parent.mkdir(parents=True)
+    owner = django_user_model.objects.create_superuser(username="source-columns", password="test-only")
+    organization = Organization.objects.create(legal_name="Source columns")
+    ambiguous = Project.objects.create(organization=organization, submitted_name="Ambiguous project")
+    unmatched = Project.objects.create(organization=organization, submitted_name="Unmatched project")
+    matched = Project.objects.create(organization=organization, submitted_name="Matched project", maha_rera_id="P51700053528")
+    report_path.write_text(json.dumps({"projects": [
+        {"projectId": str(ambiguous.pk), "status": "ambiguous"},
+        {"projectId": str(unmatched.pk), "status": "no_match"},
+        {"projectId": str(matched.pk), "status": "matched"},
+    ]}))
+    ReviewTask.objects.create(project=matched, task_type="external_sources", resolution={
+        "googlePlaceId": "test-place", "reviewState": "unreviewed"})
+    client.force_login(owner)
+    url = reverse("admin:platform_api_project_changelist")
+    for filters, expected in [({"google_match": "ambiguous"}, {ambiguous.pk}),
+                              ({"google_match": "no_match"}, {unmatched.pk}),
+                              ({"google_match": "needs_lookup"}, {ambiguous.pk, unmatched.pk}),
+                              ({"maharera": "missing"}, {ambiguous.pk, unmatched.pk}),
+                              ({"maharera": "present"}, {matched.pk})]:
+        response = client.get(url, filters)
+        assert response.status_code == 200
+        assert {project.pk for project in response.context["cl"].queryset} == expected
+    response = client.get(url)
+    assert b"Google Maps" in response.content and b"MahaRERA" in response.content
+    assert b"unreviewed" in response.content and b"No strict match" in response.content
+    ReviewTask.objects.create(project=unmatched, task_type="external_sources", resolution={"googlePlaceId": "manual-place"})
+    assert {project.pk for project in client.get(url, {"google_match": "needs_lookup"}).context["cl"].queryset} == {ambiguous.pk}
+    report_path.write_text("invalid JSON")
+    response = client.get(url)
+    assert response.status_code == 200 and b"No lookup result" in response.content
+
+
+@pytest.mark.django_db
 def test_commit_stores_references_not_google_content_or_verified_facts(django_user_model):
     actor = django_user_model.objects.create_superuser(username="sources-reviewer", password="test-only")
     project = Project.objects.create(organization=Organization.objects.create(legal_name="External test"), submitted_name="Test project")
@@ -107,3 +394,352 @@ def test_nonstaff_cannot_commit(django_user_model):
     actor = django_user_model.objects.create_user(username="external-reader")
     with pytest.raises(PermissionDenied):
         commit_references(None, actor, {}, str(uuid4()))
+
+
+@pytest.fixture
+def google_reference(django_user_model):
+    actor = django_user_model.objects.create_superuser(username="google-reviewer", password="test-only")
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Google tests"), submitted_name="Test project")
+    task = ReviewTask.objects.create(project=project, task_type="external_sources", resolution={
+        "googlePlaceId": "test-place", "reviewState": "unreviewed"})
+    return project, actor, task
+
+
+@pytest.mark.django_db(transaction=True)
+def test_google_approval_and_route_refresh_are_explicit_and_versioned(google_reference, monkeypatch):
+    from django.db import connection
+    from platform_api import external_sources_admin as sources
+
+    project, actor, task = google_reference
+    def details(place_id):
+        assert not connection.in_atomic_block
+        return {"placeId": place_id, "location": {"latitude": 19.2, "longitude": 72.9}}
+    monkeypatch.setattr(sources.GoogleProjectMaps, "details", lambda self, place_id: details(place_id))
+    routes = {"groups": [], "errors": []}
+    monkeypatch.setattr(sources, "station_routes", lambda *args: routes)
+    sources.refresh_google_routes(project, actor, task.pk, 10000)
+    project.refresh_from_db()
+    task.refresh_from_db()
+    assert project.latitude is None and task.state == "open"
+    assert sources.saved_station_routes(project) == routes
+    version = task.version
+    sources.apply_google_reference(project, actor, task.pk)
+    project.refresh_from_db()
+    task.refresh_from_db()
+    assert float(project.latitude) == 19.2 and float(project.longitude) == 72.9
+    assert task.state == "resolved" and task.version == version + 1
+    assert task.resolution["acceptedBy"] == actor.pk
+    assert AuditEvent.objects.filter(action="project.google_location_accepted").count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("case", ["retired", "self_review", "concurrent", "other_project"])
+def test_google_approval_rejects_unsafe_or_stale_reviews(google_reference, monkeypatch, case, settings):
+    from platform_api import external_sources_admin as sources
+
+    settings.PROJECT_LOCATION_REQUIRE_SECOND_APPROVER = True
+    project, actor, task = google_reference
+    if case == "retired":
+        Project.objects.filter(pk=project.pk).update(status="retired")
+    elif case == "self_review":
+        task.resolution["submittedBy"] = actor.pk
+        task.save()
+    elif case == "other_project":
+        project = Project.objects.create(organization=project.organization, submitted_name="Other")
+    def details(self, place_id):
+        if case == "concurrent":
+            ReviewTask.objects.filter(pk=task.pk).update(version=task.version + 1)
+        return {"placeId": place_id, "location": {"latitude": 19.2, "longitude": 72.9}}
+    monkeypatch.setattr(sources.GoogleProjectMaps, "details", details)
+    with pytest.raises(ValueError):
+        sources.apply_google_reference(project, actor, task.pk)
+    project.refresh_from_db()
+    assert project.latitude is None and not AuditEvent.objects.exists()
+
+
+@pytest.mark.django_db
+def test_saved_reference_admin_controls_and_escaped_diagnostics(google_reference, client):
+    from django.urls import reverse
+
+    project, actor, task = google_reference
+    task.resolution["stationRoutes"] = {"groups": [], "errors": ["<script>provider</script>"]}
+    task.save()
+    client.force_login(actor)
+    response = client.get(reverse("admin:platform_api_project_external_sources", args=[project.pk]))
+    assert response.status_code == 200
+    assert b"Saved station directions" in response.content
+    assert b'value="apply_saved"' in response.content and b'value="retry_saved_routes"' in response.content
+    assert b"&lt;script&gt;provider&lt;/script&gt;" in response.content
+    assert b"<script>provider</script>" not in response.content
+    response = client.post(reverse("admin:platform_api_project_external_sources", args=[project.pk]), {
+        "action": "apply_saved", "reference_id": str(task.pk)})
+    assert response.status_code == 200 and b"Confirm applying" in response.content
+    project.refresh_from_db()
+    assert project.latitude is None
+
+
+def test_strict_google_matching_requires_unique_name_and_locality():
+    from platform_api.management.commands.refresh_google_project_places import strict_match
+
+    project = SimpleNamespace(submitted_name="Test Gardens", locality="Thane")
+    match = {"placeId": "one", "name": "Test Gardens", "address": "Thane, Maharashtra"}
+    assert strict_match(project, [match])[0] == match
+    assert strict_match(project, [match, dict(match, placeId="two")])[1] == "ambiguous"
+    assert strict_match(project, [dict(match, address="Pune")])[1] == "no_match"
+
+
+@pytest.mark.django_db
+def test_places_command_checkpoint_resume_and_review_gate(google_reference, settings, monkeypatch, tmp_path):
+    from django.core.management import call_command
+    from platform_api.management.commands import refresh_google_project_places as command
+
+    project, actor, task = google_reference
+    task.delete()
+    project.locality = "Thane"
+    project.save()
+    Project.objects.create(organization=project.organization, submitted_name="Retired", locality="Thane", status="retired")
+    Project.objects.create(organization=project.organization, submitted_name="Merged", locality="Thane", address={"mergedIntoProjectId": str(project.pk)})
+    settings.GOOGLE_MAPS_API_KEY = "test-only"
+    search = Mock(return_value=[{"placeId": "matched-place", "name": project.submitted_name, "address": "Thane"}])
+    monkeypatch.setattr(command.GoogleProjectMaps, "search", search)
+    monkeypatch.setattr(command.time, "sleep", lambda *args: None)
+    report = tmp_path / "nested" / "places.json"
+    call_command("refresh_google_project_places", report=report)
+    assert not report.exists() and not search.called
+    call_command("refresh_google_project_places", execute=True, limit=1, report=report)
+    project.refresh_from_db()
+    task = ReviewTask.objects.get(project=project)
+    assert task.state == "open" and task.resolution["reviewState"] == "unreviewed"
+    assert task.resolution["evidenceMethod"] == "google_places_strict_match" and project.latitude is None
+    call_command("refresh_google_project_places", execute=True, resume=True, report=report)
+    assert search.call_count == 1 and ReviewTask.objects.count() == 1
+    assert not list(report.parent.glob("*.tmp"))
+
+
+@pytest.mark.parametrize("url", ["http://maps.app.goo.gl/test", "https://maps.app.goo.gl:444/test",
+    "https://user@maps.app.goo.gl/test", "https://maps.app.goo.gl.evil.test/test", "https://127.0.0.1/",
+    "https://www.google.com/url?q=https://127.0.0.1/"])
+def test_share_url_rejects_unsafe_initial_or_redirect_targets(url):
+    from urllib.request import Request
+    from platform_api.management.commands.import_google_project_place_decisions import MapsRedirectHandler, validate_maps_url
+
+    with pytest.raises(ValueError):
+        validate_maps_url(url, initial=True)
+    with pytest.raises(ValueError):
+        MapsRedirectHandler().redirect_request(Request("https://maps.app.goo.gl/test"), None, 302, "", {}, url)
+
+
+def test_share_url_uses_place_not_viewport_coordinates(monkeypatch):
+    from platform_api.management.commands import import_google_project_place_decisions as command
+
+    response = Mock()
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=False)
+    opener = Mock()
+    opener.open.return_value = response
+    monkeypatch.setattr(command, "build_opener", lambda *args: opener)
+    response.geturl.return_value = "https://www.google.com/maps/place/Test+Gardens/@10,20,15z/data=!3d19.2!4d72.9"
+    result = command.resolve_share_url("https://maps.app.goo.gl/test")
+    assert result == {"name": "Test Gardens", "location": {"latitude": 19.2, "longitude": 72.9}}
+    response.geturl.return_value = "https://www.google.com/maps/place/Test/@10,20,15z"
+    with pytest.raises(ValueError, match="viewport"):
+        command.resolve_share_url("https://maps.app.goo.gl/test")
+
+
+@pytest.mark.django_db
+def test_share_import_is_bounded_project_bound_and_resumable(google_reference, settings, monkeypatch, tmp_path):
+    from django.core.management import call_command, CommandError
+    from platform_api.management.commands import import_google_project_place_decisions as command
+
+    project, actor, task = google_reference
+    task.delete()
+    settings.GOOGLE_MAPS_API_KEY = "test-only"
+    projects = [project] + [Project.objects.create(organization=project.organization, submitted_name=f"Project {index}") for index in range(5)]
+    source_path, decisions_path, report_path = (tmp_path / name for name in ("source.json", "decisions.json", "import.json"))
+    command.write_report(source_path, {"projects": [{"projectId": str(item.pk), "status": "no_match", "candidateCount": 2} for item in projects]})
+    decisions = [{"index": index, "projectId": str(item.pk), "action": "select", "url": f"https://maps.app.goo.gl/test{index}"} for index, item in enumerate(projects, 1)]
+    decisions_path.write_text(json.dumps(decisions), encoding="utf-8")
+    location = {"latitude": 19.2, "longitude": 72.9}
+    resolver = Mock(return_value={"name": "Test", "location": location})
+    monkeypatch.setattr(command, "resolve_share_url", resolver)
+    monkeypatch.setattr(command.GoogleProjectMaps, "search", lambda *args: [{"placeId": "matched-place", "location": location}])
+    call_command("import_google_project_place_decisions", str(decisions_path), source_report=source_path, report=report_path, execute=True)
+    assert resolver.call_count == 5 and ReviewTask.objects.count() == 5
+    assert all(item.state == "open" for item in ReviewTask.objects.all())
+    assert "https://maps.app.goo.gl" not in report_path.read_text()
+    call_command("import_google_project_place_decisions", str(decisions_path), source_report=source_path, report=report_path, execute=True, resume=True)
+    assert resolver.call_count == 6 and ReviewTask.objects.count() == 6
+    decisions[0]["projectId"] = str(uuid4())
+    decisions_path.write_text(json.dumps(decisions), encoding="utf-8")
+    with pytest.raises(CommandError, match="projectId"):
+        call_command("import_google_project_place_decisions", str(decisions_path), source_report=source_path, report=report_path, execute=True, resume=True)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_route_command_five_project_cap_persists_reviews_and_resumes(google_reference, settings, monkeypatch, tmp_path):
+    from django.core.management import call_command
+    from django.db import connection
+    from platform_api import external_sources_admin as sources
+    from platform_api.management.commands import enrich_google_project_routes as command
+
+    project, actor, task = google_reference
+    for index in range(5):
+        other = Project.objects.create(organization=project.organization, submitted_name=f"Project {index}")
+        ReviewTask.objects.create(project=other, task_type="external_sources", resolution={"googlePlaceId": f"place-{index}"})
+    Project.objects.create(organization=project.organization, submitted_name="Unavailable")
+    settings.GOOGLE_MAPS_API_KEY = "test-only"
+    details = Mock(side_effect=lambda place_id: {"placeId": place_id, "location": {"latitude": 19.2, "longitude": 72.9}})
+    monkeypatch.setattr(sources.GoogleProjectMaps, "details", details)
+    def routes(*args):
+        assert not connection.in_atomic_block
+        return {"groups": [{"stations": [{"walking": {"status": "available", "minutes": 5}}]}]}
+    monkeypatch.setattr(sources, "station_routes", routes)
+    monkeypatch.setattr(command.time, "sleep", lambda *args: None)
+    report = tmp_path / "routes.json"
+    call_command("enrich_google_project_routes", report=report)
+    assert not details.called and not report.exists()
+    call_command("enrich_google_project_routes", execute=True, reviewer=actor.username, report=report)
+    assert details.call_count == 5 and ReviewTask.objects.filter(state="resolved").count() == 5
+    checkpoint = json.loads(report.read_text())
+    assert len(checkpoint["projects"]) == 7 and checkpoint["state"] == "paused"
+    assert checkpoint["counts"]["skipped_unavailable"] == 1
+    call_command("enrich_google_project_routes", execute=True, reviewer=actor.username, report=report, resume=True)
+    assert details.call_count == 6 and ReviewTask.objects.filter(state="resolved").count() == 6
+    assert AuditEvent.objects.filter(action="project.google_location_routes_enriched").count() == 6
+    assert all("stationRoutes" in item.resolution for item in ReviewTask.objects.all())
+    assert json.loads(report.read_text())["state"] == "completed"
+
+
+@pytest.mark.django_db
+def test_route_retry_generation_retries_unavailable_once(google_reference, settings, monkeypatch, tmp_path):
+    from django.core.management import call_command, CommandError
+    from platform_api import external_sources_admin as sources
+    from platform_api.management.commands import enrich_google_project_routes as command
+
+    project, actor, task = google_reference
+    settings.GOOGLE_MAPS_API_KEY = "test-only"
+    details = Mock(return_value={"placeId": "test-place", "location": {"latitude": 19.2, "longitude": 72.9}})
+    monkeypatch.setattr(sources.GoogleProjectMaps, "details", details)
+    monkeypatch.setattr(sources, "station_routes", lambda *args: {"groups": []})
+    monkeypatch.setattr(command.time, "sleep", lambda *args: None)
+    report = tmp_path / "routes.json"
+    call_command("enrich_google_project_routes", execute=True, reviewer=actor.username, report=report)
+    for iteration in range(2):
+        call_command("enrich_google_project_routes", execute=True, reviewer=actor.username, report=report,
+            resume=True, retry_failed=True, retry_generation="once")
+    assert details.call_count == 2
+    with pytest.raises(CommandError, match="between 1 and 5"):
+        call_command("enrich_google_project_routes", execute=True, batch_size=6, report=report)
+
+
+def test_maharera_mapping_and_url_validation(tmp_path):
+    from django.core.management import CommandError
+    from platform_api.management.commands.fetch_maharera_project import _store_mapping, detail_project_id
+
+    url = "https://maharerait.maharashtra.gov.in/public/project/view/62474"
+    assert detail_project_id(url) == "62474"
+    for unsafe in (url.replace("https", "http"), url.replace(".gov.in", ".gov.in.evil.test"), url.replace("https://", "https://user@")):
+        with pytest.raises(CommandError):
+            detail_project_id(unsafe)
+    path = tmp_path / "nested" / "mapping.json"
+    _store_mapping(path, "PR1330002502719", "62474", url)
+    _store_mapping(path, "P51700053528", "12345", url.replace("62474", "12345"))
+    assert len(json.loads(path.read_text())) == 2 and not list(path.parent.glob("*.tmp"))
+
+
+def test_maharera_headless_captcha_never_prompts_or_extracts(monkeypatch):
+    from django.core.management import CommandError
+    from platform_api.management.commands.fetch_maharera_project import _captcha_handoff
+
+    page = Mock()
+    page.locator.return_value.first.is_visible.return_value = True
+    prompt = Mock(side_effect=AssertionError("Headless must not prompt"))
+    monkeypatch.setattr("builtins.input", prompt)
+    with pytest.raises(CommandError, match="visible browser"):
+        _captcha_handoff(page, True, Mock())
+    assert not prompt.called and not page.evaluate.called
+
+
+def test_ported_catalogue_has_dated_authority_candidates(settings, monkeypatch):
+    from datetime import date
+    from pathlib import Path
+    from platform_api.external_sources import metro_catalogue, nearby_catalogue
+
+    path = Path(settings.BASE_DIR) / "config" / "mmr-upcoming-metro.json"
+    settings.PROJECT_METRO_CATALOGUE = json.loads(path.read_text())
+    monkeypatch.setattr(timezone, "localdate", lambda: date(2026, 9, 16))
+    candidates = metro_catalogue()
+    assert len(candidates) == 29
+    assert {row["line"] for row in candidates} == {"Metro Line 4", "Metro Line 4A", "Metro Line 2B", "Metro Line 6", "Metro Line 9"}
+    assert len(nearby_catalogue({"latitude": 19.12, "longitude": 72.9}, 20000)) <= 5
+    settings.PROJECT_METRO_CATALOGUE[0]["asOf"] = "2099-01-01"
+    with pytest.raises(ValueError, match="future-dated"):
+        metro_catalogue()
+
+
+@pytest.mark.django_db
+def test_connector_browser_views_and_public_extraction(google_reference, client, settings, tmp_path):
+    import mimetypes
+    from pathlib import Path
+    from urllib.parse import urlsplit
+    from django.contrib.staticfiles import finders
+    from django.urls import reverse
+    from platform_api.management.commands.fetch_maharera_project import _extract_project_data
+
+    playwright_api = pytest.importorskip("playwright.sync_api")
+    project, actor, task = google_reference
+    station = {"name": "Station with a long candidate name", "serviceStatus": "planned", "line": "Metro Line 4",
+        "sourceUrl": "https://mmrda.maharashtra.gov.in/", "statusSourceUrl": "https://mmrda.maharashtra.gov.in/",
+        "asOf": "2026-09-15", "walking": {"status": "available", "distanceMeters": 450, "minutes": 6,
+            "directionsUrl": "https://www.google.com/maps/dir/?api=1"},
+        "driving": {"status": "unavailable", "error": "Google Maps request failed (HTTP 403). Check API access, billing and quota."}}
+    task.resolution["stationRoutes"] = {"radiusMeters": 10000, "retrievedAt": timezone.now().isoformat(),
+        "catalogueConfigured": True, "groups": [{"label": "Upcoming metro", "stations": [station], "nearest": {"walking": station["name"]}}]}
+    task.save()
+    client.force_login(actor)
+    paths = [reverse("admin:platform_api_project_change", args=[project.pk]),
+        reverse("admin:platform_api_project_external_sources", args=[project.pk])]
+    pages = {path: client.get(path).content for path in paths}
+    def respond(route):
+        path = urlsplit(route.request.url).path
+        if path in pages:
+            route.fulfill(body=pages[path], content_type="text/html")
+        elif path.startswith(settings.STATIC_URL):
+            filename = finders.find(path.removeprefix(settings.STATIC_URL))
+            if filename:
+                route.fulfill(body=Path(filename).read_bytes(), content_type=mimetypes.guess_type(filename)[0] or "application/octet-stream")
+            else:
+                route.abort()
+        else:
+            route.abort()
+    with playwright_api.sync_playwright() as playwright:
+        if not Path(playwright.chromium.executable_path).exists():
+            pytest.skip("Install Chromium with python -m playwright install chromium")
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page()
+            page.route("**/*", respond)
+            for path in paths:
+                for width in (1440, 390):
+                    page.set_viewport_size({"width": width, "height": 1000})
+                    page.goto("http://connector.invalid" + path)
+                    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                    if path == paths[0]:
+                        field = page.locator(".field-google_location_reference")
+                        field.scroll_into_view_if_needed()
+                        bounds = field.bounding_box()
+                        assert bounds["x"] >= 0 and bounds["x"] + bounds["width"] <= width
+                        assert "View on Google Maps" in field.inner_text()
+                    else:
+                        assert page.get_by_role("heading", name="Saved station directions").is_visible()
+                        assert "450 m" in page.locator(".external-sources .table-scroll table").inner_text()
+                        assert "HTTP 403" in page.locator(".external-sources .table-scroll table").inner_text()
+                    page.screenshot(path=str(tmp_path / f"{'project' if path == paths[0] else 'routes'}-{width}.png"), full_page=True)
+            page.set_content('<h1>PR1330002502719</h1><table><tbody><tr><td>Project</td><td>Test</td></tr></tbody></table>'
+                '<a href="https://maharerait.maharashtra.gov.in/public/project/view/62474">Details</a>'
+                '<table hidden><tr><td>Hidden</td><td>Private</td></tr></table>')
+            extracted = _extract_project_data(page)
+            assert extracted["fields"] == {"Project": "Test"}
+            assert len(extracted["tables"]) == 1 and extracted["links"][0]["text"] == "Details"
+        finally:
+            browser.close()

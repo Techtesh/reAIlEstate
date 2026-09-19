@@ -113,6 +113,7 @@
       <details><summary>Raw extraction and provenance</summary><p>Internal name: {{ card.plan.plan_name }}</p><pre>{{ card.rawExtraction }}</pre></details>
       <div class="card-actions">
         <a class="button" href="{% url 'admin:platform_api_floorplan_change' card.plan.pk %}">Open floor-plan record</a>
+        {% if can_remove_plans and card.editExtractionUrl %}<a class="button" href="{{ card.editExtractionUrl }}">Edit extraction</a>{% endif %}
         <a class="button" href="{% url 'media-page' card.plan.document_id card.plan.page_number|default:1 %}" target="_blank" rel="noopener">Open source PDF/document</a>
         {% if can_remove_plans %}<a class="button media-destructive" href="{{ card.removeUrl }}">Remove duplicate plan…</a>{% endif %}
       </div>

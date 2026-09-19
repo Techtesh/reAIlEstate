@@ -1,10 +1,11 @@
 """Explicit external lookups; provider results never silently become project facts."""
 
 import json
+import hashlib
 import math
 import re
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from django.conf import settings
@@ -32,6 +33,42 @@ def coordinates(value):
 
 def map_link(place_id, name):
     return "https://www.google.com/maps/search/?" + urlencode({"api": 1, "query": name, "query_place_id": place_id})
+
+
+def direct_location(latitude=None, longitude=None, maps_url=""):
+    from .management.commands.import_google_project_place_decisions import (
+        PLACE_COORDINATES, resolve_share_url, validate_maps_url,
+    )
+
+    if maps_url and (latitude is not None or longitude is not None):
+        raise ValueError("Enter either a coordinate pair or a Google Maps link, not both.")
+    if maps_url:
+        parsed = validate_maps_url(maps_url)
+        if parsed.hostname == "maps.app.goo.gl":
+            location = resolve_share_url(maps_url)["location"]
+        else:
+            if parsed.path.startswith("/maps/dir"):
+                raise ValueError("Use a single project pin, not a directions link.")
+            matches = PLACE_COORDINATES.findall(unquote(parsed.path))
+            if len(matches) == 1:
+                latitude, longitude = map(float, matches[0])
+            else:
+                query = parse_qs(parsed.query, max_num_fields=30)
+                values = query.get("query", []) + query.get("q", [])
+                if matches or len(values) != 1 or not re.fullmatch(r"\s*[+-]?\d+(?:\.\d+)?\s*,\s*[+-]?\d+(?:\.\d+)?\s*", values[0]):
+                    raise ValueError("This link has no single pin location. Paste a pin/share link or enter latitude and longitude.")
+                latitude, longitude = map(float, values[0].split(","))
+            location = coordinates({"latitude": latitude, "longitude": longitude})
+    else:
+        if latitude is None or longitude is None:
+            raise ValueError("Enter both latitude and longitude, or a Google Maps link.")
+        location = coordinates({"latitude": latitude, "longitude": longitude})
+    result = {"location": location, "sourceUrl": "https://www.google.com/maps/search/?" + urlencode({
+        "api": 1, "query": f"{location['latitude']},{location['longitude']}"}),
+        "evidenceMethod": "manual_maps_link" if maps_url else "manual_coordinates"}
+    if maps_url:
+        result["sourceUrlDigest"] = hashlib.sha256(maps_url.encode()).hexdigest()
+    return result
 
 
 def route_link(origin, destination, mode):
@@ -137,8 +174,8 @@ class GoogleProjectMaps:
                 raise ValueError("Invalid route duration.")
             return {"status": "available", "distanceMeters": distance, "minutes": round(seconds / 60, 1),
                     "directionsUrl": link}
-        except ValueError:
-            return {"status": "unavailable", "directionsUrl": link}
+        except ValueError as exc:
+            return {"status": "unavailable", "directionsUrl": link, "error": str(exc)}
 
 
 def metro_catalogue():

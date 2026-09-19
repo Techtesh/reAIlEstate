@@ -2,15 +2,538 @@
 
 Django/DRF implementation of the contracts in the workspace documentation. It includes session authentication, consent, immutable/versioned buyer requirements, developer organizations, secure upload quarantine, extraction/review boundaries, MahaRERA snapshots, evidence-backed publication, catalog search, deterministic recommendations, comparisons, shortlists/shares, notifications, audit records, operations, metrics, and health/OpenAPI endpoints.
 
-## Local setup
+The [buyer frontend](../frontend/README.md) runs separately on port 5173 and proxies
+this backend on port 8002. It includes requirements, ranked map/feed results and
+shortlists; submitted matches require the recommendation worker described below.
 
-1. Activate `.venv`.
-2. Install `requirements.txt`.
-3. Set `DJANGO_SECRET_KEY` outside local development.
-4. Run `python manage.py migrate`.
-5. Create an administrative user with `python manage.py createsuperuser`.
-6. Run `python manage.py runserver`.
-7. In a second process, run `python manage.py process_outbox --event-type recommendations`. Document requests remain in the todo queue until a developer triggers a batch or a separate document timer/worker runs.
+## Admin Quick Links and Extraction Corrections
+
+The admin sidebar includes **Active queue**, **My active cart**, **Maps: incomplete data**,
+and **MahaRERA: missing ID**. The Maps queue includes active projects without an accepted
+latest location reference or without coordinates; detailed lookup filters remain available.
+Previous/Next and Back to queue preserve the originating project filters and ordering
+on project details and External sources. Navigation never saves or commits a draft.
+The cart shows the signed-in user's total private drafts across projects. Opening
+these links does not launch evaluations or make provider requests.
+
+Projects now show linked Google Maps and MahaRERA columns. Maps lookup categories
+come from `output/reports/google-project-places.json`. Unresolved lookup filters
+(ambiguous, no strict match, failed, and no lookup result) exclude projects that
+now have a saved location reference. The historical report itself is unchanged.
+**Awaiting review** shows active projects whose latest location reference is unreviewed.
+**Needs lookup** reflects active projects currently without a saved Google reference,
+so manually resolved projects leave that list. MahaRERA ID presence is not verification.
+
+Under a project's **External sources**, **Direct project location** accepts either
+latitude and longitude or an HTTPS Google Maps pin/share link. Coordinate pairs and
+long pin links work without `GOOGLE_MAPS_API_KEY`; short `maps.app.goo.gl` links use
+restricted Google-only redirects and require network access. Viewport-only and
+directions links are rejected rather than treated as project coordinates.
+Choose **Preview direct location**, inspect the pin, then **Commit source references**.
+Manual and selected Google draft locations have a responsive 260px-high OpenStreetMap
+preview. Only validated coordinates are sent to the embed, not draft tokens, project
+names, registry evidence or the admin URL. OpenStreetMap receives the browser's IP
+and coordinates; the frame uses no-referrer and requires network access. The Google
+Maps link remains available. Only this admin page permits the OpenStreetMap frame.
+The result is an unreviewed manual reference, not a Google Places identity match.
+An authorized reviewer can **Apply reviewed location** without an API key.
+This explicitly updates project coordinates, but never publishes the project or
+calculates routes. Provider search and route calculation still require API configuration.
+
+Browse remains published-only by default. `GET /api/v1/projects/?includeProcessing=true`
+also returns restricted summaries for `ingestion` and `needs_review`, not private drafts,
+retired or merged records. These summaries omit unpublished facts, configurations,
+prices, amenities and registry claims. Coordinates require an accepted latest location
+reference. Comparisons, shortlists and ranking remain published-only.
+
+### Temporary public project preview
+
+`PROJECT_PUBLIC_PREVIEW_ENABLED` is temporarily enabled by default with
+`DJANGO_DEBUG=true`, and defaults to `false` in production. It accepts only `true`
+or `false`. Set `PROJECT_PUBLIC_PREVIEW_ENABLED=false` and restart the backend to
+restore normal guest restrictions. Disable it before sharing this development server
+outside the intended audience: it deliberately exposes unreviewed project information.
+
+When enabled, guests can read project details and the project gallery for published,
+ingestion and needs-review projects. The gallery includes active visible layouts,
+room measurements, and associated clean, ready PNG/JPEG/WebP media. Processing
+responses also include available configurations, amenities and project facts.
+It does not publish or approve records. Removed/inactive media, quarantined sources,
+raw documents, internal address metadata, private buyer data and all write/admin
+operations retain their existing protections. Browse's processing toggle remains off
+by default.
+
+`GET /api/v1/projects/{id}/gallery` is cursor-paginated with presentation fields only;
+image bytes use `/api/v1/media/floor-plan-assets/{id}`. Both enforce the same guest
+visibility checks and use `private, no-store`. With the flag off, guests see only
+approved media of published projects; authorized project editors/reviewers can still
+view unreviewed processing media. No provider calls or ingestion jobs are started.
+
+`PROJECT_LOCATION_REQUIRE_SECOND_APPROVER` controls whether the submitter may approve
+their own project-location reference. It defaults to `false` with `DJANGO_DEBUG=true`
+(single-person local workflow) and `true` with debug disabled. Set the environment
+variable to `true` to require a different reviewer, or `false` to allow the same user;
+restart the backend after changing the environment. Other values are rejected.
+This applies to manual locations, Google Places approvals, and route enrichment
+that accepts coordinates. Explicit confirmation, staff permissions, open-reference
+and version checks still apply. Each approval records the policy and whether it
+was self-approved. Project fact approval and publication rules are unchanged.
+
+Use **Edit extraction** on a layout card or floor-plan record to add, correct, or
+remove room rows and update configuration, counts, orientation, or carpet area.
+Lengths and widths are in feet; carpet area is in square feet and is never inferred
+from room rectangle sums. Empty dimensions remain unknown. A correction reason is
+required. Raw machine extraction and image evidence remain unchanged; before/after
+values are retained in an unreviewed floor-plan review task with an audit event.
+These changes update the layout record, not published project facts or previously
+generated output files. A later explicit extraction can replace these values.
+
+Editing requires floor-plan change permission and project access, a clean ready
+source, and an active layout. Stale edits and pending/running layout evaluations
+are rejected. The generic floor-plan form displays extraction fields read-only;
+use the structured editor to change them.
+
+## Command reference
+
+These are **PowerShell 7** examples for **Workspace-publish only**. Run individual
+commands as needed, not this entire reference as a script. The existing database and
+samples are already populated: routine startup does not require migration, ingestion,
+reprocessing, database recreation or a new administrator.
+
+- [Terminal setup](#terminal-setup)
+- [Server and database](#server-and-database)
+- [Google Maps configuration](#google-maps-configuration)
+- [MahaRERA lookup](#maharera-lookup)
+- [Google Places matching](#google-places-matching)
+- [Manual Google share-link decisions](#manual-google-share-link-decisions)
+- [Prepare metro station candidates](#prepare-metro-station-candidates)
+- [Reviewed locations and station routes](#reviewed-locations-and-station-routes)
+- [Ingestion and evaluation queues](#ingestion-and-evaluation-queues)
+- [Tests and diagnostics](#tests-and-diagnostics)
+- [Logs and progress](#logs-and-progress)
+- [All custom management commands](#all-custom-management-commands)
+
+### Terminal setup
+
+Start in the workspace root. Run this block once per terminal; subsequent examples
+assume you remain in the backend directory. The explicit interpreter avoids global
+Python installations and PowerShell activation-policy issues.
+
+```powershell
+Set-Location ./reailEstate/backend
+$Python = (Resolve-Path './.venv/Scripts/python.exe').Path
+$Workspace = (Resolve-Path '../..').Path
+$Output = Join-Path $Workspace 'output'
+$Reports = Join-Path $Output 'reports'
+$env:WORKSPACE_DATA_ROOT = $Workspace
+$env:DATABASE_BACKEND = 'postgresql'
+$env:PYTHONUTF8 = '1'
+$env:PROJECT_METRO_CATALOGUE_FILE = Join-Path $PWD 'config/mmr-upcoming-metro.json'
+```
+
+For a **new checkout only**, create a missing environment with
+`py -3.14 -m venv .venv` from the backend directory before the `Resolve-Path` line.
+Install/update dependencies when needed, not on every start:
+
+```powershell
+& $Python -m pip install -r requirements.txt
+& $Python -m playwright install chromium
+```
+
+Optional activation, when your local execution policy permits it:
+
+```powershell
+./.venv/Scripts/Activate.ps1
+```
+
+Set `DJANGO_SECRET_KEY` securely for non-development environments. Never copy the
+sibling workspace's database, local configuration, credentials or generated reports.
+
+### Server and database
+
+Read-only checks and command discovery:
+
+```powershell
+& $Python manage.py check
+& $Python manage.py help --commands
+& $Python manage.py help process_outbox
+& $Python manage.py showmigrations
+& $Python manage.py migrate --plan
+docker ps -a --filter 'name=^/realestate-workspace-publish-postgres$'
+Test-NetConnection -ComputerName 127.0.0.1 -Port 15432
+```
+
+Start the **existing** database only if stopped, then start Django only if its task
+is not already running. These commands do not recreate the database:
+
+```powershell
+docker start realestate-workspace-publish-postgres
+& $Python manage.py runserver 127.0.0.1:8002
+```
+
+Open [Django admin](http://127.0.0.1:8002/admin/); API documentation is at
+[API docs](http://127.0.0.1:8002/api/docs/). Stop a manually launched server with Ctrl+C.
+For the VS Code task, use **Tasks: Terminate Task -> Run Django backend**, then
+**Tasks: Run Task -> Run Django backend** to restart it. Do not kill an unrelated
+port owner or use the sibling application's port 8000.
+
+When a release actually introduces migrations, apply them deliberately after a
+backup. Creating an administrator is for initial setup only and prompts privately:
+
+```powershell
+& $Python manage.py migrate
+& $Python manage.py createsuperuser
+```
+
+**Provisioning/recovery only, not routine startup:** the setup script's defaults
+belong to the sibling workspace. Use these explicit arguments only when provisioning
+this target is required; never delete or replace the existing volume:
+
+```powershell
+./setup_local_postgres.ps1 -Container realestate-workspace-publish-postgres -Volume realestate-workspace-publish-postgres-data -Port 15432
+```
+
+Stop this database only after stopping this workspace's web server and workers:
+
+```powershell
+docker stop realestate-workspace-publish-postgres
+```
+
+### Google Maps configuration
+
+Enable **Places API (New)**, **Routes API**, billing and quotas in Google Cloud.
+The key must permit the server's requests to `places.googleapis.com` and
+`routes.googleapis.com`. Enter it only in your own terminal using masked input,
+not in chat, a command literal, source code, task configuration or a report:
+
+```powershell
+$env:GOOGLE_MAPS_API_KEY = Read-Host 'Google Maps API key' -MaskInput
+if ($env:GOOGLE_MAPS_API_KEY) { 'Google key is set in this terminal; API access is not yet verified.' }
+$env:PROJECT_METRO_CATALOGUE_FILE = Join-Path $PWD 'config/mmr-upcoming-metro.json'
+```
+
+A running Django process cannot inherit a newly entered key. Stop it and launch
+`& $Python manage.py runserver 127.0.0.1:8002` **from this terminal**, or restart VS Code
+from an environment containing the key before running its Django task. Merely
+restarting a task does not copy environment values from another terminal.
+
+Remove the terminal's copy when finished; already-running child processes retain
+their environment until stopped:
+
+```powershell
+Remove-Item Env:GOOGLE_MAPS_API_KEY -ErrorAction SilentlyContinue
+```
+
+The bundled metro catalogue is a dated candidate snapshot, not independently
+verified operating-service or entrance-location evidence. See the
+[catalogue and review caveats](#connector-commands-and-port-notes).
+
+### MahaRERA lookup
+
+Public website access and local report writes; no project coordinates or accepted
+registry facts are changed. Chromium must be installed. Replace the example
+registration with the exact one you need:
+
+```powershell
+& $Python manage.py help fetch_maharera_project
+$Registration = 'PR1330002502719'
+& $Python manage.py fetch_maharera_project $Registration
+& $Python manage.py fetch_maharera_project $Registration --timeout-seconds 120 --mapping (Join-Path $Reports 'maharera-project-map.json') --output (Join-Path $Reports "maharera/$Registration.json")
+```
+
+Complete CAPTCHA manually in the visible browser, then press Enter in the terminal.
+For unattended environments, headless mode **stops** if CAPTCHA interaction is needed:
+
+```powershell
+& $Python manage.py fetch_maharera_project $Registration --headless --timeout-seconds 60
+```
+
+There is no `--resume` for this command. Rerunning refreshes the registration mapping
+and its report. Timeout is 5-600 seconds; it never solves or bypasses CAPTCHA.
+
+### Google Places matching
+
+Without `--execute`, this command is preview-only and does not call Google or create
+references. Execution incurs Places charges and creates **unreviewed references**,
+not accepted coordinates. It never calls Routes.
+
+```powershell
+& $Python manage.py help refresh_google_project_places
+$PlacesReport = Join-Path $Reports 'google-project-places.json'
+& $Python manage.py refresh_google_project_places --report $PlacesReport
+```
+
+Start with five requests; then choose a bounded resume or a full resume. `--resume`
+requires the report to exist. `--limit` counts new requests in the current invocation:
+
+```powershell
+& $Python manage.py refresh_google_project_places --execute --limit 5 --report $PlacesReport
+& $Python manage.py refresh_google_project_places --execute --resume --limit 5 --report $PlacesReport
+& $Python manage.py refresh_google_project_places --execute --resume --report $PlacesReport
+```
+
+Retry failed rows explicitly, optionally slowing requests (0.1-10 seconds):
+
+```powershell
+& $Python manage.py refresh_google_project_places --execute --resume --retry-failed --limit 5 --delay-seconds 1 --report $PlacesReport
+```
+
+Request a pause between projects by creating the report's `.stop` marker. Remove
+only that marker before resuming; do not delete checkpoints or lock files:
+
+```powershell
+$PlacesStop = [IO.Path]::ChangeExtension($PlacesReport, '.stop')
+New-Item -ItemType File -Path $PlacesStop -Force
+Remove-Item -LiteralPath $PlacesStop
+```
+
+Run those two lines at different times: create to request a pause, remove after the
+run has paused and you intend to resume. Omit `--resume` only for a deliberately new
+report; reusing an existing report path without it replaces its checkpoint history.
+
+### Manual Google share-link decisions
+
+Prepare a new target-specific decisions array using the
+[documented decision format](#connector-commands-and-port-notes). It must match this
+workspace's source report indexes **and project IDs**. Do not reuse source-branch
+decisions. Only HTTPS `maps.app.goo.gl` links are accepted.
+
+```powershell
+& $Python manage.py help import_google_project_place_decisions
+$Decisions = Join-Path $Reports 'google-project-place-decisions.json'
+$PlacesReport = Join-Path $Reports 'google-project-places.json'
+$ImportReport = Join-Path $Reports 'google-project-place-import.json'
+& $Python manage.py import_google_project_place_decisions $Decisions --source-report $PlacesReport --report $ImportReport
+```
+
+Execute one batch, then resume additional batches. Each attempts at most five
+imports, incurs provider requests and creates unreviewed references only:
+
+```powershell
+& $Python manage.py import_google_project_place_decisions $Decisions --source-report $PlacesReport --report $ImportReport --execute --batch-size 5
+& $Python manage.py import_google_project_place_decisions $Decisions --source-report $PlacesReport --report $ImportReport --execute --batch-size 5 --resume
+```
+
+Failed decisions are retried on resume; there is no `--retry-failed` option here.
+Changing decisions or the source report requires a new import-report path. Source
+URLs are hashed in the import report; the input decisions file still contains links
+and should remain private. Output must not overwrite either input file.
+
+### Prepare metro station candidates
+
+The user-supplied [station CSV](config/mmr-metro-candidates.csv) contains 169
+candidate rows. It is separate from the active metro catalogue. Prepare links and
+a review report offline, from the backend directory:
+
+```powershell
+./prepare_metro_candidates.ps1 -Report (Join-Path $Reports 'mmr-metro-candidates-20260917.json')
+```
+
+Use a new report filename on each run. The command refuses to overwrite any existing
+file, validates finite coordinate ranges, preserves all rows and flags duplicate
+station/line coordinates and possible aliases. It needs no API key and does not call
+Google, load Django, change the database or update the active catalogue.
+
+Generated links use `https://www.google.com/maps/search/?api=1&query=LAT%2CLON`.
+These open supplied coordinates; they do not prove a station's identity, entrance,
+Google place ID or service status. They are not `maps.app.goo.gl` short links and must
+not be passed to the project share-link decision importer. Station routes can use
+coordinates directly, so shortened share links are unnecessary here.
+
+The supplied rows have six conflicting-coordinate groups (five Line 2B stations and
+Pandurang Wadi on Line 9), two identical duplicate groups and a possible Kashigaon
+alias. Resolve these and obtain authority sources and dated service statuses before
+promoting candidates into `PROJECT_METRO_CATALOGUE_FILE`. No operating status or
+authority evidence is inferred from a Maps URL.
+
+The active [metro catalogue](config/mmr-upcoming-metro.json) was empty when these
+candidates were prepared and was deliberately left unchanged. An empty file is not
+valid JSON: a new Django process configured to load it will fail during startup.
+The candidate report is **not** a replacement catalogue. Do not start enrichment
+until this configuration and the Google API key are ready.
+
+### Reviewed locations and station routes
+
+**Paid requests and accepted data changes.** Before executing, review the saved
+references under **Project -> External sources**. Execution accepts project
+coordinates, resolves review tasks, saves station routes and records audit events.
+The reviewer must be an active staff user with project-change permission and cannot
+approve their own submitted evidence. Use a real user from this target workspace.
+
+```powershell
+& $Python manage.py help enrich_google_project_routes
+$Reviewer = Read-Host 'Target reviewer username'
+$RoutesReport = Join-Path $Reports 'google-project-routes.json'
+& $Python manage.py enrich_google_project_routes --reviewer $Reviewer --report $RoutesReport
+```
+
+First run a one-project canary, inspect it in **External sources**, and confirm at
+least one walking/driving duration before continuing. The command selects eligible
+projects in its own order; it has no `--project-id` filter. For a specific project,
+use its admin actions instead.
+
+```powershell
+& $Python manage.py enrich_google_project_routes --execute --batch-size 1 --radius 10000 --reviewer $Reviewer --report $RoutesReport
+& $Python manage.py enrich_google_project_routes --execute --resume --batch-size 5 --radius 10000 --reviewer $Reviewer --report $RoutesReport
+```
+
+Valid radii are 5000, 10000 and 20000 metres; batch size is 1-5. To retry failed or
+no-duration results, generate an ID once and reuse it across resumed batches. Each
+eligible result is retried at most once within that generation:
+
+```powershell
+$RetryGeneration = [Guid]::NewGuid().ToString('N')
+& $Python manage.py enrich_google_project_routes --execute --resume --retry-failed --retry-generation $RetryGeneration --batch-size 5 --radius 10000 --delay-seconds 1 --reviewer $Reviewer --report $RoutesReport
+```
+
+After the canary succeeds and **all remaining references are reviewed**, the runner
+resumes the default report in batches, stops after at most 100 batches, and aborts
+if its first batch returns no route durations:
+
+```powershell
+./run_google_routes_all.ps1 -Reviewer $Reviewer -Radius 10000 -BatchSize 5
+```
+
+The runner always uses this workspace's PostgreSQL backend and default
+`output/reports/google-project-routes.json`; it has no custom-report option. Its log
+is `output/google-project-routes.log`. No `.stop` protocol exists for route enrichment;
+use single command batches when you need controlled stopping points. Interrupting
+a command can leave a final database update ahead of its report checkpoint, so
+inspect state before resuming. To save routes **without accepting coordinates**,
+use **Retry and save station directions** on that project's admin page.
+
+### Ingestion and evaluation queues
+
+These operations change records/output and may call configured paid models. They
+are **not required** for Google/MahaRERA setup. Keep the current database and samples;
+run only the intended scope. Inspect supported filters first:
+
+```powershell
+& $Python manage.py help import_sample_corpus
+& $Python manage.py help refresh_sample_corpus
+& $Python manage.py help process_outbox
+```
+
+Existing refresh launcher, with the current corpus report explicitly selected:
+
+```powershell
+./run_sample_refresh.ps1 -Workers 5 -ReportName 'sample-corpus-refresh-20260915.json' -Resume
+./run_sample_refresh.ps1 -Workers 5 -ReportName 'sample-corpus-refresh-20260915.json' -RetryFailed
+```
+
+Run one, not both. These require the configured scanner and model environment.
+`-TrustedSamples` is an explicit scanner bypass for approved local samples only;
+do not add it routinely. Neither command resets the database, but both can resume
+or repeat extraction. See [folder-based refresh](#folder-based-sample-refresh) before
+starting a new import or using `--reprocess`.
+
+For already-queued manual layouts, prefer the project's **Run project evaluations**
+admin action. CLI alternatives below consume existing work; they do not create crop
+selections. Take the project UUID from its admin URL:
+
+```powershell
+$ProjectId = Read-Host 'Target project UUID'
+& $Python manage.py process_outbox --event-type extraction --project-id $ProjectId --once --limit 5
+& $Python manage.py process_outbox --event-type extraction --project-id $ProjectId --drain --limit 5
+```
+
+Choose `--once` for one batch or `--drain` to include pending child jobs and retries.
+Add `--owner-id` with a numeric user ID to narrow extraction work further. Do not
+pass `--worker-id` manually; it identifies a managed worker-launch record. Omit
+project/owner filters only when you intend workspace-wide processing:
+
+```powershell
+& $Python manage.py process_outbox --event-type recommendations --once --limit 5
+& $Python manage.py process_outbox --event-type recommendations
+```
+
+The last command keeps polling until stopped. Do not run a second worker casually
+while a managed evaluation worker is already processing the same scope.
+
+### Tests and diagnostics
+
+These checks use isolated SQLite, do not run ingestion or live providers, and restore
+the terminal's database selection afterward. The browser test uses local Chromium;
+install it as shown above to avoid skipping that check.
+
+```powershell
+$PreviousBackend = $env:DATABASE_BACKEND
+try {
+  $env:DATABASE_BACKEND = 'sqlite'
+  & $Python manage.py check
+  if ($LASTEXITCODE -ne 0) { throw 'Django checks failed' }
+  & $Python -m pytest -c pytest.ini platform_api/tests/test_external_sources.py --tb=short
+  if ($LASTEXITCODE -ne 0) { throw 'Connector tests failed' }
+  & $Python -m pytest -c pytest.ini platform_api/tests/test_project_outputs.py platform_api/tests/test_layout_names.py -k 'project_admin_columns or dashboard_layout_explorer or dashboard_alias or active_toggle' --tb=short
+  if ($LASTEXITCODE -ne 0) { throw 'Project UI tests failed' }
+} finally {
+  $env:DATABASE_BACKEND = $PreviousBackend
+}
+```
+
+VS Code equivalents: **Tasks: Run Task -> Test external connectors**, **Test project
+form and sidebar**, or **Test media inline controls**. The running **Run Django
+backend** task remains separate from test database selection. To inspect all current
+diagnostics or migration drift without applying changes:
+
+```powershell
+& $Python -m pip check
+& $Python manage.py makemigrations --check --dry-run
+```
+
+### Logs and progress
+
+Read only summary fields rather than printing whole reports or local credential files:
+
+```powershell
+Get-ChildItem -LiteralPath $Output -Filter '*.log'
+Get-Content -LiteralPath (Join-Path $Output 'google-project-routes.log') -Tail 60 -Wait
+```
+
+The tail command waits for new log lines; Ctrl+C stops viewing, not the worker.
+For a checkpoint that already exists:
+
+```powershell
+$Checkpoint = Get-Content -LiteralPath (Join-Path $Reports 'google-project-routes.json') -Raw | ConvertFrom-Json
+$Checkpoint | Select-Object state, updatedAt, counts
+$Checkpoint.projects | Group-Object status | Select-Object Name, Count
+```
+
+Use `google-project-places.json`, `google-project-place-import.json`, or
+`sample-corpus-refresh-20260915.json` for their respective reports. The import report
+uses `decisions`, not `projects`. Missing reports/logs generally mean that workflow
+has not been run here; do not copy them from the sibling workspace.
+
+### All custom management commands
+
+Every application command is listed below. Use `& $Python manage.py help COMMAND`
+for its full option list before a maintenance run. Django's built-ins are listed by
+`& $Python manage.py help --commands`. Quoted `TARGET_*` values below are placeholders
+to replace with actual target IDs, usernames or paths.
+
+| Command | Starting point / options | Effect and caution |
+| --- | --- | --- |
+| `fetch_maharera_project` | `& $Python manage.py fetch_maharera_project $Registration` | Public browser lookup; writes mapping/report; manual CAPTCHA only. |
+| `refresh_google_project_places` | `& $Python manage.py refresh_google_project_places` | Preview default; `--execute`, `--resume`, `--retry-failed`, `--limit`, `--delay-seconds`, `--report`. Paid matching creates unreviewed tasks. |
+| `import_google_project_place_decisions` | See the input/report examples above. | Preview default; `--execute`, `--resume`, `--batch-size` 1-5. Requires project-bound decisions. |
+| `enrich_google_project_routes` | `& $Python manage.py enrich_google_project_routes` | Preview default; execution accepts reviewed coordinates and persists routes. See reviewer/retry requirements above. |
+| `import_sample_corpus` | `& $Python manage.py import_sample_corpus (Join-Path $Workspace 'user/Samples') --report 'sample-inventory.json'` | Inventory without `--import`; import needs `--username`. `--process`, `--reprocess`, `--resume`, `--project-key`, `--vision-profile-id`, `--retry-failed` control data/model work. |
+| `refresh_sample_corpus` | `& $Python manage.py help refresh_sample_corpus` | Extends import options with `--workers`; prefer the launcher for established environment/scoping. |
+| `process_outbox` | `& $Python manage.py process_outbox --event-type extraction --project-id $ProjectId --once --limit 5` | Consumes queued work. Without `--once` or `--drain`, polls continuously. |
+| `classify_plan_assets_ai` | `& $Python manage.py help classify_plan_assets_ai` | Model-backed maintenance, not a preview. Requires `--report`, `--endpoint`, `--model`; supports `--project-id`, `--resume`, `--retry-attempts`, `--delay-seconds` and supported credential modes. |
+| `compare_plan_modes` | `& $Python manage.py compare_plan_modes 'TARGET_DOCUMENT_UUID' --script-only --limit 3 --output (Join-Path $Reports 'plan-comparison-new')` | Writes a new private comparison directory. Omitting `--script-only` enables configured AI comparison; inspect help before paid use. |
+| `isolate_floor_plan_units` | `& $Python manage.py isolate_floor_plan_units 'TARGET_FLOOR_PLAN_UUID' --mode script --report (Join-Path $Reports 'unit-isolation-new.json')` | Creates unit extraction outputs; not a preview. Modes: `script`, `ai`, `both`; optional `--expected-count`, `--vision-profile-id`. `--supersede-source` changes source usability. |
+| `separate_all_floor_plan_units` | `& $Python manage.py help separate_all_floor_plan_units` | Bulk layout changes; requires a new `--report`. No preview or project filter is exposed. Do not use for routine connector setup. |
+| `rebuild_script_outputs` | `& $Python manage.py rebuild_script_outputs --backup-dir (Join-Path $Reports 'script-rebuild-new')` | Inventory default. `--execute` rebuilds; `--reuse-recorded-scans` explicitly reuses hash-bound clean scans in development. Inspect backup requirements first. |
+| `cleanup_unreferenced_images` | `& $Python manage.py cleanup_unreferenced_images` | Preview first. Adding `--execute` deletes listed unreferenced files; inspect the list and backup before considering it. |
+| `sync_feature_flags` | `& $Python manage.py sync_feature_flags` | Preview defaults; `--apply` creates missing defaults without overwriting existing rows. |
+| `verify_database_transfer` | `& $Python manage.py verify_database_transfer 'TARGET_PRIVATE_FIXTURE.json' --report (Join-Path $Reports 'database-verification.json')` | Compares an authorized fixture against the selected database and writes a report. Not an import/restore. Never use the sibling database's fixture or print fixture contents. |
+
+The three PowerShell launchers are [setup_local_postgres.ps1](setup_local_postgres.ps1),
+[run_sample_refresh.ps1](run_sample_refresh.ps1), and
+[run_google_routes_all.ps1](run_google_routes_all.ps1); their safe target examples are
+above. For crop editing, aliases, active toggles, queue monitoring and per-project
+route retry/approval, use the admin UI rather than unsupported shell model updates.
 
 Open `/api/docs/` for the generated API description. Session-authenticated mutations require Django CSRF protection.
 
@@ -31,13 +554,13 @@ project-scoped lookup flow, independent of document ingestion and its extraction
 
 1. Search Google Maps by project name plus locality/address; select the correct result.
 2. Inspect latitude/longitude, then compare walking/driving route distances in metres
-	and durations in minutes to railway and metro candidates within 5, 10 or 20 km.
+  and durations in minutes to railway and metro candidates within 5, 10 or 20 km.
 3. Look up the exact MahaRERA number through the approved enrichment adapter, or open
-	the official project search and save a dated project URL and evidence excerpt.
+  the official project search and save a dated project URL and evidence excerpt.
 4. **Commit source references** submits an unreviewed `external_sources` review task.
-	Discarding or merely searching does not change accepted project facts. Commits are
-	version-checked, audited and idempotent for the draft. They do not create verified
-	registry snapshots, update project coordinates, publish, or run extraction jobs.
+  Discarding or merely searching does not change accepted project facts. Commits are
+  version-checked, audited and idempotent for the draft. They do not create verified
+  registry snapshots, update project coordinates, publish, or run extraction jobs.
 
 Configuration (server environment, never enter keys into the web form):
 
@@ -61,8 +584,11 @@ Configuration (server environment, never enter keys into the web form):
 
 Google previews use an owner/project-bound server cache with a 15-minute idle TTL;
 restarts can expire drafts. Only the selected Google place ID is persisted, not its
-name, address, coordinates or route content. Saved references can be refreshed on
-demand. Configure a private cache and review Google Maps licensing, attribution,
+name, address, coordinates or route content, when submitting a reference. An independent
+staff reviewer with project-change permission can explicitly **Apply Google location**
+to update coordinates and resolve the task. **Retry and save station directions**
+persists route results without accepting coordinates. Both actions are audited and
+reject concurrent changes. Configure a private cache and review Google Maps licensing, attribution,
 privacy/terms and retention requirements before production use. The screen displays
 Google Maps and returned provider attributions, with links to Google Maps directions.
 
@@ -75,14 +601,127 @@ access. Missing catalogue, no route, API failure and missing configuration remai
 explicitly unavailable. This flow does not alter legacy recommendation commute
 approximations or automatically rerun ingestion reports.
 
+#### Connector commands and port notes
+
+This workspace runs at [http://127.0.0.1:8002/](http://127.0.0.1:8002/) using its dedicated PostgreSQL
+configuration. Do not use the sibling workspace's port 8000, database, secrets or
+reports. No migrations or corpus refresh are required for these connectors.
+
+The four commands below were ported from the experimental connector source, preserving
+the project form, layout tools and existing records. Source project decisions and
+generated reports were deliberately not imported. The share importer now requires
+target `projectId` values and validates every redirect before following it; viewport
+coordinates are rejected. Provider calls run outside database transactions.
+
+Run from `reailEstate/backend` with this workspace's `.venv` active:
+
+```powershell
+python -m pip install -r requirements.txt
+python -m playwright install chromium
+$env:DATABASE_BACKEND = 'postgresql'
+$env:PROJECT_METRO_CATALOGUE_FILE = (Resolve-Path './config/mmr-upcoming-metro.json').Path
+python manage.py check
+python manage.py help fetch_maharera_project
+python manage.py help refresh_google_project_places
+python manage.py help import_google_project_place_decisions
+python manage.py help enrich_google_project_routes
+```
+
+Supply `GOOGLE_MAPS_API_KEY` through your secure environment, never a source file,
+task command, report or chat. Enable Places API (New), Routes API, billing, quota and
+key restrictions for `places.googleapis.com` and `routes.googleapis.com`. A terminal
+variable does not update an already-running Django task; restart it from an environment
+that has the key. Both Django tasks set the catalogue path but contain no Google key.
+
+The bundled [MMR candidate catalogue](config/mmr-upcoming-metro.json) is the ported
+29-station snapshot dated 2026-09-15, covering lines 4, 4A, 2B, 6 and 9. Its coordinates
+and planned statuses were not independently revalidated during the port. Review the
+linked authority evidence before operational use; it is not proof of opening dates,
+station entrances, operating service or a globally nearest station.
+
+Commands default to reports in workspace `output/reports`, regardless of current
+directory. Google commands are preview-only without `--execute`. These examples make
+paid requests and must be run deliberately, not as setup validation:
+
+```powershell
+python manage.py fetch_maharera_project PR1330002502719
+python manage.py refresh_google_project_places --execute --limit 5
+python manage.py refresh_google_project_places --execute --resume
+```
+
+MahaRERA searches the exact registration, saves its discovered internal-ID mapping,
+waits for rendered public content and exports visible text/tables/links. CAPTCHA must
+be completed manually in Chromium; `--headless` stops if interaction is required.
+It exports evidence only: no automatic verified snapshot or project update.
+
+Places matching requires a unique project-name/locality match, never calls Routes,
+and creates an open, unreviewed `external_sources` task. `--limit` caps new requests
+in that invocation, including resumed work. A `.stop` file beside the report pauses
+work; remove it before resuming. Checkpoints are atomic and report-locked.
+
+For manual share decisions, produce a **new target-workspace** JSON array matching
+the current Places report's `no_match` rows with 2-5 candidates, in report order:
+
+```json
+[
+  {"index": 1, "projectId": "<target-project-uuid>", "action": "select", "url": "https://maps.app.goo.gl/<share-id>"},
+  {"index": 2, "projectId": "<target-project-uuid>", "action": "skip"}
+]
+```
+
+```powershell
+python manage.py import_google_project_place_decisions decisions.json --source-report ../../output/reports/google-project-places.json --report ../../output/reports/google-project-place-import.json --execute --batch-size 5
+```
+
+Imports accept only HTTPS `maps.app.goo.gl` links resolving through Google Maps,
+require actual place coordinates and a unique closest Places candidate within 500 m,
+hash source URLs in reports, and never accept project coordinates. Add `--resume`
+for subsequent batches. Changing decisions or source input requires a new report.
+
+**Route enrichment accepts coordinates.** Review the target references first. The
+reviewer must be active staff with project-change permission and cannot approve their
+own submitted evidence. An omitted reviewer is allowed only with one active superuser.
+Use an actual target username, not a username from the source guide:
+
+```powershell
+python manage.py enrich_google_project_routes --execute --batch-size 1 --radius 10000 --reviewer 'TARGET_REVIEWER'
+```
+
+Verify at least one route has a duration before proceeding. Each invocation attempts
+at most five provider projects, persists `stationRoutes` in the review task, records
+acceptance/audit, checkpoints every project and accounts for missing references as
+`skipped_unavailable`. `--resume` skips completed work. `--retry-failed` requires a
+unique `--retry-generation` and retries errors/no-duration results once per generation.
+
+After the canary succeeds and the remaining references are reviewed:
+
+```powershell
+./run_google_routes_all.ps1 -Reviewer 'TARGET_REVIEWER' -Radius 10000 -BatchSize 5
+```
+
+The runner resumes with one retry generation, enforces a 100-batch ceiling, and aborts
+after the first batch if it returns no route durations. Its log is directly under
+workspace `output/google-project-routes.log`. Saved route display prefers the latest
+Google review task, then a same-project/same-reference report in `output/reports`
+(legacy backend `reports` is read only when the target report is absent).
+
+Offline validation: VS Code tasks **Test external connectors** and
+**Test project form and sidebar** use isolated SQLite. Live Google billing/key access,
+route availability and the current MahaRERA website/CAPTCHA require separate validation.
+
 ### PostgreSQL and concurrent sample ingestion
 
-The local application now uses one PostgreSQL 17 primary at `127.0.0.1:55432`.
+This workspace uses one PostgreSQL 17 primary at `127.0.0.1:15432`.
 There is no read replica: separate tables alone do not fix SQLite's database-wide
-writer lock. `setup_local_postgres.ps1` provisions the loopback-only Docker container
-`realestate-postgres` and persistent volume `realestate-postgres-data`. Its randomly
+writer lock. Its loopback-only Docker container is `realestate-workspace-publish-postgres`
+and persistent volume is `realestate-workspace-publish-postgres-data`. Its randomly
 generated password is stored in the git-ignored, Windows-ACL-restricted
 `.local/postgres.json`; never commit or display that file. Do not delete the volume.
+
+The database is already provisioned; connector setup must not reset or reingest it.
+The setup script retains legacy defaults for the sibling workspace. Never invoke it
+here without explicit `-Container realestate-workspace-publish-postgres`,
+`-Volume realestate-workspace-publish-postgres-data`, and `-Port 15432` arguments.
 
 Settings load that local connection automatically when the file exists. The startup
 task explicitly selects PostgreSQL. `DATABASE_BACKEND=sqlite` is only for backup or

@@ -63,7 +63,7 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -164,6 +164,18 @@ OFFICE_CONVERTER_EXECUTABLE = os.environ.get('OFFICE_CONVERTER_EXECUTABLE', 'sof
 OFFICE_CONVERTER_TIMEOUT_SECONDS = int(os.environ.get('OFFICE_CONVERTER_TIMEOUT_SECONDS', '90'))
 PROJECT_ENRICHMENT_BACKEND = os.environ.get('PROJECT_ENRICHMENT_BACKEND', '')
 GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY', '')
+_location_review_policy = os.environ.get(
+    'PROJECT_LOCATION_REQUIRE_SECOND_APPROVER', 'false' if DEBUG else 'true').strip().lower()
+if _location_review_policy not in {'true', 'false'}:
+    raise ValueError('PROJECT_LOCATION_REQUIRE_SECOND_APPROVER must be true or false.')
+PROJECT_LOCATION_REQUIRE_SECOND_APPROVER = _location_review_policy == 'true'
+_public_preview = os.environ.get(
+    'PROJECT_PUBLIC_PREVIEW_ENABLED', 'true' if DEBUG else 'false').strip().lower()
+if _public_preview not in {'true', 'false'}:
+    raise ValueError('PROJECT_PUBLIC_PREVIEW_ENABLED must be true or false.')
+PROJECT_PUBLIC_PREVIEW_ENABLED = _public_preview == 'true'
+PROJECT_MAP_STATION_CANDIDATES_FILE = os.environ.get(
+    'PROJECT_MAP_STATION_CANDIDATES_FILE', str(BASE_DIR / 'config' / 'mmr-metro-candidates.csv'))
 PROJECT_METRO_SOURCE_HOSTS = ('mmrda.maharashtra.gov.in', 'www.mmrda.maharashtra.gov.in',
                             'mmrcl.com', 'www.mmrcl.com', 'mmmocl.co.in', 'www.mmmocl.co.in',
                             'mahametro.org', 'www.mahametro.org')

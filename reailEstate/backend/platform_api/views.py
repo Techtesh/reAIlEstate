@@ -10,13 +10,18 @@ from django.contrib.auth import authenticate, login, logout
 from django.core.files.base import ContentFile
 from .artifact_storage import storage as default_storage
 from django.db import IntegrityError, transaction
-from django.db.models import Max, Q
+from django.db.models import F, Max, Q
 from django.http import FileResponse, Http404, JsonResponse
+from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_protect
 from rest_framework import mixins, status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.parsers import FileUploadParser
+from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -60,6 +65,7 @@ from .serializers import (
     ProjectCreateSerializer,
     ProjectDetailSerializer,
     ProjectListSerializer,
+    ProjectPreviewSerializer,
     RecommendationSnapshotSerializer,
     RequirementProfileSerializer,
     ReviewTaskSerializer,
@@ -87,7 +93,7 @@ from .layout_reanalysis import create_manual_layout_crops
 from .layout_pages import validate_document_page
 from .project_lifecycle import merge_projects
 from .reanalysis import queue_project_reanalysis
-from .floor_plan_visibility import visible_floor_plans
+from .floor_plan_visibility import project_gallery_assets, visible_floor_plans
 from .feature_flags.api import FeatureFlagAdminViewSet as FeatureFlagAdminViewSet
 
 ALLOWED_UPLOAD_TYPES = FORMATS
@@ -157,9 +163,14 @@ def _requested_vision_selection(data):
         raise ValidationError({"visionProfileId": [{"code": "UNKNOWN_OR_UNAVAILABLE_PROFILE"}]}) from None
 
 
+class BuyerCursorPagination(CursorPagination):
+    ordering = ("-created_at", "id")
+
+
 class ConsentViewSet(viewsets.ModelViewSet):
     serializer_class = ConsentSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = BuyerCursorPagination
 
     def get_queryset(self):
         return Consent.objects.filter(user=self.request.user).order_by("-granted_at")
@@ -173,9 +184,16 @@ class ConsentViewSet(viewsets.ModelViewSet):
         audit(self.request, "consent.updated", consent)
 
 
+@method_decorator(csrf_protect, name="dispatch")
 class SessionLoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+
+    def get(self, request):
+        get_token(request)
+        response = Response({"status": "ready"})
+        response["Cache-Control"] = "no-store"
+        return response
 
     def post(self, request):
         username = str(request.data.get("username", ""))
@@ -401,19 +419,31 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
 
 
 class ProjectViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
+    pagination_class = BuyerCursorPagination
 
     def get_queryset(self):
-        queryset = Project.objects.filter(status="published").prefetch_related("project_amenities__amenity", "metrics", "verification_snapshots", "facts")
         params = self.request.query_params
+        include_processing = params.get("includeProcessing", "false")
+        if include_processing not in {"true", "false"}:
+            raise ValidationError({"includeProcessing": "Use true or false."})
+        preview_detail = self.action == "retrieve" and settings.PROJECT_PUBLIC_PREVIEW_ENABLED
+        states = ["published", "ingestion", "needs_review"] if preview_detail or (self.action == "list" and include_processing == "true") else ["published"]
+        queryset = Project.objects.filter(status__in=states).exclude(address__has_key="mergedIntoProjectId").exclude(
+            merge_out__state="applied").prefetch_related("project_amenities__amenity", "metrics", "verification_snapshots", "facts")
+        if any(params.get(key) for key in ("configuration", "carpetAreaMinimum", "allInPriceMaximum", "mahaReraStatus", "amenity")):
+            queryset = queryset.filter(status="published")
         if params.get("locality"):
             queryset = queryset.filter(locality__iexact=params["locality"])
         if params.get("configuration"):
-            queryset = queryset.filter(buildings__configurations__configuration_type=params["configuration"])
+            queryset = queryset.filter(buildings__configurations__configuration_type=params["configuration"],
+                                       buildings__configurations__fact_set_version__lte=F("published_fact_set_version"))
         if params.get("carpetAreaMinimum"):
-            queryset = queryset.filter(buildings__configurations__carpet_area_max__gte=params["carpetAreaMinimum"])
+            queryset = queryset.filter(buildings__configurations__carpet_area_max__gte=params["carpetAreaMinimum"],
+                                       buildings__configurations__fact_set_version__lte=F("published_fact_set_version"))
         if params.get("allInPriceMaximum"):
-            queryset = queryset.filter(buildings__configurations__price_min__lte=params["allInPriceMaximum"])
+            queryset = queryset.filter(buildings__configurations__price_min__lte=params["allInPriceMaximum"],
+                                       buildings__configurations__fact_set_version__lte=F("published_fact_set_version"))
         if params.get("mahaReraStatus"):
             queryset = queryset.filter(verification_status=params["mahaReraStatus"])
         if params.get("amenity"):
@@ -421,7 +451,68 @@ class ProjectViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset.distinct().order_by("submitted_name")
 
     def get_serializer_class(self):
-        return ProjectDetailSerializer if self.action == "retrieve" else ProjectListSerializer
+        if self.action == "retrieve" and settings.PROJECT_PUBLIC_PREVIEW_ENABLED:
+            return ProjectPreviewSerializer
+        return ProjectDetailSerializer if self.action == "retrieve" and self.request.user.is_authenticated else ProjectListSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        response = super().retrieve(request, *args, **kwargs)
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
+class ProjectGalleryView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, project_id):
+        project = get_object_or_404(Project.objects.exclude(address__has_key="mergedIntoProjectId").exclude(
+            merge_out__state="applied"), pk=project_id, status__in=["published", "ingestion", "needs_review"])
+        can_review = bool(request.user.is_authenticated and request.user.is_active and
+            (_project_can_edit(request.user, project) or _is_reviewer(request.user)))
+        allow_unreviewed = can_review or settings.PROJECT_PUBLIC_PREVIEW_ENABLED
+        assets = project_gallery_assets(project, can_review=allow_unreviewed).order_by("created_at", "pk")
+        paginator = BuyerCursorPagination()
+        paginator.ordering = ("created_at", "pk")
+        page = paginator.paginate_queryset(assets, request, view=self)
+        plans = visible_floor_plans(project.floor_plans.filter(active=True, asset_id__in=[asset.pk for asset in page]))
+        if not allow_unreviewed:
+            plans = plans.filter(review_state="approved")
+        layouts = {}
+        for plan in plans.order_by("plan_name", "pk"):
+            rooms = [{key: room[key] for key in ("room", "lengthFt", "widthFt", "areaSqFt")
+                      if key in room and isinstance(room[key], (str, int, float))}
+                     for room in plan.dimensions if isinstance(room, dict)] if isinstance(plan.dimensions, list) else []
+            layouts.setdefault(plan.asset_id, []).append({
+                "id": str(plan.pk), "name": plan.display_title, "configuration": plan.configuration_type,
+                "carpetAreaSqFt": plan.carpet_area_sqft, "rooms": rooms,
+                "roomCount": plan.room_count, "bathrooms": plan.bathroom_count, "balconies": plan.balcony_count,
+                "orientation": plan.orientation, "reviewState": plan.review_state,
+            })
+        items = []
+        for asset in page:
+            associated = layouts.get(asset.pk, [])
+            category = asset.source_bounds.get("category", "") if isinstance(asset.source_bounds, dict) else ""
+            if category not in {"floor-plans", "layouts", "general", "amenities"}:
+                category = "layouts" if asset.asset_type == "unit_crop" else "floor-plans" if associated else "general"
+            items.append({"id": str(asset.pk), "url": reverse("floor-plan-asset-media", args=[asset.pk]),
+                "category": category, "title": associated[0]["name"] if associated else f"Project image {asset.page_number or ''}".strip(),
+                "width": asset.pixel_width, "height": asset.pixel_height, "layouts": associated,
+                "reviewState": "approved" if associated and all(plan["reviewState"] == "approved" for plan in associated) else "unreviewed"})
+        response = paginator.get_paginated_response(items)
+        response.data["access"] = "preview" if settings.PROJECT_PUBLIC_PREVIEW_ENABLED else "review" if can_review else "published" if project.status == "published" else "restricted"
+        if allow_unreviewed and project.status != "published":
+            response.data["project"] = ProjectPreviewSerializer(project).data
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+
+class MapStationListView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from .map_catalogue import map_stations
+
+        return Response(map_stations())
 
 
 class ProjectComparisonView(APIView):
@@ -925,27 +1016,34 @@ class MediaPageView(APIView):
 
 
 class FloorPlanAssetMediaView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get(self, request, asset_id):
         from .models import FloorPlanAsset
 
         asset = get_object_or_404(FloorPlanAsset.objects.select_related("project", "document"), id=asset_id, status="ready")
-        approved_public_plan = asset.floor_plans.filter(review_state="approved", project__status="published").exists()
-        allowed = _project_can_edit(request.user, asset.project) or _is_reviewer(request.user) or approved_public_plan
+        active_project = asset.project.status in {"published", "ingestion", "needs_review"} and not (
+            "mergedIntoProjectId" in asset.project.address or Project.objects.filter(pk=asset.project_id, merge_out__state="applied").exists())
+        approved_public_plan = active_project and project_gallery_assets(
+            asset.project, can_review=settings.PROJECT_PUBLIC_PREVIEW_ENABLED).filter(pk=asset.pk).exists()
+        privileged = request.user.is_authenticated and request.user.is_active and (
+            _project_can_edit(request.user, asset.project) or _is_reviewer(request.user))
+        allowed = privileged or approved_public_plan
         if not allowed or not default_storage.exists(asset.object_key):
             raise NotFound()
         response = FileResponse(default_storage.open(asset.object_key, "rb"), content_type=asset.media_type)
         response["Content-Disposition"] = f'inline; filename="floor-plan-{asset.id}.png"'
         response["X-Content-Type-Options"] = "nosniff"
         response["Cache-Control"] = "private, no-store"
-        audit(request, "floor_plan_asset.viewed", asset, metadata={"documentId": str(asset.document_id)})
+        if request.user.is_authenticated:
+            audit(request, "floor_plan_asset.viewed", asset, metadata={"documentId": str(asset.document_id)})
         return response
 
 
 class ShortlistViewSet(viewsets.ModelViewSet):
     serializer_class = ShortlistSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = BuyerCursorPagination
 
     def get_queryset(self):
         return Shortlist.objects.filter(owner=self.request.user).prefetch_related("shortlistproject_set")
@@ -1025,6 +1123,13 @@ class OperationView(APIView):
     def get(self, request, operation_id):
         operation = get_object_or_404(Operation, id=operation_id, owner=request.user)
         return Response({"id": str(operation.id), "kind": operation.kind, "status": operation.state, "result": operation.result, "errorCode": operation.error_code, "updatedAt": operation.updated_at})
+
+
+class BuyerAmenityListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(list(Amenity.objects.order_by("display_name", "id").values("taxonomy_code", "display_name", "category")))
 
 
 class PlaceSuggestView(APIView):

@@ -1,0 +1,18 @@
+.extraction-editor { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(380px, 1.2fr); gap: 24px; }
+.extraction-source, .extraction-form { min-width: 0; }
+.extraction-source img { display: block; max-width: 100%; max-height: 75vh; width: auto; height: auto; margin: 0 auto; }
+.extraction-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.extraction-field { min-width: 0; }
+.extraction-field:last-child { grid-column: 1 / -1; }
+.extraction-field label { display: block; margin-bottom: 6px; }
+.extraction-field input, .extraction-field textarea { box-sizing: border-box; width: 100%; }
+.room-table-scroll { position: relative; overflow-x: auto; margin-bottom: 12px; }
+.room-editor-table { width: 100%; min-width: 390px; table-layout: fixed; }
+.room-editor-table th:first-child { width: 35%; }
+.room-editor-table th:last-child { width: 60px; }
+.room-editor-table input:not([type="checkbox"]):not([type="hidden"]) { box-sizing: border-box; width: 100%; }
+.extraction-form .submit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 20px; }
+.extraction-form .errorlist { overflow-wrap: anywhere; }
+.extraction-form .addlink { color: var(--link-fg); border: 1px solid var(--border-color); background-color: var(--body-bg); padding: 8px 12px 8px 24px; cursor: pointer; }
+@media (max-width: 1100px) { .extraction-editor { grid-template-columns: minmax(0, 1fr); } .extraction-source img { max-height: 45vh; } }
+@media (max-width: 480px) { .extraction-fields { grid-template-columns: minmax(0, 1fr); } }

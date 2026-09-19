@@ -1,5 +1,17 @@
 # MVP Backlog and Requirements Traceability
 
+## Workspace Admin TODO
+
+Owner: workspace administrator (user). Added 2026-09-17. Related story: US-016.
+
+- [ ] Complete admin review for the projects intended for public Browse: check project details, extracted layouts/rooms, approved facts and location references; resolve outstanding non-publication review tasks.
+- [ ] Record a MahaRERA verification attempt for each project. Keep unavailable or unsuccessful verification labelled accurately; publication does not imply verified status.
+- [ ] Publish the reviewed fact sets through the reviewer/admin publication workflow, preserving its version and review checks. Do not bypass it by changing the status field directly.
+- [ ] Refresh Browse and confirm the published projects appear in the feed, properties with approved coordinates have map pins, and verification labels are correct.
+
+Saving a location alone does not publish a project. This TODO does not publish records,
+run ingestion or start queued jobs; those actions remain under the administrator's control.
+
 ## Expanded ingestion increment
 
 The current implementation maps the new upload/output requirements as follows (details in [the ingestion specification](11-document-ingestion-and-project-outputs.md)):

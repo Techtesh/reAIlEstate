@@ -47,7 +47,10 @@ from .project_lifecycle import merge_projects, project_family_ids, retire_projec
 from .reanalysis import queue_project_reanalysis
 from .workers import process_pending_outbox
 from .source_page_admin import SourcePageAdminMixin
-from .external_sources_admin import ExternalSourcesAdminMixin
+from .external_sources_admin import (
+    ExternalSourcesAdminMixin, GOOGLE_MATCH_LABELS, GoogleMatchFilter, MahaRERAFilter, google_match_annotations,
+    LOCATION_REFERENCE_QUERY, manual_reference_details,
+)
 from .source_page_additions import PAGE_EVENT
 from .floor_plan_layout_jobs import UNITS_EVENT, queue_floor_plan_layouts
 from .crop_cart_admin import CropCartAdminMixin
@@ -56,6 +59,7 @@ from .floor_plan_removal import authorize_plan_removal, set_floor_plan_removed
 from .floor_plan_visibility import REMOVED_REVIEW_STATE, visible_floor_plans, visible_plan_assets
 from .ingestion_runtime import WorkAlreadyClaimed
 from .layout_crop_update_admin import LayoutCropUpdateAdminMixin
+from .layout_extraction_admin import EXTRACTION_FIELDS, LayoutExtractionAdminMixin
 from .layout_bulk_admin import LayoutBulkAdminMixin
 from .project_layout_health import (
     ProjectLayoutHealthAdminMixin, NeedsBoundaryReviewFilter,
@@ -88,11 +92,14 @@ class ImageNavigationAdminMixin:
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         context = dict(extra_context or {})
+        context["image_navigation"] = self.record_navigation(request, self.get_object(request, object_id))
+        return super().change_view(request, object_id, form_url, context)
+
+    def record_navigation(self, request, obj, view_name=None):
         # Rebuild the originating list rather than navigating every project's images.
         list_request = copy(request)
         list_request.GET = QueryDict(request.GET.get("_changelist_filters", ""))
         navigation = None
-        obj = self.get_object(request, object_id)
         if obj is not None and self.has_view_or_change_permission(request, obj):
             try:
                 changelist = self.get_changelist_instance(list_request)
@@ -105,7 +112,7 @@ class ImageNavigationAdminMixin:
                     suffix = "?" + urlencode({"_changelist_filters": filters}) if filters else ""
                     opts = self.model._meta
                     def change_url(pk):
-                        return reverse(f"admin:{opts.app_label}_{opts.model_name}_change",
+                        return reverse(view_name or f"admin:{opts.app_label}_{opts.model_name}_change",
                                        args=[pk], current_app=self.admin_site.name) + suffix
                     navigation = {
                         "previous": change_url(ids[index - 1]) if index else None,
@@ -118,8 +125,7 @@ class ImageNavigationAdminMixin:
             except (IncorrectLookupParameters, SuspiciousOperation):
                 # Invalid preserved filters must not silently broaden navigation scope.
                 navigation = None
-        context["image_navigation"] = navigation
-        return super().change_view(request, object_id, form_url, context)
+        return navigation
 
 
 class ProjectPageSizeChangeList(ChangeList):
@@ -237,13 +243,14 @@ class PlanSegmentationMethodFilter(admin.SimpleListFilter):
 
 
 @admin.register(FloorPlan)
-class FloorPlanAdmin(LayoutCropUpdateAdminMixin, ImageNavigationAdminMixin, admin.ModelAdmin):
+class FloorPlanAdmin(LayoutExtractionAdminMixin, LayoutCropUpdateAdminMixin, ImageNavigationAdminMixin, admin.ModelAdmin):
     list_display = ("plan_name", "project", "page_number", "record_level", "segmentation_method",
                     "configuration_type", "active", "crop_remaining", "review_state")
     list_filter = ("active", "crop_remaining", "review_state", "plan_scope", "asset__asset_type", PlanSegmentationMethodFilter)
     search_fields = ("project__submitted_name", "plan_name", "document__original_name")
     list_select_related = ("project", "document", "asset")
-    readonly_fields = ("saved_image", "extraction_notice", "removal_action", "review_state", "display_name")
+    readonly_fields = ("saved_image", "extraction_notice", "removal_action", "review_state", "display_name",
+                       *EXTRACTION_FIELDS, "dimensions", "features", "raw_extraction", "confidence", "extractor_version")
     ordering = ("project__submitted_name", "document_id", "page_number", "plan_name", "id")
 
     def has_delete_permission(self, request, obj=None):
@@ -320,7 +327,7 @@ class FloorPlanAdmin(LayoutCropUpdateAdminMixin, ImageNavigationAdminMixin, admi
 
     def get_urls(self):
         opts = self.model._meta
-        custom = self.layout_crop_update_urls() + [
+        custom = self.layout_extraction_urls() + self.layout_crop_update_urls() + [
             path(
                 "<uuid:object_id>/visibility/<uuid:project_id>/<str:action>/",
                 self.admin_site.admin_view(self.visibility_view),
@@ -347,6 +354,8 @@ class FloorPlanAdmin(LayoutCropUpdateAdminMixin, ImageNavigationAdminMixin, admi
     def change_view(self, request, object_id, form_url="", extra_context=None):
         context = dict(extra_context or {})
         obj = self.get_object(request, object_id)
+        if obj and obj.review_state != REMOVED_REVIEW_STATE and self.has_change_permission(request, obj):
+            context["extraction_editor_url"] = reverse("admin:platform_api_floorplan_edit_extraction", args=[obj.pk])
         if obj and obj.review_state != REMOVED_REVIEW_STATE and self.has_change_permission(request, obj) and obj.asset_id \
                 and obj.asset.asset_type != "unit_crop" and obj.asset.status == "ready" \
                 and obj.document.scan_status == "clean":
@@ -608,23 +617,72 @@ class EvidenceDocumentAdmin(admin.ModelAdmin):
 class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, LayoutBulkAdminMixin, CropCartAdminMixin, SourcePageAdminMixin, ImageNavigationAdminMixin, admin.ModelAdmin):
     change_form_template = "admin/platform_api/project_change_form.html"
     change_list_template = "admin/platform_api/project_change_list.html"
-    list_display = ("submitted_name", "created_at", "maha_rera_id", "locality", "status", "boundary_review_link", "media_dashboard_link")
-    list_filter = ("locality", NeedsBoundaryReviewFilter)
+    list_display = ("submitted_name", "created_at", "maharera_reference", "google_maps_reference", "locality", "status", "boundary_review_link", "media_dashboard_link")
+    list_filter = ("locality", GoogleMatchFilter, MahaRERAFilter, NeedsBoundaryReviewFilter)
     search_fields = ("submitted_name", "locality", "maha_rera_id")
-    readonly_fields = ("extraction_outputs", "media_dashboard_link")
+    readonly_fields = ("extraction_outputs", "media_dashboard_link", "google_location_reference")
     fieldsets = ((None, {
         "classes": ("project-details-grid",),
         "fields": ("organization", "status", "maha_rera_id", "submitted_name", "address", "locality",
                    "latitude", "longitude", "published_fact_set_version", "processing_attested",
-                   "verification_status", "verification_checked_at", "extraction_outputs", "media_dashboard_link"),
+                   "verification_status", "verification_checked_at", "google_location_reference",
+                   "extraction_outputs", "media_dashboard_link"),
     }),)
     ordering = ("submitted_name", "id")
     actions = ("retire_selected_projects", "queue_selected_projects_for_reanalysis")
 
+    @admin.display(description="Google location reference")
+    def google_location_reference(self, obj):
+        from .external_sources import map_link
+        from .models import ReviewTask
+
+        if not obj or not obj.pk:
+            return "Save the project first."
+        url = self.external_sources_url(obj)
+        task = ReviewTask.objects.filter(LOCATION_REFERENCE_QUERY, project=obj,
+            task_type="external_sources").order_by("-created_at", "-pk").first()
+        if not task:
+            return format_html('No saved reference. <a href="{}">External sources</a>', url)
+        if task.resolution.get("manualLocation"):
+            details = manual_reference_details(task.resolution["manualLocation"])
+            if details:
+                return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">View pin on Google Maps</a>'
+                    ' &middot; Manual / {} &middot; <a href="{}">External sources</a>',
+                    details["sourceUrl"], task.resolution.get("reviewState", "unreviewed"), url)
+            return format_html('Invalid manual reference. <a href="{}">External sources</a>', url)
+        return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">View on Google Maps</a>'
+            ' &middot; {} &middot; <a href="{}">External sources</a>',
+            map_link(task.resolution["googlePlaceId"], obj.submitted_name),
+            task.resolution.get("reviewState", "unreviewed"), url)
+
     def get_queryset(self, request):
-        return super().get_queryset(request).exclude(address__has_key="mergedIntoProjectId").exclude(
+        queryset = super().get_queryset(request).exclude(address__has_key="mergedIntoProjectId").exclude(
             merge_out__state="applied"
         )
+        return google_match_annotations(queryset).annotate(
+            admin_preserved_filters=models.Value(self.get_preserved_filters(request), output_field=models.CharField()))
+
+    def external_sources_url(self, obj):
+        url = reverse("admin:platform_api_project_external_sources", args=[obj.pk])
+        filters = getattr(obj, "admin_preserved_filters", "")
+        return url + ("?" + filters if filters else "")
+
+    @admin.display(description="Google Maps")
+    def google_maps_reference(self, obj):
+        url = self.external_sources_url(obj)
+        if obj.manual_location:
+            return format_html('<a href="{}">Manual / {}</a>', url, obj.google_review_state or "unreviewed")
+        if obj.google_place_id:
+            from .external_sources import map_link
+            return format_html('<a href="{}">{}</a><br><a href="{}" target="_blank" rel="noopener noreferrer">Maps</a>',
+                url, obj.google_review_state or "unreviewed", map_link(obj.google_place_id, obj.submitted_name))
+        return format_html('<a href="{}">{}</a>', url, GOOGLE_MATCH_LABELS.get(obj.google_match_status, "No reference"))
+
+    @admin.display(description="MahaRERA", ordering="maha_rera_id")
+    def maharera_reference(self, obj):
+        return format_html('<a href="{}">{}</a><br>{}',
+            self.external_sources_url(obj),
+            obj.maha_rera_id or "Missing ID", obj.verification_status)
 
     def has_delete_permission(self, request, obj=None):
         # The delete screen is retained as a confirmation surface, but delete_view
@@ -913,6 +971,7 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
             "plan": plan,
             "inactive": not plan.active or getattr(plan, "inactive_source", False),
             "editCropUrl": reverse("admin:platform_api_floorplan_crop_update", args=[plan.pk]) if plan.plan_scope in {"flat", "floor"} and plan.asset_id else None,
+            "editExtractionUrl": reverse("admin:platform_api_floorplan_edit_extraction", args=[plan.pk]) if plan.plan_scope in {"flat", "floor"} and plan.asset_id else None,
             "isCroppedUnit": bool(plan.asset_id and plan.asset.asset_type == "unit_crop"),
             "imageDescription": "Saved unit crop" if plan.asset_id and plan.asset.asset_type == "unit_crop" else (
                 "Pre-cut layout source" if source_kind == "precut_source" else "Source page — no individual crop saved yet"),

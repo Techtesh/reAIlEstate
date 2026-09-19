@@ -19,6 +19,21 @@ def visible_plan_assets(queryset):
     return queryset.exclude(pk__in=removed_only)
 
 
+def project_gallery_assets(project, *, can_review=False):
+    from django.db.models import Q
+    from .models import FloorPlan
+
+    assets = project.floor_plan_assets.filter(status="ready", document__scan_status="clean",
+        document__project=project, media_type__in=["image/png", "image/jpeg", "image/webp"])
+    plans = visible_floor_plans(FloorPlan.objects.filter(project=project, active=True))
+    if not can_review:
+        if project.status != "published":
+            return assets.none()
+        return assets.filter(floor_plans__in=plans.filter(review_state="approved")).distinct()
+    linked = FloorPlan.objects.filter(project=project, asset_id__isnull=False).values("asset_id")
+    return assets.filter(~Q(pk__in=linked) | Q(pk__in=plans.values("asset_id")))
+
+
 def visible_plan_facts(queryset):
     from django.db.models import Q
     from .models import FloorPlan

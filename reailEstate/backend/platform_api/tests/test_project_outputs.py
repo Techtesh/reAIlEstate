@@ -60,6 +60,7 @@ def test_project_admin_columns_preserve_fields_and_links(client, django_user_mod
         "published_fact_set_version", "processing_attested", "verification_status", "verification_checked_at",
     ]
     assert b"field-extraction_outputs" in response.content and b"field-media_dashboard_link" in response.content
+    assert b"field-google_location_reference" in response.content
     assert b'name="_save"' in response.content
     if not adding:
         assert reverse("admin:platform_api_project_media_dashboard", args=[project.pk]).encode() in response.content

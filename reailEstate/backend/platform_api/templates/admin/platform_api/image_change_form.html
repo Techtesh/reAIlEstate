@@ -2,6 +2,9 @@
 
 {% block object-tools-items %}
   {{ block.super }}
+  {% if extraction_editor_url %}
+    <li><a href="{{ extraction_editor_url }}">Edit extraction</a></li>
+  {% endif %}
   {% if flat_separation_url %}
     <li><a href="{{ flat_separation_url }}">Separate flats</a></li>
   {% endif %}

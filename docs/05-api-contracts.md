@@ -130,11 +130,84 @@ Ready response:
 
 ### `GET /api/v1/projects`
 
-Facets: locality, configuration, carpet-area range, all-in price range, MahaRERA status, possession period, amenities. Returns published read models only.
+Facets: locality, configuration, carpet-area range, all-in price range, MahaRERA status, possession period, amenities. Returns published read models by default.
+
+Listing reads are public. Anonymous responses contain listing fields only; drafts,
+retired projects, and unpublished configuration revisions are excluded. Publication
+is separate from registry verification or location approval. Writes are not supported.
+
+Optional `includeProcessing=true` adds `ingestion` and `needs_review` listing summaries;
+omitted or `false` stays published-only, and other values return 400. This option applies
+only to the collection, for both guests and authenticated buyers. Private drafts,
+retired, archived and merged records remain excluded. Processing summaries contain
+ID, submitted name, locality, lifecycle status and update timestamp. They retain the
+listing shape but return empty configurations, amenities and registry ID, unavailable
+verification, and null verification date. Coordinates are included only when the latest
+location reference is resolved and accepted; otherwise they are null. No evidence,
+documents, internal address, metrics, reviewer IDs or draft values are serialized.
+Locality filtering applies to all summaries; fact-based filters (configuration, area,
+price, registry status and amenity) exclude processing entries rather than inspecting
+unpublished facts. Pagination preserves the explicit opt-in query.
 
 ### `GET /api/v1/projects/{projectId}`
 
 Returns normalized project details, metric definitions, evidence summaries, verification timestamp, and stale/missing flags. Direct evidence access is a separate authorized endpoint.
+
+With `PROJECT_PUBLIC_PREVIEW_ENABLED=false`, anonymous callers receive the same restricted fields as the project list, without
+internal evidence, audit metadata, or account data. The richer detail response remains
+authenticated. Unpublished detail requests remain 404 even with `includeProcessing=true`;
+the opt-in does not enable comparisons, shortlists, ranking or publication.
+
+Temporary exception: `PROJECT_PUBLIC_PREVIEW_ENABLED=true` allows guests to retrieve
+published, ingestion and needs-review project details, including unreviewed project
+facts and configurations. Internal address metadata and candidate evidence references
+are omitted. This flag defaults to true for local debug development and false in
+production; only explicit `true`/`false` values are accepted. Disable it and restart
+the backend to restore restrictions. Detail responses use `Cache-Control: private, no-store`.
+
+### `GET /api/v1/projects/{projectId}/gallery`
+
+Public read-only, cursor-paginated response: `{ results, next, previous, access }`.
+Access is `published`, `review`, `restricted`, or `preview`. Each item contains opaque
+`id`, same-origin `url`, `category`, `title`, pixel `width`/`height`, `reviewState`, and
+`layouts`. Layouts contain presentation names, configuration, carpet area in square
+feet, room/bathroom/balcony counts, orientation, review state and allowlisted room
+measurements (`room`, `lengthFt`, `widthFt`, `areaSqFt`). No object keys, raw extraction
+or original document payloads are included.
+
+With the preview flag off, public media must belong to active approved layouts of
+published projects. Authorized project editors/reviewers can see unreviewed media;
+other processing requests return an empty `restricted` gallery, not private data.
+With the preview flag on, guests may see the same unreviewed project media. Processing
+responses with review/preview access additionally include `project` data. Only clean,
+ready PNG/JPEG/WebP assets are eligible; inactive/hidden layouts, retired/merged
+projects and unsafe sources stay excluded. Byte access at
+`GET /api/v1/media/floor-plan-assets/{assetId}` applies the same guest checks, including
+after the flag is disabled. Both responses are `private, no-store`. Existing authorized
+admin media access is unchanged. The flag never enables private buyer endpoints,
+raw document access, writes, approval, publication, comparisons or ranking.
+
+### `GET /api/v1/map-stations`
+
+Public read-only response: `{ "stations": [...], "lines": [...], "warnings": [...] }`. Each station has
+an opaque ID, name, kind (`metro` or `railway`), line, location, source, serviceStatus,
+asOf, and optional authority sourceUrl. User-added CSV candidates and accepted saved
+references remain `unverified`; only configured authority records supply operational,
+planned, or under-construction status. Duplicate candidates are collapsed and conflicting
+coordinates withheld. Saved references from unpublished projects are excluded. Responses
+contain no reviewer IDs, private project references, or travel routes; reads make no
+provider requests and do not publish data or modify the station source files.
+
+Each line segment has an opaque `id`, `name`, `kind`, ordered `stationIds`,
+`source: "user_candidate"` and `geometryStatus: "schematic_unverified"`.
+Segments follow contiguous same-line/same-kind CSV rows; they are display schematics,
+not verified stop order, track geometry, operating service or a routing graph.
+Invalid or conflicting candidates and line/kind changes break segments. Consecutive
+identical duplicates collapse; a repeated nonconsecutive stop starts a new segment.
+Only segments with at least two retained stations are returned. Unknown-line stations
+remain unconnected. Shared coordinates or crossing segments never create transfers.
+Authority station metadata does not verify a candidate segment's geometry.
+Missing or disabled candidate data yields an empty `lines` array.
 
 ### `POST /api/v1/project-comparisons`
 

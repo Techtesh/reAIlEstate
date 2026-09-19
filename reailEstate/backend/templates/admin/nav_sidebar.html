@@ -1,0 +1,34 @@
+{% load i18n %}
+<button class="sticky toggle-nav-sidebar" id="toggle-nav-sidebar" aria-label="{% translate 'Toggle navigation' %}"></button>
+<nav class="sticky" id="nav-sidebar" aria-label="{% translate 'Sidebar' %}">
+  <input type="search" id="nav-filter" placeholder="{% translate 'Start typing to filter' %}"
+         aria-label="{% translate 'Filter navigation items' %}">
+  {% if perms.platform_api.view_project or perms.platform_api.change_project %}
+  <div class="module">
+    <table>
+      <caption>Quick links</caption>
+      <tbody>
+        {% if perms.platform_api.view_project and perms.platform_api.view_operation and perms.platform_api.view_outboxmessage %}
+        <tr><th scope="row"><a href="{% url 'admin:platform_api_project_jobs' %}">Active queue</a></th></tr>
+        {% endif %}
+        {% if perms.platform_api.change_project and perms.platform_api.change_floorplan %}
+        <tr><th scope="row"><a href="{% url 'admin:platform_api_project_layout_cart' %}">My active cart</a></th></tr>
+        {% endif %}
+        <tr><th scope="row"><a href="{% url 'admin:platform_api_project_changelist' %}?google_match=incomplete">Maps: incomplete data</a></th></tr>
+        <tr><th scope="row"><a href="{% url 'admin:platform_api_project_changelist' %}?maharera=missing">MahaRERA: missing ID</a></th></tr>
+        {% if image_navigation %}
+        <tr><th scope="row">
+          <nav aria-label="Quick-link record navigation">
+            {% if image_navigation.previous %}<a href="{{ image_navigation.previous }}" aria-label="Previous record" title="Previous record">&larr; Previous</a>{% else %}<span aria-disabled="true">&larr; Previous</span>{% endif %}
+            &middot;
+            {% if image_navigation.next %}<a href="{{ image_navigation.next }}" aria-label="Next record" title="Next record">Next &rarr;</a>{% else %}<span aria-disabled="true">Next &rarr;</span>{% endif %}
+            <p><a href="{{ image_navigation.list }}">Back to queue</a> &middot; {{ image_navigation.position }} / {{ image_navigation.total }}</p>
+          </nav>
+        </th></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% include 'admin/app_list.html' with app_list=available_apps show_changelinks=False %}
+</nav>

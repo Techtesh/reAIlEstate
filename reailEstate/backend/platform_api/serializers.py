@@ -134,9 +134,28 @@ class ProjectListSerializer(serializers.ModelSerializer):
     configurations = serializers.SerializerMethodField()
     amenities = serializers.SerializerMethodField()
 
+    def to_representation(self, instance):
+        if instance.status == "published":
+            return super().to_representation(instance)
+        from django.db.models import Q
+        from .models import ReviewTask
+
+        reference = ReviewTask.objects.filter(project=instance, task_type="external_sources").filter(
+            Q(resolution__manualLocation__isnull=False) | Q(resolution__googlePlaceId__isnull=False)
+        ).order_by("-created_at", "-pk").first()
+        accepted_location = bool(reference and reference.state == "resolved" and reference.resolution.get("reviewState") == "accepted")
+        return {
+            "id": str(instance.pk), "submitted_name": instance.submitted_name, "locality": instance.locality,
+            "status": instance.status, "maha_rera_id": "", "verification_status": "unavailable",
+            "verification_checked_at": None, "updated_at": instance.updated_at.isoformat(),
+            "latitude": str(instance.latitude) if accepted_location and instance.latitude is not None else None,
+            "longitude": str(instance.longitude) if accepted_location and instance.longitude is not None else None,
+            "configurations": [], "amenities": [],
+        }
+
     class Meta:
         model = Project
-        fields = ["id", "submitted_name", "maha_rera_id", "locality", "status", "verification_status", "verification_checked_at", "configurations", "amenities", "updated_at"]
+        fields = ["id", "submitted_name", "maha_rera_id", "locality", "status", "verification_status", "verification_checked_at", "latitude", "longitude", "configurations", "amenities", "updated_at"]
 
     def get_configurations(self, obj):
         items = HomeConfiguration.objects.filter(building__project=obj, fact_set_version__lte=obj.published_fact_set_version)
@@ -154,7 +173,7 @@ class ProjectDetailSerializer(ProjectListSerializer):
     transactions = serializers.SerializerMethodField()
 
     class Meta(ProjectListSerializer.Meta):
-        fields = ProjectListSerializer.Meta.fields + ["address", "latitude", "longitude", "published_fact_set_version", "facts", "project_amenities", "metrics", "verification", "transactions"]
+        fields = ProjectListSerializer.Meta.fields + ["address", "published_fact_set_version", "facts", "project_amenities", "metrics", "verification", "transactions"]
 
     def get_facts(self, obj):
         from .floor_plan_visibility import visible_plan_facts
@@ -187,6 +206,25 @@ class ProjectDetailSerializer(ProjectListSerializer):
     def get_transactions(self, obj):
         links = obj.transaction_links.filter(review_state__in=["approved", "auto_approved"]).select_related("transaction_record")
         return TransactionLinkSerializer(links, many=True).data
+
+
+class ProjectPreviewSerializer(ProjectDetailSerializer):
+    class Meta(ProjectDetailSerializer.Meta):
+        fields = [field for field in ProjectDetailSerializer.Meta.fields if field != "address"]
+
+    def to_representation(self, instance):
+        return serializers.ModelSerializer.to_representation(self, instance)
+
+    def get_configurations(self, obj):
+        return HomeConfigurationSerializer(HomeConfiguration.objects.filter(building__project=obj), many=True).data
+
+    def get_facts(self, obj):
+        from .floor_plan_visibility import visible_plan_facts
+
+        return [{"code": fact.field_code, "value": fact.typed_value, "unit": fact.unit,
+                 "sourceClass": fact.source_class, "reviewedAt": fact.reviewed_at,
+                 "status": fact.status, "factSetVersion": fact.fact_set_version}
+                for fact in visible_plan_facts(obj.facts.exclude(status__in=["rejected", "superseded", "removed"]))]
 
 
 class ProjectCreateSerializer(serializers.ModelSerializer):
@@ -351,9 +389,14 @@ class RecommendationItemSerializer(serializers.ModelSerializer):
 
 class RecommendationSnapshotSerializer(serializers.ModelSerializer):
     profile_version = serializers.IntegerField(source="requirement_version.version")
-    items = RecommendationItemSerializer(many=True, read_only=True)
+    items = serializers.SerializerMethodField()
     status = serializers.CharField(source="state")
     generated_at = serializers.DateTimeField()
+
+    def get_items(self, obj):
+        return RecommendationItemSerializer(
+            obj.items.filter(project__status="published").select_related("project").order_by("rank"), many=True
+        ).data
 
     class Meta:
         model = RecommendationSnapshot

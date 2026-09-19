@@ -1,0 +1,40 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'platform_api/layout_extraction.css' %}">{% endblock %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'platform_api/layout_extraction.js' %}" defer></script>{% endblock %}
+{% block content %}
+<div class="extraction-editor">
+  <div class="extraction-source"><a href="{{ image_url }}" target="_blank" rel="noopener"><img src="{{ image_url }}" alt="{{ original.display_title }}"></a></div>
+  <form method="post" class="extraction-form">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    {{ form.expected_updated_at }}{{ form.expected_updated_at.errors }}
+    <div class="extraction-fields">
+      {% for field in form.visible_fields %}<div class="extraction-field">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endfor %}
+    </div>
+    <h2>Rooms</h2>
+    {{ rooms.management_form }}{{ rooms.management_form.errors }}{{ rooms.non_form_errors }}
+    <div class="room-table-scroll">
+      <table class="room-editor-table">
+        <thead><tr><th scope="col">Room</th><th scope="col">Length (ft)</th><th scope="col">Width (ft)</th><th scope="col">Remove</th></tr></thead>
+        <tbody id="room-rows">
+          {% for room in rooms %}
+          <tr><td>{{ room.source_index }}{{ room.source_index.errors }}<label class="visually-hidden" for="{{ room.room.id_for_label }}">Room {{ forloop.counter }}</label>{{ room.room }}{{ room.room.errors }}</td>
+            <td><label class="visually-hidden" for="{{ room.length_ft.id_for_label }}">Room {{ forloop.counter }} length (ft)</label>{{ room.length_ft }}{{ room.length_ft.errors }}</td>
+            <td><label class="visually-hidden" for="{{ room.width_ft.id_for_label }}">Room {{ forloop.counter }} width (ft)</label>{{ room.width_ft }}{{ room.width_ft.errors }}</td>
+            <td><label class="visually-hidden" for="{{ room.DELETE.id_for_label }}">Remove room {{ forloop.counter }}</label>{{ room.DELETE }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <template id="empty-room-row"><tr>
+      <td>{{ rooms.empty_form.source_index }}<label class="visually-hidden" for="id_rooms-__prefix__-room">Room</label>{{ rooms.empty_form.room }}</td>
+      <td><label class="visually-hidden" for="id_rooms-__prefix__-length_ft">Length (ft)</label>{{ rooms.empty_form.length_ft }}</td>
+      <td><label class="visually-hidden" for="id_rooms-__prefix__-width_ft">Width (ft)</label>{{ rooms.empty_form.width_ft }}</td>
+      <td><label class="visually-hidden" for="id_rooms-__prefix__-DELETE">Remove room</label>{{ rooms.empty_form.DELETE }}</td>
+    </tr></template>
+    <button type="button" class="addlink" id="add-room">Add room</button>
+    <div class="submit-row"><input type="submit" value="Save correction" class="default"><a href="{{ cancel_url }}">Cancel</a><a href="{{ request.path }}">Reload</a></div>
+  </form>
+</div>
+{% endblock %}
