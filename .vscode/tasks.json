@@ -4,7 +4,7 @@
 		{
 			"label": "Ingest samples (PostgreSQL, 5 workers)",
 			"type": "shell",
-			"command": "& '${workspaceFolder}/reailEstate/backend/run_sample_refresh.ps1' -Workers 5 -TrustedSamples -ReportName 'sample-corpus-refresh-20260915.json'",
+			"command": "& '${workspaceFolder}/reailEstate/reailEstate_common/backend/run_sample_refresh.ps1' -Workers 5 -TrustedSamples -ReportName 'sample-corpus-refresh-20260915.json'",
 			"options": {
 				"cwd": "${workspaceFolder}",
 				"env": {
@@ -24,7 +24,7 @@
 		{
 			"label": "Run Django backend",
 			"type": "shell",
-			"command": "& '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' '${workspaceFolder}/reailEstate/backend/manage.py' runserver 127.0.0.1:8002 --noreload",
+			"command": "& '${workspaceFolder}/reailEstate/reailEstate_common/backend/.venv/Scripts/python.exe' '${workspaceFolder}/reailEstate/reailEstate_common/backend/manage.py' runserver 127.0.0.1:8002 --noreload",
 			"isBackground": true,
 			"options": {
 				"cwd": "${workspaceFolder}",
@@ -42,7 +42,7 @@
 		{
 			"label": "Run automatic extraction dispatcher (PostgreSQL)",
 			"type": "shell",
-			"command": "& '${workspaceFolder}\\reailEstate\\backend\\.venv\\Scripts\\python.exe' '${workspaceFolder}\\reailEstate\\backend\\manage.py' run_extraction_dispatcher",
+			"command": "& '${workspaceFolder}\\reailEstate\\run_worker.ps1'",
 			"isBackground": true,
 			"options": {
 				"cwd": "${workspaceFolder}",
@@ -50,9 +50,6 @@
 					"DATABASE_BACKEND": "postgresql",
 					"LOCAL_TRUST_BUILDER_UPLOADS": "true",
 					"WORKSPACE_DATA_ROOT": "${workspaceFolder}",
-					"FLOOR_PLAN_EXTRACTION_MODE": "ai",
-					"FLOOR_PLAN_DEFAULT_VISION_PROFILE": "azure-samples",
-					"FLOOR_PLAN_VISION_PROFILES": "{\"azure-samples\":{\"label\":\"Azure samples\",\"provider\":\"azure_foundry\",\"model\":\"gpt-4.1\",\"base_url\":\"https://hjetwani-test-resource.openai.azure.com/openai/v1/\",\"response_format\":\"json_schema\"}}",
 					"PYTHONUTF8": "1"
 				}
 			},
@@ -61,11 +58,11 @@
 		{
 			"label": "Run updated layout tools (SQLite 8001)",
 			"type": "shell",
-			"command": "$env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; $env:FLOOR_PLAN_EXTRACTION_MODE='ai'; $env:FLOOR_PLAN_VISION_PROFILES=Get-Content -LiteralPath '${workspaceFolder}/reailEstate/backend/vision-profiles.local.json' -Raw; $env:FLOOR_PLAN_DEFAULT_VISION_PROFILE='azure-samples'; & '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' '${workspaceFolder}/reailEstate/backend/manage.py' runserver 127.0.0.1:8001",
+			"command": "$env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; $env:FLOOR_PLAN_EXTRACTION_MODE='ai'; $env:FLOOR_PLAN_VISION_PROFILES=Get-Content -LiteralPath '${workspaceFolder}/reailEstate/reailEstate_common/backend/vision-profiles.local.json' -Raw; $env:FLOOR_PLAN_DEFAULT_VISION_PROFILE='azure-samples'; & '${workspaceFolder}/reailEstate/reailEstate_common/backend/.venv/Scripts/python.exe' '${workspaceFolder}/reailEstate/reailEstate_common/backend/manage.py' runserver 127.0.0.1:8001",
 			"isBackground": true,
 			"options": {
 				"env": {
-					"PROJECT_METRO_CATALOGUE_FILE": "${workspaceFolder}/reailEstate/backend/config/mmr-upcoming-metro.json"
+					"PROJECT_METRO_CATALOGUE_FILE": "${workspaceFolder}/reailEstate/reailEstate_common/backend/config/mmr-upcoming-metro.json"
 				}
 			},
 			"problemMatcher": []
@@ -73,7 +70,7 @@
 		{
 			"label": "Test media inline controls",
 			"type": "shell",
-			"command": "& { $env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; & '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' -m pytest -c '${workspaceFolder}/reailEstate/backend/pytest.ini' '${workspaceFolder}/reailEstate/backend/platform_api/tests/test_layout_names.py' -k 'dashboard_alias_editor or active_toggle' --tb=short; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }",
+			"command": "& { $env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; & '${workspaceFolder}/reailEstate/reailEstate_common/backend/.venv/Scripts/python.exe' -m pytest -c '${workspaceFolder}/reailEstate/reailEstate_common/backend/pytest.ini' '${workspaceFolder}/reailEstate/reailEstate_common/backend/platform_api/tests/test_layout_names.py' -k 'dashboard_alias_editor or active_toggle' --tb=short; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }",
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
@@ -81,21 +78,21 @@
 		{
 			"label": "Test project form and sidebar",
 			"type": "shell",
-			"command": "& { $env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; & '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' -m pytest -c '${workspaceFolder}/reailEstate/backend/pytest.ini' '${workspaceFolder}/reailEstate/backend/platform_api/tests/test_project_outputs.py' '${workspaceFolder}/reailEstate/backend/platform_api/tests/test_layout_names.py' -k 'project_admin_columns or dashboard_layout_explorer or dashboard_alias or active_toggle' --tb=short; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }",
+			"command": "& { $env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; & '${workspaceFolder}/reailEstate/reailEstate_common/backend/.venv/Scripts/python.exe' -m pytest -c '${workspaceFolder}/reailEstate/reailEstate_common/backend/pytest.ini' '${workspaceFolder}/reailEstate/reailEstate_common/backend/platform_api/tests/test_project_outputs.py' '${workspaceFolder}/reailEstate/reailEstate_common/backend/platform_api/tests/test_layout_names.py' -k 'project_admin_columns or dashboard_layout_explorer or dashboard_alias or active_toggle' --tb=short; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }",
 			"isBackground": false,
 			"group": "test"
 		},
 		{
 			"label": "Test external connectors",
 			"type": "shell",
-			"command": "& { $env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; & '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' -m pytest -c '${workspaceFolder}/reailEstate/backend/pytest.ini' '${workspaceFolder}/reailEstate/backend/platform_api/tests/test_external_sources.py' --tb=short; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }",
+			"command": "& { $env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; & '${workspaceFolder}/reailEstate/reailEstate_common/backend/.venv/Scripts/python.exe' -m pytest -c '${workspaceFolder}/reailEstate/reailEstate_common/backend/pytest.ini' '${workspaceFolder}/reailEstate/reailEstate_common/backend/platform_api/tests/test_external_sources.py' --tb=short; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }",
 			"isBackground": false,
 			"group": "test"
 		},
 		{
 			"label": "Verify map lines (production)",
 			"type": "shell",
-			"command": "& { $previous = $env:BUYER_TEST_BUILD; try { $env:BUYER_TEST_BUILD=''; npm --prefix '${workspaceFolder}/reailEstate/frontend' run test:e2e -- --grep 'schematic lines'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm --prefix '${workspaceFolder}/reailEstate/frontend' run build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; $env:BUYER_TEST_BUILD='preview'; npm --prefix '${workspaceFolder}/reailEstate/frontend' run test:e2e; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } finally { [Environment]::SetEnvironmentVariable('BUYER_TEST_BUILD', $previous, 'Process') } }",
+			"command": "& { $previous = $env:BUYER_TEST_BUILD; try { $env:BUYER_TEST_BUILD=''; npm --prefix '${workspaceFolder}/reailEstate/reailEstate_common/frontend' run test:e2e -- --grep 'schematic lines'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npm --prefix '${workspaceFolder}/reailEstate/reailEstate_common/frontend' run build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; $env:BUYER_TEST_BUILD='preview'; npm --prefix '${workspaceFolder}/reailEstate/reailEstate_common/frontend' run test:e2e; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } finally { [Environment]::SetEnvironmentVariable('BUYER_TEST_BUILD', $previous, 'Process') } }",
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
@@ -103,7 +100,7 @@
 		{
 			"label": "Test admin queues and processing catalogue",
 			"type": "shell",
-			"command": "& { $names=@('DATABASE_BACKEND','PROJECT_METRO_CATALOGUE_FILE','PYTHONUTF8'); $previous=@{}; foreach($name in $names) { $previous[$name]=[Environment]::GetEnvironmentVariable($name,'Process') }; try { $env:DATABASE_BACKEND='sqlite'; $env:PROJECT_METRO_CATALOGUE_FILE=''; $env:PYTHONUTF8='1'; & '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' -m pytest -c '${workspaceFolder}/reailEstate/backend/pytest.ini' '${workspaceFolder}/reailEstate/backend/platform_api/tests/test_admin_navigation.py' '${workspaceFolder}/reailEstate/backend/platform_api/tests/test_external_sources.py' '${workspaceFolder}/reailEstate/backend/platform_api/tests/test_api.py' -k 'navigation or saved_location_leaves or direct_location_draft or map_preview or processing_catalogue' --tb=short; if($LASTEXITCODE -ne 0) { throw 'Focused tests failed.' } } finally { foreach($name in $names) { [Environment]::SetEnvironmentVariable($name,$previous[$name],'Process') } } }",
+			"command": "& { $names=@('DATABASE_BACKEND','PROJECT_METRO_CATALOGUE_FILE','PYTHONUTF8'); $previous=@{}; foreach($name in $names) { $previous[$name]=[Environment]::GetEnvironmentVariable($name,'Process') }; try { $env:DATABASE_BACKEND='sqlite'; $env:PROJECT_METRO_CATALOGUE_FILE=''; $env:PYTHONUTF8='1'; & '${workspaceFolder}/reailEstate/reailEstate_common/backend/.venv/Scripts/python.exe' -m pytest -c '${workspaceFolder}/reailEstate/reailEstate_common/backend/pytest.ini' '${workspaceFolder}/reailEstate/reailEstate_common/backend/platform_api/tests/test_admin_navigation.py' '${workspaceFolder}/reailEstate/reailEstate_common/backend/platform_api/tests/test_external_sources.py' '${workspaceFolder}/reailEstate/reailEstate_common/backend/platform_api/tests/test_api.py' -k 'navigation or saved_location_leaves or direct_location_draft or map_preview or processing_catalogue' --tb=short; if($LASTEXITCODE -ne 0) { throw 'Focused tests failed.' } } finally { foreach($name in $names) { [Environment]::SetEnvironmentVariable($name,$previous[$name],'Process') } } }",
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
@@ -111,7 +108,7 @@
 		{
 			"label": "Test processing Browse",
 			"type": "shell",
-			"command": "npm --prefix '${workspaceFolder}/reailEstate/frontend' run test:e2e -- --grep 'processing catalogue'",
+			"command": "npm --prefix '${workspaceFolder}/reailEstate/reailEstate_common/frontend' run test:e2e -- --grep 'processing catalogue'",
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "test"
@@ -119,14 +116,14 @@
 		{
 			"label": "Test project gallery (production)",
 			"type": "shell",
-			"command": "& { $previous = $env:BUYER_TEST_BUILD; try { npm --prefix '${workspaceFolder}/reailEstate/frontend' run build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; $env:BUYER_TEST_BUILD='preview'; npm --prefix '${workspaceFolder}/reailEstate/frontend' run test:e2e -- --grep 'project gallery'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } finally { [Environment]::SetEnvironmentVariable('BUYER_TEST_BUILD', $previous, 'Process') } }",
+			"command": "& { $previous = $env:BUYER_TEST_BUILD; try { npm --prefix '${workspaceFolder}/reailEstate/reailEstate_common/frontend' run build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; $env:BUYER_TEST_BUILD='preview'; npm --prefix '${workspaceFolder}/reailEstate/reailEstate_common/frontend' run test:e2e -- --grep 'project gallery'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } finally { [Environment]::SetEnvironmentVariable('BUYER_TEST_BUILD', $previous, 'Process') } }",
 			"isBackground": false,
 			"group": "test"
 		},
 		{
 			"label": "Run Vite frontend",
 			"type": "shell",
-			"command": "npm --prefix '${workspaceFolder}/reailEstate/frontend' run dev",
+			"command": "npm --prefix '${workspaceFolder}/reailEstate/reailEstate_common/frontend' run dev",
 			"isBackground": true,
 			"problemMatcher": []
 		}

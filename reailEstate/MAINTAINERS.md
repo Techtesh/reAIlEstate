@@ -11,16 +11,16 @@ the URL configuration, and the tests.
 
 | Area | Runtime owner | Primary source |
 | --- | --- | --- |
-| Buyer UI | React 19 and Vite | [`frontend/src`](frontend/src) |
-| HTTP API and admin | Django and Django REST Framework | [`backend/platform_api/views.py`](backend/platform_api/views.py), [`backend/platform_api/admin.py`](backend/platform_api/admin.py) |
-| API routing | Django URL configuration | [`backend/platform_api/urls.py`](backend/platform_api/urls.py) |
-| Domain state | Django models and migrations | [`backend/platform_api/models.py`](backend/platform_api/models.py), [`backend/platform_api/migrations`](backend/platform_api/migrations) |
-| Domain rules | Application services | [`backend/platform_api/services.py`](backend/platform_api/services.py) |
-| Durable work | Outbox workers and queue monitor | [`backend/platform_api/workers.py`](backend/platform_api/workers.py), [`backend/platform_api/queue_monitor.py`](backend/platform_api/queue_monitor.py) |
-| Document processing | Ingestion, conversion, vision, and output modules | [`backend/platform_api/business_ingestion.py`](backend/platform_api/business_ingestion.py), [`backend/platform_api/document_formats.py`](backend/platform_api/document_formats.py), [`backend/platform_api/project_outputs.py`](backend/platform_api/project_outputs.py) |
-| External providers | Provider adapters and review integration | [`backend/platform_api/external_sources.py`](backend/platform_api/external_sources.py), [`backend/platform_api/external_sources_admin.py`](backend/platform_api/external_sources_admin.py) |
-| Configuration | Environment-backed Django settings | [`backend/config/settings.py`](backend/config/settings.py) |
-| Browser/API client | Same-origin fetch wrapper and route components | [`frontend/src/api.ts`](frontend/src/api.ts), [`frontend/src/App.tsx`](frontend/src/App.tsx) |
+| Buyer UI | React 19 and Vite | [`reailEstate_common/frontend/src`](reailEstate_common/frontend/src) |
+| HTTP API and admin | Django and Django REST Framework | [`reailEstate_common/backend/platform_api/views.py`](reailEstate_common/backend/platform_api/views.py), [`reailEstate_common/backend/platform_api/admin.py`](reailEstate_common/backend/platform_api/admin.py) |
+| API routing | Django URL configuration | [`reailEstate_common/backend/platform_api/urls.py`](reailEstate_common/backend/platform_api/urls.py) |
+| Domain state | Django models and migrations | [`reailEstate_common/backend/platform_api/models.py`](reailEstate_common/backend/platform_api/models.py), [`reailEstate_common/backend/platform_api/migrations`](reailEstate_common/backend/platform_api/migrations) |
+| Domain rules | Application services | [`reailEstate_common/backend/platform_api/services.py`](reailEstate_common/backend/platform_api/services.py) |
+| Durable work | Outbox workers and queue monitor | [`reailEstate_common/backend/platform_api/workers.py`](reailEstate_common/backend/platform_api/workers.py), [`reailEstate_common/backend/platform_api/queue_monitor.py`](reailEstate_common/backend/platform_api/queue_monitor.py) |
+| Document processing | Ingestion, conversion, vision, and output modules | [`reailEstate_common/backend/platform_api/business_ingestion.py`](reailEstate_common/backend/platform_api/business_ingestion.py), [`reailEstate_common/backend/platform_api/document_formats.py`](reailEstate_common/backend/platform_api/document_formats.py), [`reailEstate_common/backend/platform_api/project_outputs.py`](reailEstate_common/backend/platform_api/project_outputs.py) |
+| External providers | Provider adapters and review integration | [`reailEstate_common/backend/platform_api/external_sources.py`](reailEstate_common/backend/platform_api/external_sources.py), [`reailEstate_common/backend/platform_api/external_sources_admin.py`](reailEstate_common/backend/platform_api/external_sources_admin.py) |
+| Configuration | Environment-backed Django settings | [`reailEstate_common/backend/config/settings.py`](reailEstate_common/backend/config/settings.py) |
+| Browser/API client | Same-origin fetch wrapper and route components | [`reailEstate_common/frontend/src/api.ts`](reailEstate_common/frontend/src/api.ts), [`reailEstate_common/frontend/src/App.tsx`](reailEstate_common/frontend/src/App.tsx) |
 
 ## Architecture at a glance
 
@@ -50,18 +50,18 @@ functions; introduce protocols only at genuine substitution points.
 
 | Principle | Project rule | Existing implementation / verification |
 | --- | --- | --- |
-| Single responsibility | HTTP/admin adapters authorize and translate requests; services own use cases; commands parse options and print results; workers perform expensive work. | [`bulk_layout_evaluations.py`](backend/platform_api/bulk_layout_evaluations.py) separates batch selection/queueing from its command. |
-| Open/closed | Extend provider implementations behind narrow contracts rather than adding provider branches throughout views. Keep new queue modes explicit. | [`integrations.py`](backend/platform_api/integrations.py) provider protocols; `EvaluationMode` defines batch intent. |
-| Liskov substitution | Implementations preserve outcomes, exceptions, cleanup, privacy, and transaction semantics. Unavailable data is not a fabricated successful result. | Provider tests and [`test_layout_evaluation_queue.py`](backend/platform_api/tests/test_layout_evaluation_queue.py) check queue and worker contracts. |
-| Interface segregation | Depend on only the operation a caller needs. Do not introduce a universal repository/provider interface. | [`google_route_batches.py`](backend/platform_api/google_route_batches.py) needs only a batch callback returning a report and attempted rows. |
-| Dependency inversion | Leaf domain/policy code must not import adapters, models, or storage; infrastructure is supplied at orchestration boundaries. | [`test_domain_boundaries.py`](backend/platform_api/tests/test_domain_boundaries.py) verifies fresh imports, including the route batch orchestrator. |
+| Single responsibility | HTTP/admin adapters authorize and translate requests; services own use cases; commands parse options and print results; workers perform expensive work. | [`bulk_layout_evaluations.py`](reailEstate_common/backend/platform_api/bulk_layout_evaluations.py) separates batch selection/queueing from its command. |
+| Open/closed | Extend provider implementations behind narrow contracts rather than adding provider branches throughout views. Keep new queue modes explicit. | [`integrations.py`](reailEstate_common/backend/platform_api/integrations.py) provider protocols; `EvaluationMode` defines batch intent. |
+| Liskov substitution | Implementations preserve outcomes, exceptions, cleanup, privacy, and transaction semantics. Unavailable data is not a fabricated successful result. | Provider tests and [`test_layout_evaluation_queue.py`](reailEstate_common/backend/platform_api/tests/test_layout_evaluation_queue.py) check queue and worker contracts. |
+| Interface segregation | Depend on only the operation a caller needs. Do not introduce a universal repository/provider interface. | [`google_route_batches.py`](reailEstate_common/backend/platform_api/google_route_batches.py) needs only a batch callback returning a report and attempted rows. |
+| Dependency inversion | Leaf domain/policy code must not import adapters, models, or storage; infrastructure is supplied at orchestration boundaries. | [`test_domain_boundaries.py`](reailEstate_common/backend/platform_api/tests/test_domain_boundaries.py) verifies fresh imports, including the route batch orchestrator. |
 
 Allowed direction is adapters -> application services -> domain/policy rules.
 Infrastructure adapters implement the provider/storage contracts. Django ORM
 access remains in application services where transactions are required; do not
 add an extra repository layer solely for naming compliance. Frontend route
-components own interaction state, [`buyer.ts`](frontend/src/buyer.ts) owns shared
-buyer calculations/types, and [`api.ts`](frontend/src/api.ts) owns HTTP/session
+components own interaction state, [`buyer.ts`](reailEstate_common/frontend/src/buyer.ts) owns shared
+buyer calculations/types, and [`api.ts`](reailEstate_common/frontend/src/api.ts) owns HTTP/session
 mechanics. Keep these responsibilities separate as routes grow.
 
 Preserve import paths and callable contracts when extracting existing code.
@@ -122,13 +122,13 @@ Next gates, in order:
 
 ### 1. Request, session, CSRF, and correlation flow
 
-1. The browser uses the wrapper in [`frontend/src/api.ts`](frontend/src/api.ts) so
+1. The browser uses the wrapper in [`reailEstate_common/frontend/src/api.ts`](reailEstate_common/frontend/src/api.ts) so
    cookies, CSRF headers, timeouts, and session expiry behave consistently.
 2. Vite proxies `/api` to Django on `127.0.0.1:8002`; production should preserve
    the same-origin session model.
 3. Django session authentication establishes the account. Public endpoints opt
    into anonymous access explicitly; the default API posture is authenticated.
-4. [`backend/platform_api/middleware.py`](backend/platform_api/middleware.py)
+4. [`reailEstate_common/backend/platform_api/middleware.py`](reailEstate_common/backend/platform_api/middleware.py)
    accepts or creates a correlation ID and applies response protections.
 5. Views enforce object ownership or role checks before serializers and services
    mutate state. Important mutations create `AuditEvent` records.
@@ -138,8 +138,8 @@ account export, and account deletion under `/api/v1/`.
 
 ### 2. Public catalogue, project detail, gallery, and map flow
 
-1. [`frontend/src/App.tsx`](frontend/src/App.tsx) and
-   [`frontend/src/Browse.tsx`](frontend/src/Browse.tsx) request catalogue data.
+1. [`reailEstate_common/frontend/src/App.tsx`](reailEstate_common/frontend/src/App.tsx) and
+   [`reailEstate_common/frontend/src/Browse.tsx`](reailEstate_common/frontend/src/Browse.tsx) request catalogue data.
 2. `ProjectViewSet` filters published projects by locality, configuration, area,
    price, registry status, and amenities. `includeProcessing=true` follows the
    restricted processing-preview path.
@@ -147,10 +147,10 @@ account export, and account deletion under `/api/v1/`.
    project state.
 4. `ProjectGalleryView` selects visible floor plans and assets. Image bytes pass
    through the authenticated media view rather than a public storage directory.
-5. [`frontend/src/ProjectGallery.tsx`](frontend/src/ProjectGallery.tsx) renders
+5. [`reailEstate_common/frontend/src/ProjectGallery.tsx`](reailEstate_common/frontend/src/ProjectGallery.tsx) renders
    approved media and clearly labels any permitted unreviewed preview.
 6. `MapStationListView` supplies local station layers to
-   [`frontend/src/ProjectMap.tsx`](frontend/src/ProjectMap.tsx). The browser uses
+   [`reailEstate_common/frontend/src/ProjectMap.tsx`](reailEstate_common/frontend/src/ProjectMap.tsx). The browser uses
    Leaflet/OpenStreetMap and does not call Google APIs.
 
 Key records are `Project`, `Building`, `HomeConfiguration`, `ProjectAmenity`,
@@ -181,7 +181,7 @@ include interiors; choose the appropriate building image from the thumbnails.
 
 The `projectPic` API field feeds listing cards. Missing/unreadable images retain
 the existing placeholder. See
-[`backend/platform_api/project_pictures.py`](backend/platform_api/project_pictures.py)
+[`reailEstate_common/backend/platform_api/project_pictures.py`](reailEstate_common/backend/platform_api/project_pictures.py)
 for source validation and fallback rendering. Migration `0015` adds the cover field.
 
 #### Project transit map
@@ -254,8 +254,8 @@ uses coordinates. Regenerate directions explicitly to refresh existing results.
 
    ```powershell
    $env:DATABASE_BACKEND = 'postgresql'
-   & './reailEstate/backend/.venv/Scripts/python.exe' './reailEstate/backend/manage.py' migrate
-   & './reailEstate/backend/.venv/Scripts/python.exe' './reailEstate/backend/manage.py' import_station_candidates './reailEstate/backend/config/mmr-metro-candidates.csv'
+   & './reailEstate/reailEstate_common/backend/.venv/Scripts/python.exe' './reailEstate/reailEstate_common/backend/manage.py' migrate
+   & './reailEstate/reailEstate_common/backend/.venv/Scripts/python.exe' './reailEstate/reailEstate_common/backend/manage.py' import_station_candidates './reailEstate/reailEstate_common/backend/config/mmr-metro-candidates.csv'
    ```
 
 2. Open **Active queue > Station corrections**, or the **Station corrections
@@ -292,12 +292,12 @@ separate metro catalogue configuration.
 
 ### 3. Buyer requirement profile flow
 
-1. [`frontend/src/Requirements.tsx`](frontend/src/Requirements.tsx) maintains the
+1. [`reailEstate_common/frontend/src/Requirements.tsx`](reailEstate_common/frontend/src/Requirements.tsx) maintains the
    canonical guided/summary draft. Sensitive guest budget and destination values
    remain in memory; only limited draft state uses session storage.
 2. `RequirementProfileViewSet` creates or updates the account-owned profile.
 3. `validate_requirement_payload` in
-   [`backend/platform_api/services.py`](backend/platform_api/services.py) validates
+   [`reailEstate_common/backend/platform_api/services.py`](reailEstate_common/backend/platform_api/services.py) validates
    places, coordinates, home constraints, budget, commute, and scoring weights.
 4. Every save creates an immutable `RequirementVersion`; `If-Match` prevents a
    stale client from overwriting a newer version.
@@ -330,7 +330,7 @@ sequenceDiagram
 budget, home, amenity, and evidence components. Results persist as
 `RecommendationSnapshot` and `RecommendationItem` records with catalogue and
 fact-set versions. Worker dispatch lives in
-[`backend/platform_api/workers.py`](backend/platform_api/workers.py).
+[`reailEstate_common/backend/platform_api/workers.py`](reailEstate_common/backend/platform_api/workers.py).
 
 ### 5. Shortlist, comparison, and share flow
 
@@ -367,13 +367,13 @@ Private storage layout, supported formats, and output contracts are detailed in
    state so duplicate delivery is harmless.
 2. `process_document` verifies integrity, invokes the configured malware scanner,
    and optionally converts supported Office documents.
-3. [`backend/platform_api/rag.py`](backend/platform_api/rag.py) and the ingestion
+3. [`reailEstate_common/backend/platform_api/rag.py`](reailEstate_common/backend/platform_api/rag.py) and the ingestion
    modules extract text, chunks, pages, and images.
 4. Floor-plan and project-vision modules derive bounded structured candidates;
    provider responses retain model/profile/checksum provenance.
 5. The worker persists `KnowledgeChunk`, `FloorPlanAsset`, `FloorPlan`,
    `FactCandidate`, `FactConflict`, workflow/run records, and review tasks.
-6. [`backend/platform_api/project_outputs.py`](backend/platform_api/project_outputs.py)
+6. [`reailEstate_common/backend/platform_api/project_outputs.py`](reailEstate_common/backend/platform_api/project_outputs.py)
    materializes typed project reports. Output download views expose only
    authorized artifacts.
 7. Successful originals move from `todo` to `completed`; rejected/quarantined
@@ -384,8 +384,8 @@ Private storage layout, supported formats, and output contracts are detailed in
 1. A project editor or staff reviewer opens the Django project media dashboard.
 2. Whole-page additions, unit segmentation, manual crops, rotations, aliases,
    removals, replacements, and existing-layout updates use the APIs in
-   [`backend/platform_api/views.py`](backend/platform_api/views.py) and admin
-   integration in [`backend/platform_api/admin.py`](backend/platform_api/admin.py).
+   [`reailEstate_common/backend/platform_api/views.py`](reailEstate_common/backend/platform_api/views.py) and admin
+   integration in [`reailEstate_common/backend/platform_api/admin.py`](reailEstate_common/backend/platform_api/admin.py).
 3. Crop/page edits first create private drafts. Explicit commit rechecks source
    checksums and target versions, creates immutable derived assets, records an
    audit event, and enqueues evaluation.
@@ -397,7 +397,7 @@ Private storage layout, supported formats, and output contracts are detailed in
 6. Human approval/correction/rejection through `ResolveFloorPlanView` determines
    whether a layout can contribute a reviewed project fact.
 
-See [`backend/SKILLS.md`](backend/SKILLS.md) for the detailed, review-gated media
+See [`reailEstate_common/backend/SKILLS.md`](reailEstate_common/backend/SKILLS.md) for the detailed, review-gated media
 operations. Source assets and provenance must survive every correction.
 
 Vision providers may cache credentials and tokens across page/document calls.
@@ -425,7 +425,7 @@ Use application entry points instead of one-off database mutation snippets:
 | Correct a layout | Crop/update editor or room-size editor | Source evidence retained; optimistic concurrency and audit enforced. |
 | Enqueue saved layouts in bulk | `requeue_all_layout_evaluations` | Preview by default; execution only in local/development; optional project scope and limit. |
 
-Bulk enqueue and worker execution are separate. From `reailEstate/backend`:
+Bulk enqueue and worker execution are separate. From `reailEstate/reailEstate_common/backend`:
 
 ```powershell
 & $Python manage.py requeue_all_layout_evaluations --project-id <UUID> --mode new --limit 20
@@ -463,7 +463,7 @@ database rows. No enqueue mode performs model calls or publishes facts.
 All external data enters as reviewable evidence, not trusted project truth.
 
 - **MahaRERA:** `fetch_maharera_project` uses the adapter in
-  [`backend/platform_api/external_sources.py`](backend/platform_api/external_sources.py).
+  [`reailEstate_common/backend/platform_api/external_sources.py`](reailEstate_common/backend/platform_api/external_sources.py).
   CAPTCHA steps remain manual; maintainers must not add bypass behavior.
 - **Google Places matching:** `refresh_google_project_places` previews strict
   name/locality matches. `--execute` requires `GOOGLE_MAPS_API_KEY`, checkpoints
@@ -482,7 +482,7 @@ All external data enters as reviewable evidence, not trusted project truth.
   reach React.
 
 The route command is implemented in
-[`backend/platform_api/management/commands/enrich_google_project_routes.py`](backend/platform_api/management/commands/enrich_google_project_routes.py).
+[`reailEstate_common/backend/platform_api/management/commands/enrich_google_project_routes.py`](reailEstate_common/backend/platform_api/management/commands/enrich_google_project_routes.py).
 
 `--drain` runs up to `--max-batches` (default/maximum 100), with 1-5 projects per
 batch. Python owns the loop, holds the checkpoint lock across the drain, and stops
@@ -491,7 +491,7 @@ duration. The attempted rows, not old successes in the report, determine this
 safety check. Every batch checkpoints before continuing. Provider errors remain
 in the report; console output does not echo raw provider errors.
 
-[`run_google_routes_all.ps1`](backend/run_google_routes_all.ps1) is a compatibility
+[`run_google_routes_all.ps1`](reailEstate_common/backend/run_google_routes_all.ps1) is a compatibility
 launcher for environment selection, arguments and log redirection, not a second
 implementation of the batch policy. It defaults to non-approving prefetch and
 passes `--drain`. Its `-ApproveLocations` switch remains an explicit opt-in.
@@ -547,7 +547,7 @@ worker UUID and heartbeat recorded by the queue monitor.
 From the repository workspace root:
 
 ```powershell
-Set-Location ./reailEstate/backend
+Set-Location ./reailEstate/reailEstate_common/backend
 $Python = (Resolve-Path './.venv/Scripts/python.exe').Path
 $env:WORKSPACE_DATA_ROOT = (Resolve-Path '../..').Path
 $env:DATABASE_BACKEND = 'postgresql'
@@ -573,8 +573,8 @@ the launch environment and do not print them while inspecting or restarting it.
 From the repository workspace root:
 
 ```powershell
-npm --prefix reailEstate/frontend ci
-npm --prefix reailEstate/frontend run dev
+npm --prefix reailEstate/reailEstate_common/frontend ci
+npm --prefix reailEstate/reailEstate_common/frontend run dev
 ```
 
 Open `http://127.0.0.1:5173/`. The development proxy expects Django at
@@ -586,7 +586,7 @@ Workers are separate from the web server. Start only the work type you intend to
 consume:
 
 ```powershell
-Set-Location ./reailEstate/backend
+Set-Location ./reailEstate/reailEstate_common/backend
 $Python = (Resolve-Path './.venv/Scripts/python.exe').Path
 & $Python manage.py process_outbox --event-type recommendations
 & $Python manage.py process_outbox --event-type extraction --project-id <project-id> --drain --limit 5
@@ -620,15 +620,15 @@ not invoke corpus commands or live worker launches as tests. Existing fixtures
 isolate media outputs under temporary directories.
 
 ```powershell
-$Python = (Resolve-Path './reailEstate/backend/.venv/Scripts/python.exe').Path
+$Python = (Resolve-Path './reailEstate/reailEstate_common/backend/.venv/Scripts/python.exe').Path
 $env:DATABASE_BACKEND = 'sqlite'
 $env:PROJECT_METRO_CATALOGUE_FILE = ''
-& $Python -m pytest -c ./reailEstate/backend/pytest.ini ./reailEstate/backend/platform_api/tests --tb=short
-npm --prefix reailEstate/frontend test
-npm --prefix reailEstate/frontend run lint
-npm --prefix reailEstate/frontend run build
+& $Python -m pytest -c ./reailEstate/reailEstate_common/backend/pytest.ini ./reailEstate/reailEstate_common/backend/platform_api/tests --tb=short
+npm --prefix reailEstate/reailEstate_common/frontend test
+npm --prefix reailEstate/reailEstate_common/frontend run lint
+npm --prefix reailEstate/reailEstate_common/frontend run build
 $env:BUYER_TEST_BUILD = 'preview'
-npm --prefix reailEstate/frontend run test:e2e
+npm --prefix reailEstate/reailEstate_common/frontend run test:e2e
 ```
 
 Check each command's exit code; do not treat silence or later successful commands
@@ -697,8 +697,8 @@ Before changing a flow, identify:
 7. Migration, rollback, and compatibility needs.
 8. The narrowest backend and frontend tests that prove the behavior.
 
-Useful references are [`backend/README.md`](backend/README.md),
-[`frontend/README.md`](frontend/README.md),
+Useful references are [`reailEstate_common/backend/README.md`](reailEstate_common/backend/README.md),
+[`reailEstate_common/frontend/README.md`](reailEstate_common/frontend/README.md),
 [`../docs/05-api-contracts.md`](../docs/05-api-contracts.md), and
 [`../docs/06-data-model.md`](../docs/06-data-model.md).
 
