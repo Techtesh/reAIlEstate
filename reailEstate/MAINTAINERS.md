@@ -574,11 +574,11 @@ From the repository workspace root:
 
 ```powershell
 npm --prefix reailEstate/reailEstate_common/frontend ci
-npm --prefix reailEstate/reailEstate_common/frontend run dev
+npm --prefix reailEstate/reailEstate_common/frontend run dev -- --mode buyer
 ```
 
 Open `http://127.0.0.1:5173/`. The development proxy expects Django at
-`http://127.0.0.1:8002/`.
+`http://127.0.0.1:8004/`.
 
 ### Workers
 

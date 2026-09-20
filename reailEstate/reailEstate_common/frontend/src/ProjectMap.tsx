@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import { divIcon, latLngBounds } from 'leaflet'
 import { LocateFixed, RefreshCw, ShieldCheck, TrainFront, TramFront } from 'lucide-react'
@@ -17,42 +17,59 @@ function lineColor(kind: MapStation['kind'], name: string) {
   return (kind === 'metro' && colors[name.trim().toLowerCase()]) || (kind === 'metro' ? '#52636b' : '#75494c')
 }
 
-function Controls({ positions, selected }: { positions: string; selected: Project | undefined }) {
+type FocusRequest = { projectId: string; version: number }
+
+function Controls({ positions, focused, focusVersion, onFit }: { positions: string; focused: Project | undefined; focusVersion: number; onFit: () => void }) {
   const map = useMap()
-  function fit() {
-    const points: [number, number][] = JSON.parse(positions)
-    if (points.length) map.fitBounds(latLngBounds(points).pad(.22), { maxZoom: 14, animate: false })
-    else map.setView([19.14, 72.96], 11)
-  }
-  useEffect(() => {
+  const fit = useCallback(() => {
     const points: [number, number][] = JSON.parse(positions)
     if (points.length) map.fitBounds(latLngBounds(points).pad(.22), { maxZoom: 14, animate: false })
     else map.setView([19.14, 72.96], 11)
   }, [map, positions])
+  const focus = useCallback(() => {
+    const point = focused && coordinates(focused)
+    if (!point) return false
+    map.setView(point, Math.max(map.getZoom(), 14), { animate: false })
+    return true
+  }, [map, focused])
   useEffect(() => {
-    if (!selected) return
-    const point = coordinates(selected)
-    if (point && !map.getBounds().contains(point)) map.panTo(point, { animate: false })
-  }, [map, selected])
+    map.invalidateSize()
+    if (!focus()) fit()
+  }, [map, fit, focus, focusVersion])
   useEffect(() => {
     let wasVisible = map.getContainer().clientWidth > 0
+    let resizeFrame = 0
     const observer = new ResizeObserver(() => {
-      map.invalidateSize()
       const visible = map.getContainer().clientWidth > 0
       if (visible && !wasVisible) {
-        const points: [number, number][] = JSON.parse(positions)
-        if (points.length) map.fitBounds(latLngBounds(points).pad(.22), { maxZoom: 14, animate: false })
-        else map.setView([19.14, 72.96], 11)
+        cancelAnimationFrame(resizeFrame)
+        resizeFrame = requestAnimationFrame(() => {
+          map.invalidateSize({ animate: false })
+          if (!focus()) fit()
+        })
       }
       wasVisible = visible
     })
     observer.observe(map.getContainer())
-    return () => observer.disconnect()
-  }, [map, positions])
-  return <button type="button" className="map-fit icon-button" title="Fit map locations" aria-label="Fit map locations" onClick={fit}><LocateFixed size={20} /></button>
+    return () => {
+      cancelAnimationFrame(resizeFrame)
+      observer.disconnect()
+    }
+  }, [map, fit, focus, focusVersion])
+  return <button type="button" className="map-fit icon-button" title="Fit map locations" aria-label="Fit map locations" onClick={() => { onFit(); fit() }}><LocateFixed size={20} /></button>
 }
 
-type ProjectMapProps = { projects: Project[]; matches: Match[]; selected: string; onSelect: (id: string) => void; onInspect: (project: Project) => void; commutePlaces?: CommutePlace[] }
+type ProjectMapProps = {
+  projects: Project[]
+  matches: Match[]
+  selected: string
+  onSelect: (id: string) => void
+  onInspect: (project: Project) => void
+  commutePlaces?: CommutePlace[]
+  shortlistedIds?: string[]
+  focusRequest?: FocusRequest | null
+  onFit?: () => void
+}
 
 function StationMarkers({ stations }: { stations: MapStation[] }) {
   const map = useMap()
@@ -75,7 +92,7 @@ function StationMarkers({ stations }: { stations: MapStation[] }) {
   })}</>
 }
 
-export function ProjectMap({ projects, matches, selected, onSelect, onInspect, commutePlaces = [] }: ProjectMapProps) {
+export function ProjectMap({ projects, matches, selected, onSelect, onInspect, commutePlaces = [], shortlistedIds = [], focusRequest = null, onFit = () => {} }: ProjectMapProps) {
   const [tileError, setTileError] = useState(false)
   const [retry, setRetry] = useState(0)
   const [stations, setStations] = useState<MapStation[]>([])
@@ -133,7 +150,10 @@ export function ProjectMap({ projects, matches, selected, onSelect, onInspect, c
   const positions = JSON.stringify([...homePositions, ...visibleStations.map(station => [station.location.latitude, station.location.longitude])])
   const unmapped = projects.filter(project => !coordinates(project)).length
   const provisional = projects.filter(project => project.locationStatus === 'provisional').length
+  const shortlisted = new Set(shortlistedIds)
+  const shortlistedCount = projects.filter(project => shortlisted.has(project.id) && coordinates(project)).length
   const activeProject = projects.find(project => project.id === selected)
+  const focusedProject = projects.find(project => project.id === focusRequest?.projectId)
   return <section className="map-region" aria-label="Projects and stations map">
     <div className="map-layer-bar">
       <fieldset className="map-layers"><legend>Map layers</legend>
@@ -151,6 +171,7 @@ export function ProjectMap({ projects, matches, selected, onSelect, onInspect, c
         {stationLoading ? <span>Loading stations...</span> : stationError ? <span>Stations unavailable<button className="icon-button" title="Retry stations" aria-label="Retry stations" onClick={() => setStationRetry(value => value + 1)}><RefreshCw size={16} /></button></span> : <span>{visibleStations.length} stations shown</span>}
         {stationWarnings.length > 0 && <span>Incomplete or conflicting station records withheld.</span>}
         {provisional > 0 && <span>{provisional} provisional project locations - development preview, not reviewed.</span>}
+        {shortlistedCount > 0 && <span><i className="shortlist-swatch" aria-hidden="true" />{shortlistedCount} shortlisted {shortlistedCount === 1 ? 'project' : 'projects'} shown</span>}
         {commutePlaces.length > 0 && <span className="commute-legend"><i className="commute-swatch" aria-hidden="true" />{commuteMarkers.length} daily destinations mapped{commuteMarkers.length < commutePlaces.length && `; ${commutePlaces.length - commuteMarkers.length} without exact locations`}</span>}
       </div>
     </div>
@@ -159,18 +180,19 @@ export function ProjectMap({ projects, matches, selected, onSelect, onInspect, c
       <TileLayer key={retry} url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19}
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         eventHandlers={{ tileerror: () => setTileError(true) }} />
-      <Controls positions={positions} selected={projects.find(project => project.id === selected)} />
+      <Controls positions={positions} focused={focusedProject} focusVersion={focusRequest?.version ?? 0} onFit={onFit} />
       {segments.map(segment => <Polyline key={`outline:${segment.key}`} className="transit-line-outline" positions={segment.points} interactive={false} pathOptions={{ color: '#ffffff', weight: 11, opacity: .9 }} />)}
       {segments.map(segment => <Polyline key={segment.key} className={`transit-line${segment.line.source === 'user_requested' ? ' transit-connection' : ''}`} positions={segment.points} interactive={false} pathOptions={{ color: lineColor(segment.line.kind, segment.line.name), weight: 7, opacity: 1 }} />)}
       {projects.map(project => {
         const point = coordinates(project)
         if (!point) return null
         const match = matches.find(item => item.projectId === project.id)
+        const isShortlisted = shortlisted.has(project.id)
         const label = document.createElement('span')
         label.textContent = project.submittedName
-        const icon = divIcon({ html: label, className: `price-pin${project.verificationStatus === 'verified' ? ' registry-verified' : ''}${selected === project.id ? ' selected' : ''}${project.locationStatus === 'provisional' ? ' provisional' : ''}`, iconSize: [180, 38], iconAnchor: [90, 38] })
-        const title = `${project.submittedName}${project.locationStatus === 'provisional' ? ' - provisional location, not reviewed' : ''}`
-        return <Marker key={project.id} position={point} icon={icon} title={title} alt={`${title}${match ? `, rank ${match.rank}, ${Number(match.score).toFixed(0)}% match` : ''}`} zIndexOffset={selected === project.id ? 1000 : 0} eventHandlers={{ click: () => onSelect(project.id), keydown: event => { if (event.originalEvent.key === 'Enter') onSelect(project.id) } }} />
+        const icon = divIcon({ html: label, className: `price-pin${project.verificationStatus === 'verified' ? ' registry-verified' : ''}${selected === project.id ? ' selected' : ''}${isShortlisted ? ' shortlisted' : ''}${project.locationStatus === 'provisional' ? ' provisional' : ''}`, iconSize: [180, 38], iconAnchor: [90, 38] })
+        const title = `${project.submittedName}${isShortlisted ? ' - shortlisted' : ''}${project.locationStatus === 'provisional' ? ' - provisional location, not reviewed' : ''}`
+        return <Marker key={project.id} position={point} icon={icon} title={title} alt={`${title}${match ? `, rank ${match.rank}, ${Number(match.score).toFixed(0)}% match` : ''}`} zIndexOffset={selected === project.id ? 1000 : isShortlisted ? 600 : 0} eventHandlers={{ click: () => onSelect(project.id), keydown: event => { if (event.originalEvent.key === 'Enter') onSelect(project.id) } }} />
       })}
       {commuteMarkers.map(({ place, point, number }) => {
         const label = document.createElement('span')

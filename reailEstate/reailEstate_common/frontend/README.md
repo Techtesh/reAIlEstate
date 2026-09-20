@@ -10,18 +10,18 @@ Use Node.js 22.12+ and npm. From the workspace root:
 
 ```powershell
 npm --prefix reailEstate/reailEstate_common/frontend ci
-npm --prefix reailEstate/reailEstate_common/frontend run dev
+npm --prefix reailEstate/reailEstate_common/frontend run dev -- --mode buyer
 ```
 
 Open http://127.0.0.1:5173/. Django must already be running at
-http://127.0.0.1:8002/, using this workspace's database. See the
+http://127.0.0.1:8004/, using this workspace's database. See the
 [backend startup instructions](../backend/README.md#terminal-setup).
 Do not recreate the database, reingest samples or publish projects for frontend setup.
 
 The Vite proxy forwards `/api` to Django while preserving the incoming Host header
 for same-origin session cookies, CSRF checks and pagination links. Use the loopback
 address above consistently. No API credentials belong in frontend environment files.
-If port 5173 is occupied, use `npm --prefix reailEstate/reailEstate_common/frontend run dev -- --port 5176`.
+If port 5173 is occupied, use `npm --prefix reailEstate/reailEstate_common/frontend run dev -- --mode buyer --port 5176`.
 
 Sign in using an existing workspace account. Account creation is administered in
 Django; the buyer UI does not offer public registration. Guest requirements can be

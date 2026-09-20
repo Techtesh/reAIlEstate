@@ -3,7 +3,7 @@
 Django/DRF implementation of the contracts in the workspace documentation. It includes session authentication, consent, immutable/versioned buyer requirements, developer organizations, secure upload quarantine, extraction/review boundaries, MahaRERA snapshots, evidence-backed publication, catalog search, deterministic recommendations, comparisons, shortlists/shares, notifications, audit records, operations, metrics, and health/OpenAPI endpoints.
 
 The [buyer frontend](../frontend/README.md) runs separately on port 5173 and proxies
-this backend on port 8002. It includes requirements, ranked map/feed results and
+the buyer service on port 8004. It includes requirements, ranked map/feed results and
 shortlists; submitted matches require the recommendation worker described below.
 
 ## Builder Portal and Account Provisioning

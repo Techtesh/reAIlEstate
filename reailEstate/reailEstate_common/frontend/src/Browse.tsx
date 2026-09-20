@@ -25,6 +25,8 @@ function BrowseSession({ title, eyebrow, projects: publishedProjects, matches, u
   const [compare, setCompare] = useState<string[]>([])
   const [comparisonOpen, setComparisonOpen] = useState(false)
   const [view, setView] = useState('split')
+  const [compact, setCompact] = useState(() => window.innerWidth <= 760)
+  const [focusRequest, setFocusRequest] = useState<{ projectId: string; version: number } | null>(null)
   const locality = params.get('locality') ?? '', configuration = params.get('configuration') ?? '', sort = params.get('sort') ?? 'match'
   const verified = params.get('verified') === 'true'
   const filterKey = JSON.stringify([locality, configuration, verified, includeProcessing])
@@ -32,7 +34,12 @@ function BrowseSession({ title, eyebrow, projects: publishedProjects, matches, u
   const [filterPending, setFilterLoading] = useState(false)
   const [filterError, setFilterError] = useState('')
   const [filterRetry, setFilterRetry] = useState(0)
-  function filter(key: string, value: string) { const next = new URLSearchParams(params); if (value) next.set(key, value); else next.delete(key); setParams(next, { replace: true }); setSelected('') }
+  useEffect(() => {
+    const update = () => setCompact(window.innerWidth <= 760)
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+  function filter(key: string, value: string) { const next = new URLSearchParams(params); if (value) next.set(key, value); else next.delete(key); setParams(next, { replace: true }); setSelected(''); setFocusRequest(null) }
   useEffect(() => {
     const controller = new AbortController()
     if (!locality && !configuration && !verified && !includeProcessing) { setFilterProjects(null); setFilterLoading(false); setFilterError(''); return () => controller.abort() }
@@ -55,6 +62,11 @@ function BrowseSession({ title, eyebrow, projects: publishedProjects, matches, u
   })
   const visible = filterLoading || filterError || error ? [] : filtered
   function select(id: string) { setSelected(id); document.getElementById(`project-${id}`)?.scrollIntoView({ block: 'nearest', behavior: 'instant' }) }
+  function focusOnMap(id: string) {
+    setSelected(id)
+    setFocusRequest(current => ({ projectId: id, version: (current?.version ?? 0) + 1 }))
+    setView(window.innerWidth <= 760 ? 'map' : 'split')
+  }
   return <main id="main" className={`browse view-${view}`}>
     <div className="search-bar"><div className="filter-control"><MapPin size={17} /><label className="sr-only" htmlFor="locality-filter">Locality</label><select id="locality-filter" value={locality} onChange={event => filter('locality', event.target.value)}><option value="">All MMR localities</option>{[...new Set(projects.map(project => project.locality).filter(Boolean)), ...(locality && !projects.some(project => project.locality === locality) ? [locality] : [])].sort().map(value => <option key={value}>{value}</option>)}</select></div><div className="filter-control"><House size={17} /><label className="sr-only" htmlFor="configuration-filter">Configuration</label><select id="configuration-filter" value={configuration} onChange={event => filter('configuration', event.target.value)}><option value="">Any configuration</option>{['1RK', '1BHK', '2BHK', '2.5BHK', '3BHK', '4BHK', '5BHK'].map(value => <option key={value}>{value}</option>)}</select></div><label className="check-label verification-filter"><input type="checkbox" checked={verified} onChange={event => filter('verified', event.target.checked ? 'true' : '')} />MahaRERA verified</label>{(locality || configuration || verified) && <button className="text-button" onClick={() => { const next = new URLSearchParams(params); ['locality', 'configuration', 'verified'].forEach(key => next.delete(key)); setParams(next) }}>Clear filters</button>}<div className="view-controls segmented" aria-label="Results view"><button title="Map and feed" aria-label="Map and feed" aria-pressed={view === 'split'} className="split-control" onClick={() => setView('split')}><SlidersHorizontal size={18} /></button><button title="Map" aria-label="Map view" aria-pressed={view === 'map'} onClick={() => setView('map')}><MapIcon size={18} /></button><button title="Feed" aria-label="Feed view" aria-pressed={view === 'feed'} onClick={() => setView('feed')}><List size={18} /></button>{snapshot && <button title="Score sheet" aria-label="Score sheet" aria-pressed={view === 'scores'} onClick={() => setView('scores')}><Table2 size={18} /></button>}</div></div>
     <div className="browse-heading"><div className="browse-summary"><h1 tabIndex={-1}>{title}</h1><p className="sr-only">{includeProcessing ? 'Published and processing listings across MMR' : eyebrow}</p><p role="status">{loading || filterLoading ? 'Loading projects...' : `${visible.length} ${visible.length === 1 ? 'project' : 'projects'}${shortlist ? ' in your shortlist' : ' available'}`}</p></div>
@@ -63,7 +75,7 @@ function BrowseSession({ title, eyebrow, projects: publishedProjects, matches, u
     {shortlist && user && commutePanel}
     {snapshot && <div className="snapshot-meta"><span>Match for your requirements</span><span>Profile v{snapshot.profileVersion} | {snapshot.algorithmVersion} | {dateLabel(snapshot.generatedAt)}</span>{snapshot.expiresAt && new Date(snapshot.expiresAt) < new Date() && <strong>Snapshot expired. Submit a new draft for fresh matches.</strong>}</div>}
     <div className="map-feed-layout">
-      {view !== 'feed' && view !== 'scores' && <ProjectMap projects={visible} matches={matches} selected={selected} onSelect={select} onInspect={setDetail} commutePlaces={shortlist && user ? commutePlaces : undefined} />}
+      {view !== 'feed' && view !== 'scores' && !(compact && view === 'split') && <ProjectMap projects={visible} matches={matches} selected={selected} onSelect={select} onInspect={setDetail} commutePlaces={shortlist && user ? commutePlaces : undefined} shortlistedIds={shortlist ? savedIds : undefined} focusRequest={focusRequest} onFit={() => setFocusRequest(null)} />}
       <section className="project-feed" aria-label="Project feed">
         {!user && shortlist ? <SignInPrompt onSignIn={onSignIn} /> : loading || filterLoading ? <div className="feed-loading" role="status"><RefreshCw className="spin" />Loading projects...</div> : error || filterError ? <Empty title="Projects could not be loaded" detail={error || filterError} action="Retry" onAction={() => { onRetry(); setFilterRetry(value => value + 1) }} /> : !visible.length ? <Empty title={shortlist ? 'No shortlisted projects in this view' : 'No projects match this view'} detail={snapshot ? 'Your hard constraints were not relaxed. Review the exclusions below or edit your requirements.' : includeProcessing ? 'No published or processing listings match these filters.' : 'Only published projects are available here. Try changing your filters or return as more projects are published.'} /> : view === 'scores' ? <ScoreSheet projects={visible} matches={matches} onSelect={setDetail} /> : <div className="project-grid">{visible.map(project => {
           const match = matches.find(item => item.projectId === project.id), saved = savedIds.includes(project.id)
@@ -81,7 +93,7 @@ function BrowseSession({ title, eyebrow, projects: publishedProjects, matches, u
               <p className="verification"><ShieldCheck size={15} />MahaRERA: {project.verificationStatus || 'Unknown'}</p>
               <p className="freshness">Checked {dateLabel(project.verificationCheckedAt)} | {projectStatusLabel(project)}</p>
               {match && <div className="match-reasons"><span>{reasonLabel(match.reasonCodes[0] ?? '')}</span>{known?.map(component => <span key={component.code}>{componentLabel(component.code)}: {Math.round((component.score ?? 0) * 100)}%</span>)}<span>Evidence confidence: {Math.round(Number(match.confidence) * 100)}%</span></div>}
-              <div className="card-actions"><label className="check-label"><input type="checkbox" checked={compare.includes(project.id)} disabled={project.status !== 'published' || (!compare.includes(project.id) && compare.length >= 4)} onChange={event => setCompare(current => event.target.checked ? [...current, project.id] : current.filter(id => id !== project.id))} />Compare</label><button className="text-button" onClick={() => { select(project.id); setView(window.innerWidth <= 760 ? 'map' : 'split') }} disabled={!coordinates(project)}>On map<ArrowRight size={15} /></button></div>
+              <div className="card-actions"><label className="check-label"><input type="checkbox" checked={compare.includes(project.id)} disabled={project.status !== 'published' || (!compare.includes(project.id) && compare.length >= 4)} onChange={event => setCompare(current => event.target.checked ? [...current, project.id] : current.filter(id => id !== project.id))} />Compare</label><button className="text-button" onClick={() => focusOnMap(project.id)} disabled={!coordinates(project)}>On map<ArrowRight size={15} /></button></div>
             </div>
           </article>
         })}</div>}
