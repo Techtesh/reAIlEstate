@@ -2,11 +2,10 @@
 
 ## Status
 
-**Approved for offline artifact generation only**
+**Validated**
 
-This plan does not authorize provisioning or deployment. Generated files must not
-be applied until the target tenant is authenticated and Azure policy, quota,
-regional capacity, and configuration validation have completed successfully.
+Live validation is complete. Deployment was explicitly deferred after cost
+review; do not apply the Terraform plan without a new user confirmation.
 
 ## Scope
 
@@ -45,30 +44,22 @@ adopt a leader/follower data model.
 Resource names will use a short, configurable workload prefix and a generated
 suffix where Azure requires global uniqueness.
 
-## Authentication and Validation Blocker
+## Authentication and Validation Context
 
-The current Azure CLI session is authenticated to tenant
-`72f988bf-86f1-41af-91ab-2d7cd011db47`, while the target subscription belongs
-to tenant `d68b2372-3268-46b9-8329-75273fb49a72`.
+The Azure CLI is authenticated to tenant
+`d68b2372-3268-46b9-8329-75273fb49a72`, with subscription
+`088476fe-27ee-42b2-a867-268aab19dce3` selected.
 
-Observed facts:
+Live validation confirmed:
 
-- The target subscription is not available in the current CLI context.
-- Policy assignments for the target subscription have not been queried.
-- Regional quota and current usage have not been queried.
-- Central India capacity for the selected PostgreSQL SKU has not been verified.
-- Azure OpenAI model availability and quota in the target subscription have not
-  been verified.
-
-Consequences:
-
-- Terraform files may be generated and validated offline.
-- No `terraform apply`, `az deployment`, image push, resource creation, or live
-  validation may be performed yet.
-- Any generated variable examples must contain placeholders rather than
-  credentials.
-- Before deployment, authenticate explicitly to the target tenant and repeat
-  policy, quota, resource-provider, and capacity checks.
+- The subscription display name is `Visual Studio Enterprise Subscription`.
+- Central India is available for every planned Azure resource type.
+- Required resource providers are registered.
+- Container Apps quota has sufficient available capacity.
+- PostgreSQL 16 and the `Standard_B1ms` burstable SKU are available.
+- A dedicated, access-controlled Terraform state backend is available.
+- Azure OpenAI remains intentionally disabled because no same-tenant model
+  deployment has been approved or validated.
 
 ## Selected POC Architecture
 
@@ -336,32 +327,78 @@ Before changing this plan to **Ready for Validation**:
 11. Run the repository's Azure validation workflow.
 12. Review the generated Terraform plan before any apply.
 
+## Validation Checklist
+
+- [x] All validation checks pass
+  - [x] Terraform CLI is installed.
+  - [x] Azure CLI is installed.
+  - [x] Azure CLI is authenticated to the confirmed subscription.
+  - [x] Terraform initialization succeeds.
+  - [x] `terraform fmt -check` succeeds.
+  - [x] `terraform validate` succeeds.
+  - [x] `terraform plan` succeeds against the target subscription.
+  - [x] Terraform state is accessible and can be listed.
+  - [x] Terraform files contain no unresolved Go-style environment templates.
+  - [x] No `main.tfvars.json` file requires JSON validation.
+  - [x] The application and gateway images build successfully.
+  - [x] Required RBAC assignments are present in Terraform.
+  - [x] Target-subscription policy, provider, quota, and regional capacity checks pass.
+
+## 7. Validation Proof
+
+Validation completed on 2026-09-20 against the confirmed tenant and
+subscription.
+
+| Check | Command or evidence | Result |
+|---|---|---|
+| Azure context | `az account show` | PASS: `Visual Studio Enterprise Subscription`, target tenant and subscription selected |
+| Policy assignments | Azure Policy assignment list at subscription scope | PASS: audit/MFA policies found; the only location restriction blocks West Europe, not Central India |
+| Resource providers | `az provider show` | PASS: App, PostgreSQL, Container Registry, Storage, Key Vault, Network, Managed Identity, Operational Insights, Insights, and Quota are registered |
+| Container Apps quota | `check-quota.ps1 -ResourceProvider Microsoft.App -Region centralindia` | PASS: 20 managed environments and 50 sandbox cores available |
+| Regional availability | Azure provider resource-type location queries | PASS: Container Apps, Container Apps jobs, PostgreSQL Flexible Server, ACR, Storage, and Key Vault are available in Central India |
+| PostgreSQL capacity | `az postgres flexible-server list-skus --location centralindia` | PASS: PostgreSQL 16 and `Standard_B1ms` are available in zones 1, 2, and 3 |
+| Terraform state | Azure Storage data-plane check and `terraform state list` | PASS: dedicated encrypted Standard LRS backend, Microsoft Entra authentication, shared keys disabled, private container, versioning enabled, and 7-day delete retention |
+| Terraform format and syntax | `Initialize-AzureDeployment.ps1 -Stage Validate` | PASS |
+| Live Terraform plan | `Initialize-AzureDeployment.ps1 -Stage Foundation -BackendConfigPath .deployments\azure\terraform\backend.hcl` | PASS: 26 create, 0 change, 0 destroy |
+| Application image | `docker build` using the configured Microsoft package feed proxy | PASS |
+| Django services in image | `manage.py check` for admin, builder, and buyer | PASS: no issues |
+| Gateway image | `docker build` and `nginx -t` | PASS |
+| Template scan | Go-style environment-template scan | PASS: no unresolved templates |
+
+## Role Assignment Verification
+
+- Status: Verified.
+- Workload identity roles:
+  - `AcrPull` scoped to the deployment's container registry.
+  - `Key Vault Secrets User` scoped to the deployment's Key Vault.
+  - Optional `Cognitive Services OpenAI User` is created only when an approved
+    same-tenant Azure OpenAI resource ID is configured.
+- Deployment identity role:
+  - `Key Vault Administrator` scoped to the deployment's Key Vault so Terraform
+    can create the generated application secrets.
+- Shared Azure Files access uses the Container Apps environment storage account
+  key; no unrelated subscription-wide data-plane role is granted.
+
 ## Approval Boundary
 
-Approval of this document authorizes only:
+Completed with explicit user approval:
 
-- Creating or updating files under `.deployments`.
-- Updating directly related deployment documentation and ignore rules.
-- Running local format, syntax, static, and configuration validation that does
-  not authenticate to or modify Azure.
+- Registering the required Azure resource providers.
+- Creating the dedicated Terraform state resource group, storage account,
+  container, and least-privilege state access role.
+- Running authenticated read-only validation and Terraform planning.
 
-Approval does not authorize:
+Not authorized by the current scope:
 
-- Creating, updating, or deleting Azure resources.
-- Registering resource providers.
-- Assigning RBAC roles.
+- Applying the 26-resource foundation Terraform plan.
 - Pushing images to Azure Container Registry.
 - Running database migrations against Azure.
 - Reusing the existing cross-tenant Azure OpenAI resource.
-- Applying Terraform.
 
 ## Remaining Decisions Before Live Deployment
 
-- Confirm the target subscription's display name after authentication.
 - Confirm whether a new Azure OpenAI resource is desired and which India region
   and model deployment meet availability, quota, and residency requirements.
-- Confirm the secure Terraform state backend.
 - Decide whether Key Vault purge protection should be enabled despite slower
   POC teardown.
-- Review estimated monthly cost after SKUs are validated against the target
-  subscription.
+- Reconfirm the estimated monthly cost before any future Terraform apply.

@@ -15,4 +15,5 @@ reailEstate/reailEstate_common/frontend/node_modules/
 *.tfstate.*
 *.tfplan
 *.tfvars
+backend.hcl
 !*.tfvars.example

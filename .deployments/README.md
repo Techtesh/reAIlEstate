@@ -24,8 +24,7 @@ Every provider implementation must supply:
 
 - [`azure/`](./azure/) contains the approved POC Terraform and operational
   scripts.
-- [`aws/`](./aws/) reserves the AWS provider boundary. AWS infrastructure is not
-  implemented yet.
+- [`aws/`](./aws/) contains offline-only AWS Terraform and operational scripts.
 
 Provider directories must not share Terraform state, provider credentials, or
 generated secret files.

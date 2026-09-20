@@ -7,6 +7,7 @@ COPY reailEstate_common/frontend/ ./
 RUN npm run build:services
 
 FROM python:3.14-slim AS runtime
+ARG PIP_INDEX_URL=https://pypi.org/simple
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/reailEstate_common/backend:/app/adminService:/app/builderService:/app/buyerService

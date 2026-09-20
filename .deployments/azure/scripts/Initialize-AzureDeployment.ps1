@@ -53,7 +53,7 @@ Assert-LastExitCode -Operation "Terraform validation"
 
 $deployWorkload = if ($Stage -eq "Workload") { "true" } else { "false" }
 $planPath = Join-Path $terraformPath "$($Stage.ToLowerInvariant()).tfplan"
-& terraform "-chdir=$terraformPath" plan -input=false -out=$planPath "-var=subscription_id=$SubscriptionId" "-var=tenant_id=$TenantId" "-var=deploy_workload=$deployWorkload"
+& terraform "-chdir=$terraformPath" plan -input=false "-out=$planPath" "-var=subscription_id=$SubscriptionId" "-var=tenant_id=$TenantId" "-var=deploy_workload=$deployWorkload"
 Assert-LastExitCode -Operation "Terraform $Stage plan"
 
 Write-Host "Terraform plan created at $planPath. Review it before applying."
