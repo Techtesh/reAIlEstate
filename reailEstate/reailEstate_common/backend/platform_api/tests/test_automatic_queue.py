@@ -8,6 +8,7 @@ from django.db import connection
 from django.utils import timezone
 
 from platform_api.automatic_queue import reserve_ready_jobs, run_automatic_queue, run_reserved_job
+from platform_api.jobs.events import RECOMMENDATION_EVENT
 from platform_api.models import EvidenceDocument, Operation, Organization, OutboxMessage, Project, QueueWorker
 
 
@@ -44,6 +45,26 @@ def test_reserves_builder_upload_without_staff_owner_or_launch_request(queued, s
     assert reserve_ready_jobs() == []
     message.refresh_from_db()
     assert message.attempts == 0
+
+
+def test_reserves_and_runs_projectless_recommendation_work(settings):
+    settings.INGESTION_MAX_WORKERS = 2
+    operation = Operation.objects.create(kind="recommendation", state="pending")
+    message = OutboxMessage.objects.create(
+        event_type=RECOMMENDATION_EVENT, correlation_id=uuid4(),
+        payload={"operationId": str(operation.pk), "snapshotId": str(uuid4()), "requirementVersionId": str(uuid4())},
+    )
+
+    worker, message_id = reserve_ready_jobs()[0]
+
+    assert worker.project is None
+    assert worker.event_group == "recommendation"
+    assert message_id == message.pk
+    with patch("platform_api.automatic_queue.process_outbox_message", return_value="processed") as process:
+        run_reserved_job(worker, message_id)
+    process.assert_called_once_with(message.pk)
+    worker.refresh_from_db()
+    assert worker.state == "stopped"
 
 
 def test_capacity_accounts_for_manual_workers_and_refills_on_completion(queued, settings):

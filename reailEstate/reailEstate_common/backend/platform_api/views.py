@@ -1610,7 +1610,8 @@ class LiveHealthView(APIView):
 
 
 class ReadyHealthView(APIView):
-    permission_classes = [IsAdminUser]
+    authentication_classes = []
+    permission_classes = [AllowAny]
 
     def get(self, request):
         from django.db import connection

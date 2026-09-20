@@ -36,6 +36,10 @@ def test_only_admin_service_owns_schema_migrations():
     assert settings_buyer.SCHEMA_MIGRATION_OWNER is False
 
 
+def test_buyer_service_exposes_operation_status_for_match_polling():
+    assert resolve(f"/api/v1/operations/{uuid4()}", urlconf="buyer_service.urls")
+
+
 def test_default_workspace_data_root_survives_common_project_move():
     from config import settings as base_settings
 
@@ -71,6 +75,17 @@ def test_buyer_frontend_csp_allows_its_static_bundle(client, settings, tmp_path)
     assert response.status_code == 200
     assert "script-src 'self'" in response["Content-Security-Policy"]
     assert "style-src 'self'" in response["Content-Security-Policy"]
+
+
+@pytest.mark.django_db
+def test_readiness_health_is_available_without_a_session(client, settings):
+    settings.ROOT_URLCONF = "buyer_service.urls"
+    clear_url_caches()
+
+    response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
 
 
 def test_non_admin_service_refuses_migrations(settings):

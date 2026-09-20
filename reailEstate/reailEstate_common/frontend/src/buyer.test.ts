@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api, apiPath, cancelSessionRequests, onSessionExpired } from './api'
-import { calculatedRoomArea, configurationArea, configurationPrice, coordinates, draftSchema, inr, lowestPrice, newDraft, placesSchema, priceValue, projectPrice, resumeDraft, type Project } from './buyer'
+import { allocatedWeightPoints, calculatedRoomArea, configurationArea, configurationPrice, coordinates, defaults, draftSchema, inr, lowestPrice, newDraft, placesSchema, priceValue, projectPrice, resumeDraft, type Project } from './buyer'
 
 afterEach(() => vi.unstubAllGlobals())
 const valid = () => { const draft = newDraft(); draft.home.configurations = ['2BHK']; draft.budget.purchaseMaximum = 20000000; return draft }
@@ -8,7 +8,15 @@ describe('canonical requirements', () => {
   it('requires a home and positive budget', () => { expect(draftSchema.safeParse(newDraft()).success).toBe(false); expect(draftSchema.safeParse(valid()).success).toBe(true) })
   it('round-trips the same values between guided, summary and saved drafts', () => { const draft = valid(); draft.home.carpetAreaSqFt = { minimum: 650, preferred: 800 }; expect(resumeDraft(JSON.parse(JSON.stringify(draft)))).toEqual(draft) })
   it('rejects reversed area and budget ranges', () => { const draft = valid(); draft.home.carpetAreaSqFt = { minimum: 900, preferred: 700 }; expect(draftSchema.safeParse(draft).success).toBe(false); draft.home.carpetAreaSqFt = {}; draft.budget.allInMaximum = 10000000; expect(draftSchema.safeParse(draft).success).toBe(false) })
-  it('rejects zero budgets, fractional INR and all-zero weights', () => { const draft = valid(); for (const value of [0, -1, 2.5]) { draft.budget.purchaseMaximum = value; expect(draftSchema.safeParse(draft).success).toBe(false) } draft.budget.purchaseMaximum = 10000000; Object.keys(draft.weights).forEach(key => { draft.weights[key as keyof typeof draft.weights] = 0 }); expect(draftSchema.safeParse(draft).success).toBe(false) })
+  it('rejects zero budgets, fractional INR, and zero or over-budget priorities', () => { const draft = valid(); for (const value of [0, -1, 2.5]) { draft.budget.purchaseMaximum = value; expect(draftSchema.safeParse(draft).success).toBe(false) } draft.budget.purchaseMaximum = 10000000; draft.weights.space = .25; expect(draftSchema.safeParse(draft).success).toBe(false); Object.keys(draft.weights).forEach(key => { draft.weights[key as keyof typeof draft.weights] = 0 }); expect(draftSchema.safeParse(draft).success).toBe(false) })
+  it('reports the point total without changing a user allocation', () => {
+    expect(allocatedWeightPoints(defaults)).toBe(100)
+    expect(draftSchema.safeParse({ ...valid(), weights: { ...defaults, commute: .1 } }).success).toBe(true)
+    const overweight = { ...defaults, space: .8 }
+    expect(allocatedWeightPoints(overweight)).toBe(160)
+    expect(resumeDraft({ weights: overweight }).weights).toEqual(overweight)
+    expect(draftSchema.safeParse({ ...valid(), weights: overweight }).success).toBe(false)
+  })
   it('rejects duplicate locality destinations', () => { const draft = valid(); draft.places = ['Powai', ' powai '].map((label, index) => ({ label, placeId: `manual:${index}`, precision: 'locality', frequencyPerWeek: 5, modes: ['transit'], maxOneWayMinutes: 60 })); expect(draftSchema.safeParse(draft).success).toBe(false) })
   it('preserves exact destinations when validating and resuming private profiles', () => {
     const draft = valid()

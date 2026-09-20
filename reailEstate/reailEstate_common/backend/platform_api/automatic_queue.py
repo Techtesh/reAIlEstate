@@ -1,4 +1,4 @@
-"""Capacity-aware polling for extraction work, independent of browser sessions."""
+"""Capacity-aware polling for background work, independent of browser sessions."""
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -11,17 +11,20 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .ingestion_runtime import WorkAlreadyClaimed, work_lock
-from .jobs.events import EXTRACTION_EVENTS
+from .jobs.events import EXTRACTION_EVENTS, RECOMMENDATION_EVENT
 from .models import EvidenceDocument, FloorPlan, Operation, OutboxMessage, Project, QueueWorker
 from .queue_monitor import LIVE_SECONDS, tracked_job, worker_session
 from .workers import process_outbox_message
 
 
 logger = logging.getLogger(__name__)
+AUTOMATIC_EVENTS = (*EXTRACTION_EVENTS, RECOMMENDATION_EVENT)
 
 
 def job_project(message):
     """Resolve saved provenance rather than trust a supplied project identifier."""
+    if message.event_type == RECOMMENDATION_EVENT:
+        return None
     for key, model in (("documentId", EvidenceDocument), ("floorPlanId", FloorPlan), ("projectId", Project)):
         value = message.payload.get(key)
         if value:
@@ -52,21 +55,25 @@ def reserve_ready_jobs(excluded=()):
             if not capacity:
                 return []
             candidates = OutboxMessage.objects.filter(
-                event_type__in=EXTRACTION_EVENTS, published_at__isnull=True, dead_lettered_at__isnull=True,
+                event_type__in=AUTOMATIC_EVENTS, published_at__isnull=True, dead_lettered_at__isnull=True,
             ).filter(Q(available_after__isnull=True) | Q(available_after__lte=timezone.now())).exclude(
                 pk__in=live.exclude(message_id=None).values("message_id"),
             ).exclude(pk__in=excluded).order_by("occurred_at", "pk")
             reserved = []
             for message in candidates.iterator():
                 project = job_project(message)
-                if project is None or project.status in {"retired", "merged"} or project.organization.status != "active":
+                if message.event_type != RECOMMENDATION_EVENT and project is None:
                     continue
-                if Project.objects.filter(pk=project.pk, merge_out__state="applied").exists():
+                if project and (project.status in {"retired", "merged"} or project.organization.status != "active"):
+                    continue
+                if project and Project.objects.filter(pk=project.pk, merge_out__state="applied").exists():
                     continue
                 if job_cancelled(message):
                     continue
                 worker = QueueWorker.objects.create(
-                    project=project, state="starting", event_group="extraction", message_id=message.pk,
+                    project=project, state="starting",
+                    event_group="recommendation" if message.event_type == RECOMMENDATION_EVENT else "extraction",
+                    message_id=message.pk,
                 )
                 reserved.append((worker, message.pk))
                 if len(reserved) == capacity:
@@ -90,9 +97,9 @@ def job_cancelled(message):
 def run_reserved_job(worker, message_id):
     close_old_connections()
     try:
-        with worker_session("extraction", worker_id=worker.pk, project=worker.project):
-            project = Project.objects.get(pk=worker.project_id)
-            if (project.status in {"retired", "merged"} or project.organization.status != "active"
+        project = Project.objects.get(pk=worker.project_id) if worker.project_id else None
+        with worker_session(worker.event_group, worker_id=worker.pk, project=project):
+            if project and (project.status in {"retired", "merged"} or project.organization.status != "active"
                     or Project.objects.filter(pk=project.pk, merge_out__state="applied").exists()):
                 return
             message = OutboxMessage.objects.filter(pk=message_id).first()

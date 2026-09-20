@@ -1,10 +1,17 @@
 import { z } from 'zod'
 
-export const weightLabels = {
+export const weightKeys = ['commute', 'budget', 'space', 'societyAmenities', 'nearbyAmenities', 'microMarket', 'projectConfidence'] as const
+export type WeightKey = typeof weightKeys[number]
+export type Weights = Record<WeightKey, number>
+export const weightLabels: Record<WeightKey, string> = {
   commute: 'Commute', budget: 'Budget', space: 'Space', societyAmenities: 'Society amenities',
   nearbyAmenities: 'Nearby amenities', microMarket: 'Micro-market', projectConfidence: 'Evidence confidence',
 }
-export const defaults = { commute: .30, budget: .25, space: .20, societyAmenities: .10, nearbyAmenities: .05, microMarket: .05, projectConfidence: .05 }
+export const defaults: Weights = { commute: .30, budget: .25, space: .20, societyAmenities: .10, nearbyAmenities: .05, microMarket: .05, projectConfidence: .05 }
+export function allocatedWeightPoints(weights: Weights) {
+  return weightKeys.reduce((total, key) => total + Math.round(weights[key] * 100), 0)
+}
+
 const positive = z.number().positive().max(100000).optional()
 const money = z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional()
 export const placesSchema = z.array(z.object({
@@ -41,7 +48,9 @@ export const draftSchema = z.object({
   if (!budget.purchaseMaximum && !budget.allInMaximum) context.addIssue({ code: 'custom', path: ['budget'], message: 'Enter a purchase or all-in maximum budget.' })
   if (budget.purchaseMinimum && budget.purchaseMaximum && budget.purchaseMinimum > budget.purchaseMaximum) context.addIssue({ code: 'custom', path: ['budget'], message: 'Maximum purchase budget must be at least the minimum.' })
   if (budget.allInMaximum && budget.purchaseMaximum && budget.allInMaximum < budget.purchaseMaximum) context.addIssue({ code: 'custom', path: ['budget'], message: 'All-in maximum must cover your purchase maximum.' })
-  if (!Object.values(draft.weights).some(value => value > 0)) context.addIssue({ code: 'custom', path: ['weights'], message: 'Give at least one priority a weight above zero.' })
+  const weightTotal = Object.values(draft.weights).reduce((sum, value) => sum + value, 0)
+  if (weightTotal <= 1e-9) context.addIssue({ code: 'custom', path: ['weights'], message: 'Give at least one priority a value above zero.' })
+  if (weightTotal > 1 + 1e-9) context.addIssue({ code: 'custom', path: ['weights'], message: 'Priority points cannot exceed 100.' })
 })
 export type Draft = z.infer<typeof draftSchema>
 export function newDraft(): Draft {

@@ -17,7 +17,7 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 
 Set-RealEstateRuntimeEnvironment -ApplicationRoot $PSScriptRoot -VisionProfilesFile $VisionProfilesFile
 
-Write-Host 'Starting shared extraction and media-evaluation worker'
+Write-Host 'Starting shared extraction, media-evaluation, and recommendation worker'
 if (-not [string]::IsNullOrWhiteSpace($env:FLOOR_PLAN_DEFAULT_VISION_PROFILE)) {
     Write-Host "AI vision profile: $env:FLOOR_PLAN_DEFAULT_VISION_PROFILE"
 }

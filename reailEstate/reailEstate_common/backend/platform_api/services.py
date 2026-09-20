@@ -3,6 +3,7 @@ import json
 import math
 import re
 from collections import Counter
+from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -119,10 +120,16 @@ def validate_requirement_payload(payload, final=False):
 
     weights = payload.get("weights", {})
     if isinstance(weights, dict):
-        if any(not isinstance(value, (int, float)) or value < 0 or value > 1 for value in weights.values()):
+        valid_weights = all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                            and math.isfinite(value) and 0 <= value <= 1 for value in weights.values())
+        if not valid_weights:
             errors.setdefault("weights", []).append({"code": "OUT_OF_RANGE"})
-        if weights and math.isclose(sum(weights.values()), 0):
-            errors.setdefault("weights", []).append({"code": "ZERO_TOTAL"})
+        elif weights:
+            total = sum(weights.values())
+            if math.isclose(total, 0, rel_tol=0, abs_tol=1e-9):
+                errors.setdefault("weights", []).append({"code": "ZERO_TOTAL"})
+            elif total > 1 and not math.isclose(total, 1, rel_tol=0, abs_tol=1e-9):
+                errors.setdefault("weights", []).append({"code": "TOTAL_EXCEEDED"})
 
     if errors:
         raise ValidationError(errors)
@@ -177,9 +184,30 @@ def _decimal(value):
         return None
 
 
+@dataclass(frozen=True)
+class ScoringConfiguration:
+    configuration_type: str
+    carpet_area_max: Decimal | None
+    bathrooms: int | None
+
+
 def _project_configuration_data(project):
-    configurations = HomeConfiguration.objects.filter(building__project=project, fact_set_version__lte=project.published_fact_set_version)
-    return list(configurations)
+    from .layout_configurations import project_layout_configurations
+
+    layouts = project_layout_configurations(project, can_review=False)
+    if layouts:
+        return [
+            ScoringConfiguration(
+                configuration_type=layout["configuration_type"],
+                carpet_area_max=layout["carpet_area_max"],
+                bathrooms=layout["bathrooms"],
+            )
+            for layout in layouts
+        ]
+    return list(HomeConfiguration.objects.filter(
+        building__project=project,
+        fact_set_version__lte=project.published_fact_set_version,
+    ))
 
 
 def _hard_constraint_failure(project, profile, configurations):
@@ -191,10 +219,14 @@ def _hard_constraint_failure(project, profile, configurations):
     if requested_types and not any(item.configuration_type in requested_types for item in configurations):
         return "CONFIGURATION_UNAVAILABLE"
     area_min = _decimal(home.get("carpetAreaSqFt", {}).get("minimum"))
-    if area_min is not None and not any(item.carpet_area_max >= area_min for item in configurations):
+    if area_min is not None and not any(
+        item.carpet_area_max is not None and item.carpet_area_max >= area_min for item in configurations
+    ):
         return "BELOW_HARD_CARPET_AREA"
     bathrooms = home.get("bathroomsMinimum")
-    if bathrooms and home.get("bathroomsIsHardConstraint", True) and not any(item.bathrooms >= bathrooms for item in configurations):
+    if bathrooms and home.get("bathroomsIsHardConstraint", True) and not any(
+        item.bathrooms is not None and item.bathrooms >= bathrooms for item in configurations
+    ):
         return "INSUFFICIENT_BATHROOMS"
     budget_max = _decimal(budget.get("allInMaximum") or budget.get("purchaseMaximum"))
     price, _ = project_price_range(project)
@@ -209,9 +241,10 @@ def _hard_constraint_failure(project, profile, configurations):
 
 def _space_score(profile, configurations):
     preferred = _decimal(profile.get("home", {}).get("carpetAreaSqFt", {}).get("preferred"))
-    if preferred is None or not configurations:
+    areas = [item.carpet_area_max for item in configurations if item.carpet_area_max is not None]
+    if preferred is None or not areas:
         return None
-    best = max(item.carpet_area_max for item in configurations)
+    best = max(areas)
     return float(min(Decimal("1"), best / preferred))
 
 

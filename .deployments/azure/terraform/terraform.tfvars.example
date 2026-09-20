@@ -1,0 +1,36 @@
+subscription_id     = "088476fe-27ee-42b2-a867-268aab19dce3"
+tenant_id           = "d68b2372-3268-46b9-8329-75273fb49a72"
+location            = "Central India"
+resource_group_name = "rg-workspace-poc-centralindia"
+workload_name       = "workspace-poc"
+environment_name    = "poc"
+
+# First apply: keep false to provision foundations before images exist.
+# Second apply: set true and replace both not-built image tags.
+deploy_workload       = false
+application_image_tag = "not-built"
+gateway_image_tag     = "not-built"
+
+postgresql_version     = "16"
+postgresql_sku_name    = "B_Standard_B1ms"
+postgresql_storage_mb  = 32768
+file_share_quota_gb    = 10
+
+key_vault_purge_protection_enabled       = false
+application_insights_daily_cap_gb        = 1
+application_insights_sampling_percentage = 25
+
+clamav_enabled  = false
+clamav_endpoint = "tcp://clamav:3310"
+
+# Keep script mode until model availability, quota, identity access, and data
+# residency have been validated in the target tenant.
+floor_plan_extraction_mode          = "script"
+floor_plan_vision_profiles_json      = "{}"
+floor_plan_default_vision_profile    = ""
+azure_openai_resource_id             = ""
+
+tags = {
+  owner       = "personal"
+  cost-center = "education"
+}

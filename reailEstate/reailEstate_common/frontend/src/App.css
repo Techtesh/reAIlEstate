@@ -187,6 +187,10 @@
 .locality-tags li { display: flex; align-items: center; gap: 5px; background: var(--wash); padding-left: 12px; font-size: 12px; }
 .locality-tags .icon-button { border: 0; background: transparent; }
 .weights { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 28px; }
+.weight-budget { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 18px; margin: 0 0 18px; color: var(--muted); font-size: 12px; }
+.weight-budget strong { color: var(--green); }
+.weight-budget.warning { color: #8c550d; }
+.weight-budget.warning strong { color: #9d361c; }
 .weight-control { display: flex; align-items: center; gap: 15px; }
 .weight-control output { width: 30px; text-align: right; font-size: 12px; flex-shrink: 0; }
 .consent { display: flex; flex-direction: row; gap: 12px; font-size: 12px; line-height: 1.8; font-weight: 500; padding: 20px; background: var(--wash); }

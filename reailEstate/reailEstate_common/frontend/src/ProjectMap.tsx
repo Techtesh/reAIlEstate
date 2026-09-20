@@ -147,6 +147,7 @@ export function ProjectMap({ projects, matches, selected, onSelect, onInspect, c
       <details className="transit-line-legend"><summary>Line colours</summary><ul>{lineOptions.map(([key, line]) => <li key={key}><span className="line-swatch" style={{ backgroundColor: lineColor(line.kind, line.name) }} aria-hidden="true" />{line.kind === 'metro' ? 'Metro' : 'Railway'} | {line.name || 'Line unknown'}</li>)}</ul></details>
       {(lines.length > 0 || connections.length > 0) && <p className="line-evidence-note">Schematic station order and requested branch connections, not verified tracks or service. Crossings do not confirm transfers.</p>}
       <div className="map-data-status" role="status"><span><ShieldCheck size={14} />{projects.filter(project => project.verificationStatus === 'verified').length} MahaRERA verified</span>
+        <span>{projectPositions.length ? `${projectPositions.length} project locations shown` : 'No reviewed project locations available in this view'}</span>
         {stationLoading ? <span>Loading stations...</span> : stationError ? <span>Stations unavailable<button className="icon-button" title="Retry stations" aria-label="Retry stations" onClick={() => setStationRetry(value => value + 1)}><RefreshCw size={16} /></button></span> : <span>{visibleStations.length} stations shown</span>}
         {stationWarnings.length > 0 && <span>Incomplete or conflicting station records withheld.</span>}
         {provisional > 0 && <span>{provisional} provisional project locations - development preview, not reviewed.</span>}

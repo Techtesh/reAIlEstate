@@ -220,6 +220,10 @@ SPECTACULAR_SETTINGS = {
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',') if origin.strip()]
 CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if origin.strip()]
+_use_forwarded_proto = os.environ.get('USE_X_FORWARDED_PROTO', 'false').strip().lower()
+if _use_forwarded_proto not in {'true', 'false'}:
+    raise ValueError('USE_X_FORWARDED_PROTO must be true or false.')
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https') if _use_forwarded_proto == 'true' else None
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_AGE = int(os.environ.get('SESSION_COOKIE_AGE', '1800'))
