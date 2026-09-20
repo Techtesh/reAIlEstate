@@ -46,3 +46,33 @@ def visible_plan_facts(queryset):
     return queryset.filter(
         Q(typed_value__floorPlanId__isnull=True) | ~Q(typed_value__floorPlanId__in=removed_ids)
     ) if removed_ids else queryset
+
+
+def gallery_layout_ids(project, assets, *, can_review=False):
+    """Associate eligible unit layouts with their saved source-image ancestry."""
+    from .layout_pricing import pricing_layouts
+
+    linked = {str(asset.pk): [] for asset in assets}
+    sources = {str(asset.pk): asset for asset in project.floor_plan_assets.filter(
+        status="ready", document__scan_status="clean", document__project=project,
+    )}
+    for plan in pricing_layouts(can_review=can_review).filter(project=project):
+        source_id = str(plan.asset_id)
+        raw = plan.raw_extraction if isinstance(plan.raw_extraction, dict) else {}
+        box = raw.get("boundingBox", {})
+        hints = [box if isinstance(box, dict) else {}, raw]
+        seen = set()
+        while source_id in sources and source_id not in seen:
+            source = sources[source_id]
+            if source.document_id != plan.document_id or (
+                source.page_number and plan.page_number and source.page_number != plan.page_number
+            ):
+                break
+            seen.add(source_id)
+            if source_id in linked:
+                linked[source_id].append(str(plan.pk))
+            bounds = source.source_bounds if isinstance(source.source_bounds, dict) else {}
+            source_id = next((str(hint["sourceAssetId"]) for hint in [bounds, *hints]
+                              if hint.get("sourceAssetId")), "")
+            hints = []
+    return linked

@@ -1,6 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<script src="{% static 'platform_api/queue_monitor.js' %}?v=20260916-queue-capacity" defer></script>{% endblock %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'platform_api/queue_monitor.js' %}?v=20260919-queue-actions" defer></script>{% endblock %}
 {% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}">{% endblock %}
 {% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">Home</a> &rsaquo; <a href="{% url 'admin:platform_api_project_changelist' %}">Projects</a> &rsaquo; Evaluation jobs</div>{% endblock %}
 {% block content %}
@@ -27,6 +27,11 @@
     <input type="hidden" name="message_id"><input type="hidden" name="version">
     <input type="hidden" name="confirm_delete" value="yes">
     <button type="submit" title="Delete dead-letter job" aria-label="Delete dead-letter job"><img src="{% static 'admin/img/icon-deletelink.svg' %}" width="16" height="16" alt=""></button>
+  </form></template>
+  <template id="requeue-dead-letter-form"><form method="post" action="{% url 'admin:platform_api_project_jobs' %}">{% csrf_token %}
+    <input type="hidden" name="action" value="requeue_dead_letter">
+    <input type="hidden" name="message_id"><input type="hidden" name="version">
+    <button type="submit">Requeue dead-letter job</button>
   </form></template>
 </div>
 {{ snapshot|json_script:"queue-initial" }}

@@ -3,7 +3,6 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { ArrowRight, Building2, Heart, House, List, Map as MapIcon, MapPin, RefreshCw, ShieldCheck, SlidersHorizontal, Table2, X } from 'lucide-react'
 import { api, collection, json } from './api'
 import { componentLabel, configurationArea, coordinates, dateLabel, lowestPrice, projectPrice, projectStatusLabel, reasonLabel, type CommutePlace, type Match, type Project, type Snapshot, type User } from './buyer'
-import { LayoutTable } from './LayoutTable'
 import { ProjectMap } from './ProjectMap'
 import { ProjectGallery } from './ProjectGallery'
 import { Empty, errorMessage, SignInPrompt } from './App'
@@ -119,10 +118,9 @@ function PublishedDetails({ project, match, onClose }: { project: Project; match
   return <dialog ref={dialog} className="detail-dialog" aria-labelledby="detail-title" onCancel={onClose}>
     <button className="close-dialog icon-button" onClick={onClose} aria-label="Close project details" title="Close"><X size={20} /></button>
     <p className="eyebrow">{project.locality || 'Locality unknown'} | Published project</p><h2 id="detail-title">{project.submittedName}</h2>
-    <ProjectGallery projectId={project.id} />
+    <ProjectGallery projectId={project.id} layouts={detail?.configurations} />
     {error ? <div role="alert"><p>{error}</p><button className="secondary" onClick={() => setRetry(value => value + 1)}><RefreshCw size={16} />Retry details</button></div> : !detail ? <p role="status">Loading current published details...</p> : <>
       <p className="detail-price">{projectPrice(detail)}</p><p>MahaRERA {detail.mahaReraId || 'ID unknown'}: {detail.verificationStatus}. Checked {dateLabel(detail.verificationCheckedAt)}.</p>
-      <h3>Available layouts</h3><LayoutTable layouts={detail.configurations} />
       <h3>Amenities</h3>{detail.amenities.length ? <ul className="project-amenities">{detail.amenities.map(code => <li key={code}>{code.replaceAll('_', ' ')}</li>)}</ul> : <p>Amenities unknown.</p>}
       {match && <><h3>Match for your requirements: {Number(match.score).toFixed(1)}%</h3><p>Evidence confidence {Math.round(Number(match.confidence) * 100)}%. Snapshot facts as of {dateLabel(match.freshness.projectFactsAsOf)}.</p><ul>{match.reasonCodes.map(code => <li key={code}>{reasonLabel(code)}</li>)}</ul><div className="component-list">{match.components.map(component => <div key={component.code}><span>{componentLabel(component.code)}</span><span>Weight {Math.round(component.weight * 100)}</span><strong>{component.status === 'available' && component.score != null ? `${Math.round(component.score * 100)}%` : 'Unknown'}</strong></div>)}</div><p className="data-note">Available weights are normalized. The weighted score is multiplied by evidence confidence. The current method uses a 50% confidence fallback when no confidence metric is available; this is not verified evidence. Raw scoring inputs are not included in this API snapshot.</p></>}
       <h3>Project evidence</h3>{detail.facts?.length ? <dl className="facts">{detail.facts.map((fact, index) => <div key={index}><dt>{fact.code}</dt><dd>{typeof fact.value === 'object' ? JSON.stringify(fact.value) : String(fact.value)} {fact.unit}<small>{fact.sourceClass}{fact.status ? ` | ${fact.status}` : ''} | Reviewed {dateLabel(fact.reviewedAt)}</small></dd></div>)}</dl> : <p>Evidence details unknown.</p>}

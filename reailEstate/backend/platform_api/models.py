@@ -22,19 +22,44 @@ class TimestampedModel(UUIDModel):
 
 
 class Organization(TimestampedModel):
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        INACTIVE = "inactive", "Inactive"
+        SUSPENDED = "suspended", "Suspended"
+
+    class VerificationState(models.TextChoices):
+        PENDING = "pending", "Pending"
+        VERIFIED = "verified", "Verified"
+        REJECTED = "rejected", "Rejected"
+
     legal_name = models.CharField(max_length=255)
-    status = models.CharField(max_length=32, default="active")
-    verification_state = models.CharField(max_length=32, default="pending")
+    confirm_name_changes = models.BooleanField(
+        default=False, help_text="Require an extra confirmation when builders save floor-plan or layout names."
+    )
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.ACTIVE)
+    verification_state = models.CharField(max_length=32, choices=VerificationState.choices, default=VerificationState.PENDING)
 
     def __str__(self):
         return self.legal_name
 
 
 class OrganizationMembership(TimestampedModel):
+    class Role(models.TextChoices):
+        OWNER = "owner", "Owner"
+        EDITOR = "editor", "Editor"
+        VIEWER = "viewer", "Viewer"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        INVITED = "invited", "Invited"
+        INACTIVE = "inactive", "Inactive"
+        SUSPENDED = "suspended", "Suspended"
+        REVOKED = "revoked", "Revoked"
+
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="memberships")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="organization_memberships")
-    role = models.CharField(max_length=32, choices=[("owner", "Owner"), ("editor", "Editor"), ("viewer", "Viewer")])
-    status = models.CharField(max_length=32, default="active")
+    role = models.CharField(max_length=32, choices=Role.choices)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.ACTIVE)
     version = models.PositiveIntegerField(default=1)
 
     class Meta:
@@ -99,6 +124,7 @@ def project_picture_path(instance, filename):
 class Project(TimestampedModel):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
+        VERIFYING = "verifying", "Verifying"
         INGESTION = "ingestion", "Ingestion"
         NEEDS_REVIEW = "needs_review", "Needs review"
         PUBLISHED = "published", "Published"

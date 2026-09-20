@@ -232,6 +232,7 @@ ROUTING_PROVIDER = os.environ.get('ROUTING_PROVIDER', 'local_approximate' if DEB
 ROUTING_CACHE_SECONDS = int(os.environ.get('ROUTING_CACHE_SECONDS', '86400'))
 DEFAULT_COMMUTE_TOLERANCE_MINUTES = int(os.environ.get('DEFAULT_COMMUTE_TOLERANCE_MINUTES', '60'))
 DOCUMENT_SCANNER = os.environ.get('DOCUMENT_SCANNER', 'unavailable')
+LOCAL_TRUST_BUILDER_UPLOADS = os.environ.get('LOCAL_TRUST_BUILDER_UPLOADS', 'false').lower() == 'true'
 CLAMAV_EXECUTABLE = os.environ.get('CLAMAV_EXECUTABLE', 'clamscan')
 CLAMAV_TIMEOUT_SECONDS = int(os.environ.get('CLAMAV_TIMEOUT_SECONDS', '30'))
 FLOOR_PLAN_RENDER_DPI = int(os.environ.get('FLOOR_PLAN_RENDER_DPI', '240'))

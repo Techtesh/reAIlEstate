@@ -30,20 +30,22 @@ from .models import AuditEvent, FloorPlan
 from .feature_flags import require_enabled
 from .policies.crops import crop_destination
 from .project_lifecycle import project_family_ids
+from .builder_access import builder_can_manage
 
 
 @transaction.atomic
 def save_layout_name(project, floor_plan_id, display_name, actor, *, correlation_id=None):
     """Save an alias within the dashboard's project family, atomically audited.
 
-    Requires active authenticated staff with change_floorplan. Raises
+    Requires staff with change_floorplan or an active organization builder. Raises
     PermissionDenied, ValidationError, or Http404 (missing/out-of-family plan).
     The caller must enforce POST and CSRF; this is a service, not a view.
     """
-    if not (
+    staff_allowed = (
         actor is not None and actor.is_authenticated and actor.is_active
         and actor.is_staff and actor.has_perm("platform_api.change_floorplan")
-    ):
+    )
+    if not staff_allowed and not builder_can_manage(actor, project):
         raise PermissionDenied("Changing layout names requires floor-plan change permission.")
     require_enabled("media.layout_names", actor=actor, project=crop_destination(project))
     alias = validate_layout_display_name(display_name)
@@ -51,7 +53,7 @@ def save_layout_name(project, floor_plan_id, display_name, actor, *, correlation
         plan_id = UUID(str(floor_plan_id))
     except (ValueError, TypeError, AttributeError) as exc:
         raise ValidationError({"floor_plan_id": "Select a valid layout."}) from exc
-    family_ids = project_family_ids(project)
+    family_ids = project_family_ids(project) if staff_allowed else [project.pk]
     plan = get_object_or_404(
         FloorPlan.objects.select_for_update(), pk=plan_id,
         project_id__in=family_ids, document__project_id__in=family_ids,

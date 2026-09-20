@@ -22,7 +22,7 @@ export async function api<Result>(path: string, options: RequestInit = {}): Prom
   const signal = AbortSignal.any([sessionRequests.signal, AbortSignal.timeout(20000), ...(options.signal ? [options.signal] : [])])
   const headers = new Headers(options.headers)
   headers.set('Accept', 'application/json')
-  if (options.body) headers.set('Content-Type', 'application/json')
+  if (options.body && !headers.has('Content-Type') && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json')
   if (options.method && !['GET', 'HEAD'].includes(options.method)) {
     const token = document.cookie.split('; ').find(item => item.startsWith('csrftoken='))?.slice('csrftoken='.length)
     if (token) headers.set('X-CSRFToken', decodeURIComponent(token))
@@ -32,14 +32,31 @@ export async function api<Result>(path: string, options: RequestInit = {}): Prom
   catch (error) { if (error instanceof DOMException && error.name === 'AbortError') throw error; throw new ApiError(0, 'The service could not be reached. Your changes have not been discarded.') }
   if (!response.ok) {
     const messages: Record<number, string> = { 400: 'Some details were not accepted. Review your entries before trying again.', 401: 'Please sign in to continue.', 403: 'Your session or access could not be verified. Please sign in again.', 404: 'This item is no longer available.', 409: 'This draft changed in another session. Choose which version to keep.', 429: 'Too many requests. Please wait a moment before retrying.' }
-    const error = new ApiError(response.status, messages[response.status] ?? 'The service could not complete this request. Please try again.')
-    if ([401, 403].includes(response.status) && !['/api/v1/auth/login', '/api/v1/auth/me'].includes(localPath)) {
+    let detail = ''
+    try {
+      const problem: unknown = await response.json()
+      if (problem && typeof problem === 'object') {
+        const details = 'errors' in problem ? problem.errors : problem
+        if (details && typeof details === 'object' && 'detail' in details && typeof details.detail === 'string') detail = details.detail.slice(0, 1000)
+        else if (response.status === 400 && details && typeof details === 'object') {
+          const fields = Object.entries(details).flatMap(([field, value]) => {
+            if (typeof value === 'string') return [`${field}: ${value}`]
+            if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string').map(item => `${field}: ${item}`)
+            return []
+          })
+          detail = fields.slice(0, 8).join(' ').slice(0, 1000)
+        }
+      }
+    } catch {}
+    const error = new ApiError(response.status, detail || messages[response.status] || 'The service could not complete this request. Please try again.')
+    if ([401, 403].includes(response.status) && !['/api/v1/auth/login', '/api/v1/auth/builder-login', '/api/v1/auth/me'].includes(localPath.split('?')[0])) {
       sessionListeners.forEach(listener => listener(error))
     }
     throw error
   }
   if (response.status === 204) return undefined as Result
-  const result = await response.json() as Result
+  const text = await response.text()
+  const result = (text ? JSON.parse(text) : undefined) as Result
   signal.throwIfAborted()
   return result
 }

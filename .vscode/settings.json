@@ -1,0 +1,19 @@
+{
+  "chat.tools.terminal.enableAutoApprove": true,
+  "chat.tools.urls.autoApprove": {
+    "http://127.0.0.1:8002/health/live": true,
+    "http://127.0.0.1:8002/health/ready": true,
+    "http://localhost:8002/health/live": true,
+    "http://localhost:8002/health/ready": true,
+    "http://127.0.0.1:5173/": true,
+    "http://localhost:5173/": true
+  },
+  "chat.tools.terminal.autoApprove": {
+    "/^(?:Invoke-WebRequest|Invoke-RestMethod)\\s+-Uri\\s+(['\"]?)http:\\/\\/(?:127\\.0\\.0\\.1|localhost):(?:8002\\/health\\/(?:live|ready)|5173\\/)\\1(?:\\s+-Method\\s+(?:Get|Head))?$/i": true,
+    "/^(?:&\\s+)?(?:['\"](?:[^'\"\\r\\n;&|]*[\\\\/])?|[^\\s'\";&|]*[\\\\/])?npm(?:\\.(?:cmd|ps1|exe))?['\"]?\\s+(?:(?:--prefix|--workspace|-w)(?:\\s+|=)(?:'[^'\\r\\n]+'|\"[^\"\\r\\n]+\"|[^\\s;&|]+)\\s+)*(?:run|test)(?:\\s|$)/i": true,
+    "/^(?:&\\s+)?(?:['\"](?:[^'\"\\r\\n;&|]*[\\\\/])?|[^\\s'\";&|]*[\\\\/])?pytest(?:\\.exe)?['\"]?(?:\\s|$)/i": true,
+    "/^(?:&\\s+)?(?:['\"](?:[^'\"\\r\\n;&|]*[\\\\/])?|[^\\s'\";&|]*[\\\\/])?(?:python(?:\\d+(?:\\.\\d+)*)?|py)(?:\\.exe)?['\"]?\\s+(?:-\\d+(?:\\.\\d+)*\\s+)?-m\\s+pytest(?:\\s|$)/i": true,
+    "/^(?:&\\s+)?(?:['\"](?:[^'\"\\r\\n;&|]*[\\\\/])?|[^\\s'\";&|]*[\\\\/])?(?:python(?:\\d+(?:\\.\\d+)*)?|py)(?:\\.exe)?['\"]?\\s+(?:-\\d+(?:\\.\\d+)*\\s+)?(?:['\"](?:[^'\"\\r\\n;&|]*[\\\\/])?|[^\\s'\";&|]*[\\\\/])?manage\\.py['\"]?\\s+runserver(?:\\s|$)/i": true,
+    "/^\\$env:(?:DATABASE_BACKEND\\s*=\\s*['\"]postgresql['\"]|PGDATABASE\\s*=\\s*['\"]workspace_auto_queue['\"]|PYTHONUTF8\\s*=\\s*['\"]1['\"]|BUYER_TEST_BUILD\\s*=\\s*['\"]preview['\"])$/i": true
+  }
+}

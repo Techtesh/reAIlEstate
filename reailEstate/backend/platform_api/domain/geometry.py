@@ -47,7 +47,7 @@ def with_floor_applicability(regions, labels):
     return [replace(region, floors=region.floors or labels) for region in regions]
 
 
-def validate_regions(raw_regions, expected_count=None):
+def validate_regions(raw_regions, expected_count=None, *, allow_overlap=False):
     if not isinstance(raw_regions, list) or len(raw_regions) > MAX_UNITS:
         raise ValueError("INVALID_UNIT_REGIONS")
     regions = []
@@ -78,13 +78,14 @@ def validate_regions(raw_regions, expected_count=None):
         ))
     if len(regions) != len(raw_regions):
         raise ValueError("INVALID_UNIT_REGIONS")
-    for index, first in enumerate(regions):
-        for second in regions[index + 1:]:
-            intersection = max(0, min(first.x + first.width, second.x + second.width) - max(first.x, second.x)) * max(
-                0, min(first.y + first.height, second.y + second.height) - max(first.y, second.y))
-            smaller = min(first.width * first.height, second.width * second.height)
-            if smaller and intersection / smaller > 0.65:
-                raise ValueError("OVERLAPPING_UNIT_REGIONS")
+    if not allow_overlap:
+        for index, first in enumerate(regions):
+            for second in regions[index + 1:]:
+                intersection = max(0, min(first.x + first.width, second.x + second.width) - max(first.x, second.x)) * max(
+                    0, min(first.y + first.height, second.y + second.height) - max(first.y, second.y))
+                smaller = min(first.width * first.height, second.width * second.height)
+                if smaller and intersection / smaller > 0.65:
+                    raise ValueError("OVERLAPPING_UNIT_REGIONS")
     if expected_count is not None and len(regions) != expected_count:
         # An expected count is a quality gate, never an instruction to invent boxes.
         raise ValueError("UNIT_COUNT_MISMATCH")

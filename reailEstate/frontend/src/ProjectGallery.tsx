@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from 'react'
 import { ChevronLeft, ChevronRight, ImageOff, Maximize2, RefreshCw } from 'lucide-react'
 import { api, apiPath } from './api'
 import { errorMessage } from './App'
-import { calculatedRoomArea, dateLabel, inr, priceValue, projectPrice, type Project } from './buyer'
+import { calculatedRoomArea, dateLabel, inr, priceValue, projectPrice, type Configuration, type Project } from './buyer'
 import { LayoutTable } from './LayoutTable'
 
 type Layout = {
@@ -14,7 +14,7 @@ type Layout = {
 }
 export type GalleryItem = {
   id: string; url: string; category: string; title: string; width: number; height: number;
-  reviewState: string; layouts: Layout[];
+  reviewState: string; layouts: Layout[]; layoutIds?: string[];
 }
 type GalleryPage = { results: GalleryItem[]; next: string | null; access: 'preview' | 'review' | 'published' | 'restricted'; project?: Project }
 const categories: Record<string, string> = { all: 'All media', 'floor-plans': 'Floor plans', layouts: 'Unit layouts', amenities: 'Amenities', general: 'Project images' }
@@ -29,7 +29,7 @@ function GalleryImage({ item }: { item: GalleryItem }) {
   </div>
 }
 
-export function ProjectGallery({ projectId, processing = false }: { projectId: string; processing?: boolean }) {
+export function ProjectGallery({ projectId, processing = false, layouts }: { projectId: string; processing?: boolean; layouts?: Configuration[] }) {
   const categoryId = useId()
   const [data, setData] = useState<GalleryPage | null>(null), [error, setError] = useState(''), [retry, setRetry] = useState(0)
   const [category, setCategory] = useState('all'), [selectedId, setSelectedId] = useState('')
@@ -55,6 +55,10 @@ export function ProjectGallery({ projectId, processing = false }: { projectId: s
   }, [projectId, retry])
   const items = data?.results.filter(item => category === 'all' || item.category === category) ?? []
   const selectedIndex = Math.max(0, items.findIndex(item => item.id === selectedId)), selected = items[selectedIndex]
+  const projectLayouts = processing ? data?.project?.configurations : layouts
+  const comparisonLayouts = category === 'floor-plans'
+    ? projectLayouts?.filter(layout => layout.id && selected?.layoutIds?.includes(layout.id))
+    : projectLayouts
   return <section className="project-gallery" aria-label="Project media">
     <h3>Media and layouts</h3>
     {data?.access === 'preview' && <p className="processing-label">Temporary public preview. Includes unreviewed project data.</p>}
@@ -77,6 +81,12 @@ export function ProjectGallery({ projectId, processing = false }: { projectId: s
         </section>)}
       </>}
     </>}
+    {category !== 'layouts' && category !== 'amenities' && (category !== 'floor-plans' || data) && comparisonLayouts && <>
+      <h3>{category === 'floor-plans' ? 'Layouts from this floor plan' : 'Available layouts'}</h3>
+      {category === 'floor-plans' && !comparisonLayouts.length
+        ? <p>No layouts linked to this floor plan.</p>
+        : <LayoutTable layouts={comparisonLayouts} />}
+    </>}
     {processing && data?.project && <ProcessingProjectData project={data.project} />}
   </section>
 }
@@ -85,7 +95,6 @@ function ProcessingProjectData({ project }: { project: Project }) {
   return <section aria-label="Unpublished project data">
     <h3>Project data</h3><p className="detail-price">{projectPrice(project)}</p>
     <p>MahaRERA {project.mahaReraId || 'ID unknown'}: {project.verificationStatus || 'Unknown'}. Checked {dateLabel(project.verificationCheckedAt)}.</p>
-    <h4>Available layouts</h4><LayoutTable layouts={project.configurations} />
     <h4>Amenities</h4>{project.amenities.length ? <ul className="project-amenities">{project.amenities.map(code => <li key={code}>{code.replaceAll('_', ' ')}</li>)}</ul> : <p>Amenities unknown.</p>}
     <h4>Project evidence</h4>{project.facts?.length ? <dl className="facts">{project.facts.map((fact, index) => <div key={index}><dt>{fact.code}</dt><dd>{typeof fact.value === 'object' ? JSON.stringify(fact.value) : String(fact.value)} {fact.unit}<small>{fact.sourceClass} | {fact.status || 'Unreviewed'} | Reviewed {dateLabel(fact.reviewedAt)}</small></dd></div>)}</dl> : <p>No project facts extracted yet.</p>}
   </section>

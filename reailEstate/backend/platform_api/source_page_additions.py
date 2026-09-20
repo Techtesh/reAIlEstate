@@ -47,11 +47,14 @@ def _authorize(actor, project):
         raise PermissionDenied
 
 
-def _queue_page(asset, category, actor, selection, *, retry=False):
+def _queue_page(asset, category, actor, selection, *, retry=False, force=False):
     """Caller holds the document lock and a transaction; reuse historical additions."""
-    existing = OutboxMessage.objects.filter(event_type=PAGE_EVENT, payload__assetId=str(asset.pk)).order_by("occurred_at").first()
+    existing = OutboxMessage.objects.filter(event_type=PAGE_EVENT, payload__assetId=str(asset.pk)).order_by("-occurred_at", "-pk").first()
     if existing:
         operation = Operation.objects.get(pk=existing.payload["operationId"])
+        if force and operation.state == "completed" and existing.published_at:
+            existing = None
+    if existing:
         if retry and existing.dead_lettered_at and operation.state == "failed":
             existing.dead_lettered_at = None
             existing.available_after = None

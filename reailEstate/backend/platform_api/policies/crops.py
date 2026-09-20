@@ -31,8 +31,11 @@ def crop_destination(project):
 
 
 def authorize_crops(actor, project):
-    """Apply the existing staff/change-floorplan and active-project crop gates."""
-    if not actor or not actor.is_active or not actor.is_staff or not actor.has_perm("platform_api.change_floorplan"):
+    """Allow platform editors or scoped organization builders on active projects."""
+    from ..builder_access import builder_can_manage
+    if not actor or not actor.is_active:
+        raise PermissionDenied
+    if not (actor.is_staff and actor.has_perm("platform_api.change_floorplan")) and not builder_can_manage(actor, project):
         raise PermissionDenied
     if project.status in {"retired", "merged"}:
         raise ValueError("Use an active project for crop additions.")

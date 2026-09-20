@@ -352,6 +352,71 @@ def test_project_gallery_permissions_and_direct_images(client, records, django_u
         assert client.get(reverse("floor-plan-asset-media", args=[assets[0].pk])).status_code == 404
 
 
+@pytest.mark.parametrize("can_review", [False, True])
+def test_project_gallery_links_only_eligible_derived_layouts_across_pages(client, records, monkeypatch, can_review):
+    from platform_api.views import BuyerCursorPagination
+
+    owner, project, plans, assets = records
+    project.status = "published"
+    project.save()
+    document = plans[0].document
+    document.scan_status = "clean"
+    document.save()
+    for plan in plans[:2]:
+        plan.review_state = "approved"
+        plan.save()
+    # Two distinct floor-plan images on the same page must not share their units.
+    assets[1].page_number = plans[1].page_number = 1
+    assets[1].save()
+    plans[1].save()
+
+    def unit(source, *, state="approved", active=True, raw_source=False):
+        asset = FloorPlanAsset.objects.create(
+            project=project, document=document, workflow_run=plans[0].workflow_run,
+            page_number=source.page_number, asset_type="unit_crop", object_key=f"derived/{uuid4()}.png",
+            byte_length=1, sha256=uuid4().hex * 2, pixel_width=100, pixel_height=100,
+            detector_version="test", source_bounds={"category": "layouts", **(
+                {} if raw_source else {"sourceAssetId": str(source.pk)}
+            )},
+        )
+        return FloorPlan.objects.create(
+            project=project, document=document, workflow_run=plans[0].workflow_run,
+            asset=asset, page_number=asset.page_number, plan_scope="flat",
+            plan_name=str(uuid4()), display_name="Shared alias", review_state=state, active=active,
+            raw_extraction={"boundingBox": {"sourceAssetId": str(source.pk)}} if raw_source else {},
+        )
+
+    first = unit(assets[0])
+    second = unit(assets[1])
+    historical = unit(assets[0], state="replaced_by_user")
+    recropped = unit(historical.asset, raw_source=True)
+    pending = unit(assets[0], state="needs_review")
+    unit(assets[0], state="rejected")
+    unit(assets[0], active=False)
+    bad_page = unit(assets[0])
+    bad_page.page_number = 3
+    bad_page.asset.page_number = 3
+    bad_page.asset.save()
+    bad_page.save()
+    if can_review:
+        client.force_login(owner)
+    monkeypatch.setattr(BuyerCursorPagination, "page_size", 1)
+    next_url = reverse("project-gallery", args=[project.pk])
+    items = {}
+    while next_url:
+        response = client.get(next_url)
+        assert response.status_code == 200
+        body = response.json()
+        items.update({item["id"]: item for item in body["results"]})
+        next_url = body["next"]
+    expected = {str(first.pk), str(recropped.pk)}
+    if can_review:
+        expected.add(str(pending.pk))
+    assert set(items[str(assets[0].pk)]["layoutIds"]) == expected
+    assert items[str(assets[1].pk)]["layoutIds"] == [str(second.pk)]
+    assert "sourceAssetId" not in str(items) and "documentId" not in str(items)
+
+
 def test_project_gallery_pagination_and_scan_guards(client, records, monkeypatch):
     from platform_api.views import BuyerCursorPagination
 

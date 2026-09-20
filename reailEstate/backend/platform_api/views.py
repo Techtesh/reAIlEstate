@@ -105,12 +105,10 @@ def _is_reviewer(user):
 
 
 def _project_can_edit(user, project):
-    return user.is_staff or OrganizationMembership.objects.filter(
-        organization=project.organization,
-        user=user,
-        status="active",
-        role__in=["owner", "editor"],
-    ).exists()
+    from .builder_access import builder_can_manage
+
+    return bool(user and user.is_authenticated and user.is_active
+                and (user.is_staff or builder_can_manage(user, project)))
 
 
 def _is_project_member(user, project):
@@ -119,6 +117,11 @@ def _is_project_member(user, project):
         user=user,
         status="active",
     ).exists()
+
+
+def _require_active_project(project):
+    if project.status in {"retired", "merged"} or Project.objects.filter(pk=project.pk, merge_out__state="applied").exists():
+        raise ValidationError({"project": [{"code": "INACTIVE_PROJECT"}]})
 
 
 def _owned_profile(user, profile_id):
@@ -189,6 +192,9 @@ class SessionLoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
+    def login_allowed(self, user):
+        return user is not None and user.is_active
+
     def get(self, request):
         get_token(request)
         response = Response({"status": "ready"})
@@ -199,7 +205,7 @@ class SessionLoginView(APIView):
         username = str(request.data.get("username", ""))
         password = str(request.data.get("password", ""))
         user = authenticate(request, username=username, password=password)
-        if user is None or not user.is_active:
+        if not self.login_allowed(user):
             raise PermissionDenied("Invalid credentials.", code="invalid_credentials")
         login(request, user)
         audit(request, "session.login")
@@ -535,6 +541,9 @@ class ProjectGalleryView(APIView):
                 "orientation": plan.orientation, "reviewState": plan.review_state,
             })
         items = []
+        from .floor_plan_visibility import gallery_layout_ids
+
+        layout_ids = gallery_layout_ids(project, page, can_review=allow_unreviewed)
         for asset in page:
             associated = layouts.get(asset.pk, [])
             category = asset.source_bounds.get("category", "") if isinstance(asset.source_bounds, dict) else ""
@@ -543,6 +552,7 @@ class ProjectGalleryView(APIView):
             items.append({"id": str(asset.pk), "url": reverse("floor-plan-asset-media", args=[asset.pk]),
                 "category": category, "title": associated[0]["name"] if associated else f"Project image {asset.page_number or ''}".strip(),
                 "width": asset.pixel_width, "height": asset.pixel_height, "layouts": associated,
+                "layoutIds": layout_ids[str(asset.pk)],
                 "reviewState": "approved" if associated and all(plan["reviewState"] == "approved" for plan in associated) else "unreviewed"})
         response = paginator.get_paginated_response(items)
         response.data["access"] = "preview" if settings.PROJECT_PUBLIC_PREVIEW_ENABLED else "review" if can_review else "published" if project.status == "published" else "restricted"
@@ -582,13 +592,27 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if self.request.user.is_staff:
             return Organization.objects.all()
-        return Organization.objects.filter(memberships__user=self.request.user, memberships__status="active").distinct()
+        return Organization.objects.filter(status="active", memberships__user=self.request.user, memberships__status="active").distinct()
+
+    def _require_platform_admin(self):
+        if not self.request.user.is_staff:
+            raise PermissionDenied("Organizations and memberships are provisioned by a platform administrator.")
 
     @transaction.atomic
     def perform_create(self, serializer):
+        self._require_platform_admin()
         organization = serializer.save()
         OrganizationMembership.objects.create(organization=organization, user=self.request.user, role="owner", status="active")
         audit(self.request, "organization.created", organization)
+
+    def perform_update(self, serializer):
+        self._require_platform_admin()
+        organization = serializer.save()
+        audit(self.request, "organization.updated", organization)
+
+    def perform_destroy(self, instance):
+        self._require_platform_admin()
+        super().perform_destroy(instance)
 
 
 class DeveloperProjectCreateView(APIView):
@@ -596,15 +620,18 @@ class DeveloperProjectCreateView(APIView):
 
     @transaction.atomic
     def post(self, request, organization_id):
-        organization = get_object_or_404(Organization, id=organization_id)
+        organization = get_object_or_404(Organization, id=organization_id, status="active")
         if not request.user.is_staff and not OrganizationMembership.objects.filter(organization=organization, user=request.user, status="active", role__in=["owner", "editor"]).exists():
             raise PermissionDenied()
-        serializer = ProjectCreateSerializer(data=request.data)
+        return self.create_project(request, organization, request.data)
+
+    def create_project(self, request, organization, data):
+        serializer = ProjectCreateSerializer(data=data)
         serializer.is_valid(raise_exception=True)
         maha_id = normalize_maha_rera_id(serializer.validated_data["maha_rera_id"])
         duplicate = Project.objects.filter(maha_rera_id=maha_id).first()
         if duplicate:
-            return Response({"code": "DUPLICATE_PROJECT", "candidate": {"id": str(duplicate.id), "name": duplicate.submitted_name, "status": duplicate.status}}, status=status.HTTP_409_CONFLICT)
+            return Response({"code": "DUPLICATE_PROJECT"}, status=status.HTTP_409_CONFLICT)
         project = serializer.save(organization=organization, maha_rera_id=maha_id, locality=serializer.validated_data.get("address", {}).get("locality", ""), status="verifying")
         VerificationSnapshot.objects.create(
             project=project,
@@ -631,6 +658,7 @@ class UploadIntentView(APIView):
         project = get_object_or_404(Project, id=project_id)
         if not _project_can_edit(request.user, project):
             raise PermissionDenied()
+        _require_active_project(project)
         filename = Path(str(request.data.get("filename", ""))).name
         media_type = str(request.data.get("declaredMediaType", ""))
         byte_length = request.data.get("byteLength")
@@ -642,18 +670,35 @@ class UploadIntentView(APIView):
             raise ValidationError({"byteLength": [{"code": "OUT_OF_RANGE"}]})
         if len(sha256) != 64 or any(char not in "0123456789abcdef" for char in sha256):
             raise ValidationError({"sha256": [{"code": "INVALID_SHA256"}]})
-        document = EvidenceDocument.objects.create(
+        document, created = EvidenceDocument.objects.get_or_create(
             project=project,
-            object_key=f"user/media/todo/{project.id}/{secrets.token_urlsafe(24)}{suffix}",
-            original_name=filename,
-            declared_media_type=media_type,
-            byte_length=byte_length,
             sha256=sha256,
-            status="awaiting_upload",
-            uploaded_by=request.user,
-            retention_until=timezone.now() + timedelta(days=getattr(settings, "REJECTED_UPLOAD_RETENTION_DAYS", 7)),
+            defaults={
+                "object_key": f"user/media/todo/{project.id}/{secrets.token_urlsafe(24)}{suffix}",
+                "original_name": filename,
+                "declared_media_type": media_type,
+                "byte_length": byte_length,
+                "status": "awaiting_upload",
+                "uploaded_by": request.user,
+                "retention_until": timezone.now() + timedelta(days=getattr(settings, "REJECTED_UPLOAD_RETENTION_DAYS", 7)),
+            },
         )
-        audit(request, "document.intent_created", document, metadata={"mediaType": media_type, "bytes": byte_length})
+        if not created:
+            if document.byte_length != byte_length or document.declared_media_type != media_type:
+                raise ValidationError({"detail": "This file hash already exists with different upload metadata."})
+            if document.status != "awaiting_upload":
+                return Response({
+                    "type": "https://realestate.invalid/problems/document-already-exists",
+                    "title": "Document already exists", "status": 409, "code": "DOCUMENT_ALREADY_EXISTS",
+                    "errors": {
+                        "code": "DOCUMENT_ALREADY_EXISTS", "documentId": str(document.pk),
+                        "detail": f'This file already exists in this project as "{document.original_name}" '
+                                  f'(status: {document.status}). Refresh documents to see its progress; '
+                                  "uploading it again will not restart processing.",
+                    },
+                }, status=status.HTTP_409_CONFLICT)
+        else:
+            audit(request, "document.intent_created", document, metadata={"mediaType": media_type, "bytes": byte_length})
         return Response({
             "documentId": str(document.id),
             "uploadAction": f"/api/v1/developer-projects/{project.id}/documents/{document.id}/content",
@@ -661,7 +706,7 @@ class UploadIntentView(APIView):
             "requiredHeaders": {"Content-Type": media_type},
             "maximumSize": MAX_UPLOAD_BYTES,
             "expiresAt": timezone.now() + timedelta(minutes=10),
-        }, status=status.HTTP_201_CREATED)
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
 class DocumentContentUploadView(APIView):
@@ -673,6 +718,7 @@ class DocumentContentUploadView(APIView):
         document = get_object_or_404(EvidenceDocument.objects.select_for_update(), id=document_id, project_id=project_id, status="awaiting_upload")
         if not _project_can_edit(request.user, document.project):
             raise PermissionDenied()
+        _require_active_project(document.project)
         uploaded = request.data.get("file")
         if uploaded is None:
             raise ValidationError({"file": [{"code": "REQUIRED"}]})
@@ -698,6 +744,7 @@ class DocumentCompleteView(APIView):
         document = get_object_or_404(EvidenceDocument.objects.select_for_update(), id=document_id, project_id=project_id)
         if not _project_can_edit(request.user, document.project):
             raise PermissionDenied()
+        _require_active_project(document.project)
         key, existing = _idempotent_response(request, f"document-complete:{document_id}")
         if existing:
             return Response(existing.response_body, status=existing.response_status)
@@ -734,6 +781,7 @@ class ProjectIngestionQueueView(APIView):
         project = get_object_or_404(Project, id=project_id)
         if not _project_can_edit(request.user, project):
             raise PermissionDenied()
+        _require_active_project(project)
         limit = request.data.get("limit", 10)
         if type(limit) is not int or not 1 <= limit <= 20:
             raise ValidationError({"limit": [{"code": "OUT_OF_RANGE"}]})
@@ -915,9 +963,10 @@ class DeveloperSubmitReviewView(APIView):
 
     @transaction.atomic
     def post(self, request, project_id):
-        project = get_object_or_404(Project, id=project_id)
+        project = get_object_or_404(Project.objects.select_for_update(), id=project_id)
         if not _project_can_edit(request.user, project):
             raise PermissionDenied()
+        _require_active_project(project)
         if not project.processing_attested:
             raise ValidationError({"processingAttestation": [{"code": "REQUIRED"}]})
         if not project.verification_snapshots.exists():
@@ -1422,6 +1471,7 @@ class MarkDocumentLayoutPageView(APIView):
         document = get_object_or_404(EvidenceDocument, id=document_id, project_id=project_id)
         if not _project_can_edit(request.user, document.project):
             raise PermissionDenied()
+        _require_active_project(document.project)
         page_number = request.data.get("pageNumber")
         if isinstance(page_number, bool) or not isinstance(page_number, int) or page_number < 1:
             raise ValidationError({"pageNumber": [{"code": "INVALID_PAGE_NUMBER"}]})
@@ -1462,6 +1512,7 @@ class ProjectReanalysisView(APIView):
         project = get_object_or_404(Project, id=project_id)
         if not _project_can_edit(request.user, project):
             raise PermissionDenied()
+        _require_active_project(project)
         queued = queue_project_reanalysis(
             project, request.user, failed_only=request.data.get("failedOnly", False) is True,
             vision_profile_id=request.data.get("visionProfileId"),
@@ -1495,6 +1546,7 @@ class ReprocessDocumentAdminView(APIView):
         document = get_object_or_404(documents, id=document_id)
         if not _project_can_edit(request.user, document.project):
             raise PermissionDenied()
+        _require_active_project(document.project)
         key, existing = _idempotent_response(request, f"document-reprocess:{document_id}")
         if existing:
             return Response(existing.response_body, status=existing.response_status)

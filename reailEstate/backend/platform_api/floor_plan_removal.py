@@ -41,6 +41,9 @@ def normalize_plan_ids(plan_ids):
 
 
 def authorize_plan_removal(actor, project):
+    from .builder_access import builder_can_manage
+    if builder_can_manage(actor, project) and project.status not in {"retired", "merged"}:
+        return
     # Staff have global project access in this application's authorization model.
     # Still require project access AND the explicit model change permission.
     if not actor or not actor.is_active or not actor.is_staff or not actor.has_perm(

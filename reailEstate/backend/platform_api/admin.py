@@ -9,6 +9,8 @@ from urllib.parse import urlencode
 
 from django import forms
 from django.contrib import admin, messages
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin
 from django.contrib.admin.options import IncorrectLookupParameters
 from django.contrib.admin.views.main import ChangeList
 from django.core.exceptions import SuspiciousOperation
@@ -72,6 +74,26 @@ from .project_layout_health import (
 )
 
 
+class BuilderMembershipInline(admin.TabularInline):
+    model = OrganizationMembership
+    fields = ("organization", "role", "status")
+    extra = 1
+    verbose_name = "organization membership"
+    verbose_name_plural = "Builder organization access (active owner/editor required)"
+
+
+User = get_user_model()
+admin.site.unregister(User)
+
+
+@admin.register(User)
+class WorkspaceUserAdmin(UserAdmin):
+    inlines = (BuilderMembershipInline,)
+
+    def get_inline_instances(self, request, obj=None):
+        return super().get_inline_instances(request, obj) if obj else []
+
+
 @admin.register(StationCandidate)
 class StationCandidateAdmin(admin.ModelAdmin):
     list_display = ("name", "line", "kind", "latitude", "longitude", "needs_review", "active", "issue")
@@ -98,16 +120,8 @@ class LayoutPriceForm(forms.Form):
 
 
 def project_price_label(project):
-    from .layout_pricing import project_price_range
-
-    if not project or not project.pk:
-        return "contact to know"
-    minimum, maximum = project_price_range(project, can_review=True)
-    if minimum is None:
-        return "contact to know"
-    if minimum == maximum:
-        return f"INR {minimum:,.2f}"
-    return f"INR {minimum:,.2f} - INR {maximum:,.2f}"
+    from .layout_pricing import project_price_label as label
+    return label(project)
 
 
 def _asset_preview(asset):
@@ -995,20 +1009,25 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
 
     def jobs_view(self, request):
         from django.core.exceptions import ValidationError
-        from .queue_monitor import delete_dead_letter, queue_snapshot
+        from .queue_monitor import delete_dead_letter, queue_snapshot, requeue_dead_letter
         if request.method == "POST":
-            if request.POST.get("action") != "delete_dead_letter":
+            action = request.POST.get("action")
+            if action not in {"delete_dead_letter", "requeue_dead_letter"}:
                 from django.http import HttpResponseBadRequest
                 return HttpResponseBadRequest("Unknown queue action.")
             try:
-                delete_dead_letter(request.user, request.POST.get("message_id"), request.POST.get("version"),
-                                  confirmed=request.POST.get("confirm_delete") == "yes")
+                if action == "requeue_dead_letter":
+                    requeue_dead_letter(request.user, request.POST.get("message_id"), request.POST.get("version"))
+                else:
+                    delete_dead_letter(request.user, request.POST.get("message_id"), request.POST.get("version"),
+                                      confirmed=request.POST.get("confirm_delete") == "yes")
             except ValidationError as exc:
                 messages.error(request, " ".join(exc.messages))
             except WorkAlreadyClaimed:
-                messages.warning(request, "A worker has claimed this job. Reload before deleting it.")
+                messages.warning(request, "A worker has claimed this job. Reload before changing it.")
             else:
-                messages.success(request, "Dead-letter job deleted. Project data and audit history were retained.")
+                messages.success(request, "Dead-letter job requeued." if action == "requeue_dead_letter" else
+                                 "Dead-letter job deleted. Project data and audit history were retained.")
             return HttpResponseRedirect(reverse("admin:platform_api_project_jobs"))
         response = TemplateResponse(request, "admin/platform_api/queue_monitor.html", {
             **self.admin_site.each_context(request), "opts": self.model._meta,
@@ -1194,6 +1213,7 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                 response["Cache-Control"] = "private, no-store"
                 return response
             if action == "set_plan_active":
+                from .floor_plan_activity import set_plan_active_locked
                 from django.db import transaction
                 from django.http import JsonResponse
                 from django.shortcuts import get_object_or_404
@@ -1213,11 +1233,7 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                             return response
                         messages.error(request, "The plan changed or the project is retired. Reload before saving.")
                     else:
-                        plan.active = request.POST.get("active") == "true"
-                        plan.save(update_fields=["active", "updated_at"])
-                        AuditEvent.objects.create(actor=request.user, action="floor_plan.active_changed",
-                            entity_type="FloorPlan", entity_id=plan.pk, correlation_id=uuid4(),
-                            metadata={"active": plan.active})
+                        set_plan_active_locked(plan, request.POST.get("active") == "true", request.user)
                         if asynchronous:
                             related = list(visible_floor_plans(FloorPlan.objects.filter(project_id__in=project_family_ids(project),
                                 document_id=plan.document_id, page_number=plan.page_number)))
@@ -1600,13 +1616,19 @@ class ProjectMergeAdmin(admin.ModelAdmin):
         return False
 
 
+@admin.register(Organization)
+class OrganizationAdmin(admin.ModelAdmin):
+    list_display = ("legal_name", "status", "verification_state", "confirm_name_changes")
+    list_filter = ("status", "verification_state", "confirm_name_changes")
+    search_fields = ("legal_name",)
+
+
 for model in [
     Amenity,
     AuditEvent,
     Consent,
     FactCandidate,
     FeatureFlag,
-    Organization,
     OrganizationMembership,
     ProjectFact,
     RecommendationSnapshot,

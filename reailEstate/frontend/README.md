@@ -29,6 +29,156 @@ entered before signing in. Discover and Browse, published listing details, filte
 and station layers are public. Saved requirements, matches, shortlists and comparisons
 require sign-in. Guest detail responses contain listing fields only, not internal evidence.
 
+## Builder workspace
+
+The homepage **Sign in** dialog asks the user to select **Buyer** or **Builder**
+before entering credentials. Buyer uses the normal account login; Builder uses the
+membership-aware builder login and routes directly to the builder workspace.
+Choosing Builder does not grant access: the backend still requires an active
+owner/editor organization membership. Signed-in users can click their username
+to choose again; the builder header also offers **Switch workspace**.
+
+Open `/builder/login` (also linked from the public footer) for the dedicated builder
+sign-in experience. `/builder` restores the current session on reload without loading
+the buyer workspace. A platform administrator provisions accounts and owner/editor
+memberships in active organizations; there is no public sign-up or membership management.
+Buyer or staff status alone does not grant builder access.
+Builder sign-in distinguishes incorrect credentials from a correct password with
+missing organization access. Administrators can add memberships with organization,
+role and status dropdowns on the saved user's admin edit page.
+
+Select an organization to create or edit projects, including MahaRERA registration
+(validated and normalized by the backend), address and processing attestation. New
+projects begin in verification. Project organization
+and publication status are server-managed. Layout names and optional positive total
+INR prices can be edited; changing published data requires independent review.
+Conflicting edits retain local entries and block saving until an explicit reload.
+Archiving requires confirmation, retires the project and does not delete evidence.
+
+The **Project media workspace** has tabs in this order: **Project images**,
+**Amenities**, **Floor plans**, **Layouts**. It provides private previews, a
+carousel, a layout review table, and the existing alias/total-INR-price editors.
+The top-right **Open image in new tab** icon opens the selected preview or crop
+draft at full size without leaving the workspace or discarding edits. The crop
+editor also links to the original source page in a new tab. These links retain
+the existing same-origin, authenticated media access; opening them does not
+save changes or start extraction.
+Carpet area in square feet, configuration and review state remain read-only.
+The **Layouts** tab uses an admin-style searchable, sortable list on the left and
+the selected layout's image, controls, room measurements, name and price on the
+right. On narrow screens the list stacks above the details. Switching layouts
+keeps unsaved price edits, which are marked in the directory.
+Room length/width (feet), calculated area (square feet), configuration, room counts,
+features and extraction provenance are shown from saved evaluation results.
+Room rectangle totals are not carpet area. Unknown measurements are not shown as zero.
+Per-layout evaluation state uses the same checksum-bound status logic as admin:
+queued, extracting, failed, completed without dimensions, or completed awaiting
+review. Failed crops explain their error and offer a confirmed retry; queued or
+running jobs cannot be queued again from the button. **Refresh media and jobs**
+loads new results without starting extraction or changing the selected layout.
+There are no admin links or publish/approve controls.
+Click the title or pencil beneath a floor-plan or layout preview to edit its name
+in place. Enter or the checkmark saves immediately by default. Administrators can
+enable **Confirm name changes** on an organization to require the extra confirmation
+for its projects. This organization setting defaults to false and affects only
+name updates, not destructive actions or AI cost confirmations. Escape or
+the cancel icon discards the name edit. Blank names are rejected. Price editing
+remains separate, without a duplicate name textbox. Unsaved inline names prompt
+before changing previews or categories; failed saves and refreshes retain the draft.
+Project pictures can be chosen from available previews, uploaded as a validated
+PNG/JPEG/WebP (up to 10 MB), or reset to the automatic first-page cover. Picture
+changes are confirmed, version-checked and require independent review.
+
+**Crop source page** lets a builder choose a source document and page; **Crop this
+image** preselects the displayed item's source. The crop editor opens directly
+below the image gallery, before layout tables or draft management. Draw a rectangle or enter X/Y/width/
+height percentages and a label. **Save crop draft** sends normalized fractional
+bounds, category, source SHA-256, selected quarter-turn rotation and a UUID request ID; it stages a draft
+without running AI. The crop request ID survives explicit retries and media refreshes
+until a crop field changes. Missing/corrupt sources expose the server's error and
+cannot be selected for cropping; a zero page count also disables cropping.
+Amenities crops retain their category instead of becoming layouts. Generated crop
+labels fit the 64-character limit. Saving an untouched whole page gives actionable
+feedback rather than sending an invalid crop request.
+Under **Floor plans**, choose **Manually crop layouts** to outline multiple layouts
+on the selected floor plan's original source page. Draw rectangles consecutively:
+starting a new rectangle automatically retains the previous one, without requiring
+**Add layout crop** or a label between gestures (up to 20 rectangles per save).
+Default labels can be edited in the retained-crop list or the current **Crop label**
+field. **Add layout crop** remains available when entering percentage bounds.
+Numbered outlines and a removable list keep track of unsaved selections. **Save layout drafts**
+saves all added rectangles plus the current labeled rectangle in one request,
+always in the layouts category and without modifying the floor plan or running AI.
+Manual rectangles may overlap to include shared walls and adjacent homes; the
+automatic extraction overlap check is not applied to user-selected crops.
+Each new rectangle covers 1-70% of the source page.
+Validation and server failures appear beside the Save button;
+failed saves keep all local rectangles and do not create drafts.
+Select the saved drafts below and use **Attach selected drafts** to confirm
+evaluation through the standard pipeline. **Extract layouts** remains the
+separate automatic extraction action.
+The source editor also offers **Add full page as floor plan** and **Add full page
+as amenities**. These use the entire verified page, not the crop rectangle, and
+queue the standard processing pipeline only after explicit cost confirmation.
+Select saved drafts and an optional evaluation profile, then explicitly confirm
+model costs to attach them in their selected category and queue normal evaluation. Discarding
+selected drafts also requires confirmation and does not remove source evidence.
+**Re-evaluate layout** queues one version-checked layout evaluation only after
+explicit cost confirmation. Source-page bulk additions are not exposed by this UI.
+**Reset / update crop** stages a change to the existing floor plan or layout;
+committing retains its identity and alias rather than adding a duplicate.
+The plan-management controls support activation/deactivation, reversible removal,
+restoration, and explicitly replacing selected layouts with selected crop drafts.
+Deactivating a floor plan also deactivates its derived layouts. Activating the floor
+plan later does not automatically reactivate layouts.
+Layout rotation/normalization, floor-plan layout extraction, saved-amenity
+evaluation, and all/failed-document reprocessing use the existing backend pipelines.
+No browser action launches a worker or approves/publishes its results.
+
+Media uses organization-authorized `/api/v1/builder/projects/{id}/media` APIs.
+Source-page PNGs and draft previews are same-origin private resources. Writes
+refresh media; the jobs panel shows five entries at a time with keyboard-accessible
+scrolling for the remaining jobs. **Refresh media and jobs** checks progress without polling or
+retrying mutations. Attach/discard/evaluation confirmations carry a UUID request ID.
+Failed action retries retain that ID across refresh/reconfirmation only for the same
+endpoint and payload; changed profiles, versions, selections or action kinds receive
+a new ID. Successful actions clear the retry ID.
+Access failures clear the private session through the shared API helper. Conflicts
+preserve local entries and require a refresh and a new action selection.
+Unsaved project or layout edits block media mutations, and tab switches and media
+refreshes preserve layout/crop entries. Switching projects/organizations prompts
+before discarding local edits; reloading the project explicitly discards its local
+project, layout and crop entries together. Retired/merged projects and a false
+media `canEdit` are read-only.
+
+Upload PDF, PNG, JPEG or WEBP evidence from a saved project's document section.
+The browser computes SHA-256, requests a same-origin upload intent, transfers the
+binary with the supplied media type, and completes it with a stable idempotency key.
+Failed transfer/completion retries resume the same document rather than automatically
+creating duplicates. If the initial intent response was lost, refresh documents before
+explicitly retrying the intent. Canceling a local upload does not delete server evidence.
+No document contents, passwords, memberships or project drafts are put in browser storage.
+Logging out or losing session access clears the private workspace and cancels requests.
+
+**Submit for review** requires saved attestation, evidence and a registry verification
+attempt. The portal queues processing/review only: it never starts workers or
+direct model calls. Explicitly confirmed media actions queue evaluation for backend
+workers; builders cannot publish their own submissions.
+
+Focused browser regressions use mocked APIs and do not mutate backend data:
+
+```powershell
+npm --prefix reailEstate/frontend run build
+npm --prefix reailEstate/frontend run test:e2e -- tests/builder.spec.ts
+```
+
+Coverage includes login/access checks, organization isolation, create/edit conflicts,
+layout pricing, upload retry and origin validation, archive/review validation, media
+tabs/previews, normalized crop staging, draft attachment/discard and evaluation
+confirmation, read-only scope, stale requests, dirty-form preservation, session expiry,
+logout and 320/390px layouts. Run the existing buyer suite separately to verify
+public browsing and gallery behavior remains unchanged.
+
 ## Layout pricing
 
 Project cards, details, comparisons and shortlists display the API's
@@ -39,7 +189,9 @@ are not used as a fallback. Each layout in the gallery shows its own total price
 Project names are the card headings; prices are secondary. Browse's compact results
 bar keeps the count, processing toggle and sorting without a large title banner.
 
-Enter prices in **Django admin -> Project media -> Layouts -> Total price (INR)**.
+Organization owners/editors can enter prices under **Builder workspace -> Project ->
+Layout names and prices**. Platform administrators can also use **Django admin ->
+Project media -> Layouts -> Total price (INR)**.
 Prices are optional positive amounts with up to two decimal places. The range
 uses eligible active layouts and follows the existing review/public-preview
 policy. Prices may exclude taxes and other charges.
@@ -49,6 +201,11 @@ layouts with the same BHK type. Carpet area, price, and the backend-calculated r
 area total are separate columns. The calculated total sums available room rectangles;
 it may include decks/overlaps and must not be interpreted as carpet area. Missing
 carpet area remains unknown even when room dimensions are available.
+The comparison table follows the media-type selector: **All media** and **Project
+images** show every eligible layout; **Floor plans** shows only layouts linked to
+the currently selected floor-plan image through saved source-image ancestry.
+Switching floor-plan images updates the rows. **Unit layouts** and **Amenities**
+hide this table; individual layout measurements remain available in the gallery.
 
 ## Matching Worker
 

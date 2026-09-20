@@ -9,6 +9,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .business_ingestion import extract_project_knowledge
+from .builder_scan_policy import scan_builder_document
 from .floor_plan_vision import get_floor_plan_vision_provider, resolve_vision_selection
 from .integrations import ProviderUnavailable, get_document_scanner
 from .models import EvidenceDocument, ExtractionJob, InboxMessage, Operation, OutboxMessage, RecommendationSnapshot, RequirementVersion, ReviewTask
@@ -98,8 +99,7 @@ def _process_document(document_id, scanner=None, extractor=None, vision_selectio
                     operation.error_code = "MEDIA_TYPE_MISMATCH"
                     operation.save(update_fields=["state", "error_code", "updated_at"])
                 return document
-            event("malware_scan")
-            scan_result = scanner.scan(content)
+            scan_result = scan_builder_document(document, content, scanner)
             if scan_result != "clean":
                 document.scan_status = "rejected"
                 document.status = "rejected"

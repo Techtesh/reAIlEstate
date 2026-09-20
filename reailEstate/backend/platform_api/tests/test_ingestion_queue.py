@@ -529,9 +529,13 @@ def test_project_queue_processes_synchronously_with_limit_and_project_scope(
 
 
 @pytest.mark.parametrize("profile_id,new_default", [("local", "cloud"), ("cloud", "local")])
+@pytest.mark.parametrize("trust_builder", [False, True])
 def test_worker_uses_saved_selection_after_default_changes_and_deduplicates(
-    document_factory, settings, pipeline_mocks, profile_id, new_default,
+    document_factory, settings, pipeline_mocks, profile_id, new_default, trust_builder,
 ):
+    settings.LOCAL_TRUST_BUILDER_UPLOADS = trust_builder
+    settings.DEBUG = True
+    settings.ENVIRONMENT = "development"
     # Exercise the worker independently of URL loading and request-side behavior.
     document = document_factory(status="quarantined")
     ExtractionJob.objects.create(document=document, extractor_version="extractor-1.0", status="awaiting_scan")
@@ -576,7 +580,13 @@ def test_worker_uses_saved_selection_after_default_changes_and_deduplicates(
         run, content=content, media_type="text/markdown", vision_provider=sentinel.selected_provider,
     )
     assert pipeline_mocks.ingest_document.call_count == 1
-    scanner.scan.assert_called_once()
+    if trust_builder:
+        scanner.scan.assert_not_called()
+        assert AuditEvent.objects.filter(
+            action="document.malware_scan_skipped", entity_id=document.pk, metadata__malwareScanned=False,
+        ).count() == 1
+    else:
+        scanner.scan.assert_called_once()
     pipeline_mocks.get_document_scanner.assert_not_called()
     document.refresh_from_db()
     assert document.status == "needs_review"
@@ -595,3 +605,58 @@ def test_worker_uses_saved_selection_after_default_changes_and_deduplicates(
     assert factory.call_args_list == [call(saved_selection)]
     assert pipeline_mocks.extract_project_knowledge.call_count == 1
     assert InboxMessage.objects.filter(consumer="platform-worker", message_id=message.id).count() == 1
+
+
+@pytest.mark.parametrize("debug,environment", [(False, "development"), (True, "production"), (True, "staging")])
+def test_builder_scan_exception_is_rejected_outside_local_debug(document_factory, settings, debug, environment):
+    from io import BytesIO
+    from django.core.exceptions import ImproperlyConfigured
+    from platform_api.builder_scan_policy import scan_builder_document
+
+    settings.LOCAL_TRUST_BUILDER_UPLOADS = True
+    settings.DEBUG = debug
+    settings.ENVIRONMENT = environment
+    with pytest.raises(ImproperlyConfigured):
+        scan_builder_document(document_factory(), BytesIO(b"source"), Mock())
+    assert not AuditEvent.objects.filter(action="document.malware_scan_skipped").exists()
+
+
+@pytest.mark.parametrize("restriction", ["disabled", "viewer", "inactive", "wrong_org", "rejected"])
+def test_builder_scan_exception_does_not_accept_other_uploads(document_factory, settings, restriction):
+    from io import BytesIO
+    from platform_api.builder_scan_policy import scan_builder_document
+
+    settings.LOCAL_TRUST_BUILDER_UPLOADS = restriction != "disabled"
+    settings.DEBUG = True
+    settings.ENVIRONMENT = "local"
+    document = document_factory()
+    membership = OrganizationMembership.objects.get(user=document.uploaded_by)
+    if restriction == "viewer":
+        membership.role = "viewer"
+    elif restriction == "inactive":
+        membership.status = "inactive"
+    elif restriction == "wrong_org":
+        membership.organization = Organization.objects.create(legal_name="Other builder")
+    elif restriction == "rejected":
+        document.scan_status = "rejected"
+    membership.save()
+    scanner = Mock()
+    scanner.scan.return_value = "infected"
+    assert scan_builder_document(document, BytesIO(b"source"), scanner) == "infected"
+    assert not AuditEvent.objects.filter(action="document.malware_scan_skipped").exists()
+    if restriction != "rejected":
+        scanner.scan.assert_called_once()
+
+
+def test_trusted_builder_upload_still_checks_source_integrity(document_factory, settings):
+    settings.LOCAL_TRUST_BUILDER_UPLOADS = True
+    settings.DEBUG = True
+    settings.ENVIRONMENT = "local"
+    document = document_factory(status="quarantined")
+    document.sha256 = "0" * 64
+    document.save()
+    scanner = Mock()
+    result = workers.process_document(document.pk, scanner=scanner)
+    assert result.status == "rejected" and result.error_category == "SOURCE_INTEGRITY_MISMATCH"
+    scanner.scan.assert_not_called()
+    assert not AuditEvent.objects.filter(action="document.malware_scan_skipped").exists()

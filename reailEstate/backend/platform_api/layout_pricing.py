@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404
 from .floor_plan_visibility import visible_floor_plans
 from .models import AuditEvent, FloorPlan, Project, ReviewTask
 from .project_lifecycle import project_family_ids
+from .builder_access import builder_can_manage
 
 
 def pricing_layouts(*, can_review=False):
@@ -54,11 +55,24 @@ def annotate_project_prices(queryset, *, can_review=False):
     )
 
 
+def project_price_label(project):
+    """Private editing-workspace label, including layouts awaiting review."""
+    if not project or not project.pk:
+        return "contact to know"
+    minimum, maximum = project_price_range(project, can_review=True)
+    if minimum is None:
+        return "contact to know"
+    if minimum == maximum:
+        return f"INR {minimum:,.2f}"
+    return f"INR {minimum:,.2f} - INR {maximum:,.2f}"
+
+
 @transaction.atomic
 def save_layout_price(project, floor_plan_id, price, actor, *, expected_updated_at):
-    if not (actor and actor.is_authenticated and actor.is_active and actor.is_staff
+    staff_allowed = bool(actor and actor.is_authenticated and actor.is_active and actor.is_staff
             and actor.has_perm("platform_api.change_floorplan")
-            and actor.has_perm("platform_api.change_project")):
+            and actor.has_perm("platform_api.change_project"))
+    if not staff_allowed and not builder_can_manage(actor, project):
         raise PermissionDenied("Changing layout prices requires project and floor-plan change permissions.")
     project = Project.objects.select_for_update().get(pk=project.pk)
     if project.status in {"retired", "merged"}:
@@ -67,7 +81,7 @@ def save_layout_price(project, floor_plan_id, price, actor, *, expected_updated_
         plan_id = UUID(str(floor_plan_id))
     except (ValueError, TypeError, AttributeError) as exc:
         raise ValidationError("Select a valid layout.") from exc
-    family = project_family_ids(project)
+    family = project_family_ids(project) if staff_allowed else [project.pk]
     plan = get_object_or_404(FloorPlan.objects.select_for_update(), pk=plan_id,
                             project_id__in=family, document__project_id__in=family)
     if expected_updated_at is None or plan.updated_at != expected_updated_at:

@@ -340,8 +340,8 @@ async function mockGallery(page: Page) {
   const state = { fail: false, imageFail: false, empty: false, access: 'published', project: undefined as Project | undefined, items, pages: [] as string[] }
   await page.route('**/api/v1/projects/*/gallery*', route => {
     const url = new URL(route.request().url()); state.pages.push(url.search)
-    const second = url.searchParams.has('cursor')
-    return route.fulfill({ status: state.fail ? 503 : 200, contentType: 'application/json', body: JSON.stringify({ access: state.access, project: state.access === 'restricted' ? undefined : state.project, results: state.empty || state.access === 'restricted' ? [] : [state.items[second ? 1 : 0]], next: !state.empty && state.access !== 'restricted' && !second ? `${url.origin}${url.pathname}?cursor=second` : null }) })
+    const cursor = url.searchParams.get('cursor'), index = cursor === 'second' ? 1 : Number(cursor ?? 0)
+    return route.fulfill({ status: state.fail ? 503 : 200, contentType: 'application/json', body: JSON.stringify({ access: state.access, project: state.access === 'restricted' ? undefined : state.project, results: state.empty || state.access === 'restricted' ? [] : [state.items[index]], next: !state.empty && state.access !== 'restricted' && index + 1 < state.items.length ? `${url.origin}${url.pathname}?cursor=${index === 0 ? 'second' : index + 1}` : null }) })
   })
   await page.route('**/api/v1/media/floor-plan-assets/*', route => route.fulfill({ status: state.imageFail ? 503 : 200, contentType: 'image/png', body: state.imageFail ? Buffer.from('') : Buffer.from(image, 'base64') }))
   return state
@@ -371,7 +371,7 @@ test('guest draft survives mode switches but does not persist sensitive fields; 
   await page.getByRole('button', { name: 'Sign in & find matches' }).click()
   await page.getByLabel('Username', { exact: true }).fill('fixture-buyer')
   await page.getByLabel('Password', { exact: true }).fill('fixture-only-password')
-  await page.getByRole('dialog').getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Sign in as Buyer', exact: true }).click()
   await page.getByRole('button', { name: 'Find my matches', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Your project matches' })).toBeVisible()
   expect(state.consents).toBe(1); expect(state.patches.length).toBeGreaterThan(0)
@@ -540,6 +540,13 @@ for (const processing of [false, true]) test(`individual layout aliases and calc
   }
   gallery.access = processing ? 'preview' : 'published'
   gallery.project = project
+  gallery.items[0].layoutIds = ['layout-0', 'layout-2']
+  gallery.items.push(
+    { ...gallery.items[0], id: 'floor-two', title: 'Second tower', layoutIds: ['layout-1', 'layout-3'] },
+    { ...gallery.items[0], id: 'floor-empty', title: 'No extracted units', layoutIds: [] },
+    { ...gallery.items[1], id: 'project-image', category: 'general' },
+    { ...gallery.items[1], id: 'amenity-image', category: 'amenities' },
+  )
   await page.route('**/api/v1/projects/**', route => {
     const path = new URL(route.request().url()).pathname
     if (path.endsWith('/gallery')) return route.fallback()
@@ -558,6 +565,28 @@ for (const processing of [false, true]) test(`individual layout aliases and calc
   await expect(table.locator('tbody tr').nth(1).getByRole('cell').nth(1)).toHaveText('Unknown')
   await expect(table.locator('East')).toHaveCount(0)
   await expect(dialog).toContainText('is not carpet area')
+  const mediaType = dialog.getByLabel('Media type', { exact: true })
+  await mediaType.selectOption('general')
+  await expect(table.locator('tbody tr')).toHaveCount(4)
+  await mediaType.selectOption('floor-plans')
+  await expect(table.locator('tbody tr')).toHaveCount(2)
+  await expect(table.getByRole('rowheader')).toHaveText([names[0], names[2]])
+  await dialog.getByRole('button', { name: 'Next image', exact: true }).click()
+  await expect(table.getByRole('rowheader')).toHaveText([names[1], names[3]])
+  await dialog.getByRole('button', { name: 'Next image', exact: true }).click()
+  await expect(table).toHaveCount(0)
+  await expect(dialog).toContainText('No layouts linked to this floor plan.')
+  await dialog.getByRole('button', { name: 'Image 1: East <b>Residence</b>', exact: true }).click()
+  await expect(table.getByRole('rowheader')).toHaveText([names[0], names[2]])
+  for (const category of ['layouts', 'amenities']) {
+    await mediaType.selectOption(category)
+    await expect(table).toHaveCount(0)
+    await expect(dialog.getByRole('heading', { name: 'Available layouts', exact: true })).toHaveCount(0)
+  }
+  await mediaType.selectOption('all')
+  await expect(table.locator('tbody tr')).toHaveCount(4)
+  await dialog.getByRole('button', { name: 'Next image', exact: true }).click()
+  await expect(table.locator('tbody tr')).toHaveCount(4)
   for (const width of [1440, 390, 320]) {
     await page.setViewportSize({ width, height: 1000 })
     await noOverflow(page)
@@ -598,7 +627,7 @@ test('project gallery retries metadata and image failures and handles empty medi
   const gallery = await mockGallery(page)
   gallery.fail = true
   await page.goto('/browse')
-  const opener = page.getByRole('button', { name: 'Fixture Lakes', exact: true })
+  const opener = page.getByRole('region', { name: 'Project feed' }).getByRole('button', { name: 'Fixture Lakes', exact: true })
   await opener.click()
   await expect(page.getByRole('button', { name: 'Retry media', exact: true })).toBeVisible()
   gallery.fail = false; gallery.imageFail = true

@@ -40,6 +40,25 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Run automatic extraction dispatcher (PostgreSQL)",
+			"type": "shell",
+			"command": "& '${workspaceFolder}\\reailEstate\\backend\\.venv\\Scripts\\python.exe' '${workspaceFolder}\\reailEstate\\backend\\manage.py' run_extraction_dispatcher",
+			"isBackground": true,
+			"options": {
+				"cwd": "${workspaceFolder}",
+				"env": {
+					"DATABASE_BACKEND": "postgresql",
+					"LOCAL_TRUST_BUILDER_UPLOADS": "true",
+					"WORKSPACE_DATA_ROOT": "${workspaceFolder}",
+					"FLOOR_PLAN_EXTRACTION_MODE": "ai",
+					"FLOOR_PLAN_DEFAULT_VISION_PROFILE": "azure-samples",
+					"FLOOR_PLAN_VISION_PROFILES": "{\"azure-samples\":{\"label\":\"Azure samples\",\"provider\":\"azure_foundry\",\"model\":\"gpt-4.1\",\"base_url\":\"https://hjetwani-test-resource.openai.azure.com/openai/v1/\",\"response_format\":\"json_schema\"}}",
+					"PYTHONUTF8": "1"
+				}
+			},
+			"problemMatcher": []
+		},
+		{
 			"label": "Run updated layout tools (SQLite 8001)",
 			"type": "shell",
 			"command": "$env:DATABASE_BACKEND='sqlite'; $env:PYTHONUTF8='1'; $env:FLOOR_PLAN_EXTRACTION_MODE='ai'; $env:FLOOR_PLAN_VISION_PROFILES=Get-Content -LiteralPath '${workspaceFolder}/reailEstate/backend/vision-profiles.local.json' -Raw; $env:FLOOR_PLAN_DEFAULT_VISION_PROFILE='azure-samples'; & '${workspaceFolder}/reailEstate/backend/.venv/Scripts/python.exe' '${workspaceFolder}/reailEstate/backend/manage.py' runserver 127.0.0.1:8001",

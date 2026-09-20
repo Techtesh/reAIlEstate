@@ -131,21 +131,23 @@ def test_active_toggle_ajax_returns_versions_and_inherited_inactivity(source, cl
     states = {item["id"]: item for item in response.json()["plans"]}
     assert str(removed.pk) not in states
     assert not states[str(plan.pk)]["active"] and states[str(plan.pk)]["inactive"]
-    assert states[str(child.pk)]["active"] and states[str(child.pk)]["inactive"]
+    assert not states[str(child.pk)]["active"] and states[str(child.pk)]["inactive"]
     assert states[str(plan.pk)]["version"] != version
     child.refresh_from_db()
-    assert child.active
+    assert not child.active
     response = client.post(url, {"action": "set_plan_active", "floor_plan_id": str(plan.pk), "version": version,
                                 "active": "true"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
     assert response.status_code == 409 and response.json()["status"] == 409
     assert response["Content-Type"].startswith("application/problem+json")
-    assert AuditEvent.objects.filter(action="floor_plan.active_changed").count() == 1
+    assert AuditEvent.objects.filter(action="floor_plan.active_changed").count() == 2
     response = client.post(url, {"action": "set_plan_active", "floor_plan_id": str(plan.pk),
                                 "version": states[str(plan.pk)]["version"], "active": "true"},
                            HTTP_X_REQUESTED_WITH="XMLHttpRequest")
     assert response.status_code == 200
-    assert all(item["active"] and not item["inactive"] for item in response.json()["plans"])
-    assert AuditEvent.objects.filter(action="floor_plan.active_changed").count() == 2
+    states = {item["id"]: item for item in response.json()["plans"]}
+    assert states[str(plan.pk)]["active"] and not states[str(plan.pk)]["inactive"]
+    assert not states[str(child.pk)]["active"] and states[str(child.pk)]["inactive"]
+    assert AuditEvent.objects.filter(action="floor_plan.active_changed").count() == 3
 
 
 @pytest.mark.django_db

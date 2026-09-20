@@ -5,6 +5,8 @@ def test_admin_monitor_and_user_queue_launch(client, django_user_model):
     page = client.get(reverse("admin:platform_api_project_jobs"))
     assert page.status_code == 200
     assert b"queue-monitor" in page.content
+    assert b'id="requeue-dead-letter-form"' in page.content
+    assert b'name="action" value="requeue_dead_letter"' in page.content
     response = client.get(reverse("admin:platform_api_project_jobs_status"))
     assert response.status_code == 200
     assert "private" in response["Cache-Control"] and "no-store" in response["Cache-Control"]

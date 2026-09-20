@@ -432,7 +432,8 @@ def update_layout_crop(plan_id, actor, *, editor_token, expected_asset_id, expec
             raise
 
 
-def _persist(plan, destination, actor, state, rectangle, rotation, crop, size, pixel_box, asset_id, key):
+def _persist(plan, destination, actor, state, rectangle, rotation, crop, size, pixel_box, asset_id, key,
+             *, vision_profile_id=None):
     from .layout_reanalysis import queue_layout_evaluation  # Runtime integration; queue only.
 
     now = timezone.now()
@@ -496,10 +497,10 @@ def _persist(plan, destination, actor, state, rectangle, rotation, crop, size, p
     reconciled = _reconcile_reviews(plan, old_asset_id, asset.pk)
     if plan.plan_scope == "floor":
         from .floor_plan_layout_jobs import queue_floor_plan_layouts
-        job = queue_floor_plan_layouts(plan, actor=actor)
+        job = queue_floor_plan_layouts(plan, actor=actor, vision_profile_id=vision_profile_id)
         operation = Operation.objects.get(pk=job.payload["operationId"])
     else:
-        job, operation = queue_layout_evaluation(plan, actor=actor)
+        job, operation = queue_layout_evaluation(plan, actor=actor, vision_profile_id=vision_profile_id)
     AuditEvent.objects.create(
         actor=actor, action="floor_plan.crop_updated", entity_type="FloorPlan", entity_id=plan.pk,
         correlation_id=job.correlation_id, reason_code="USER_REVISED_BOUNDARY",

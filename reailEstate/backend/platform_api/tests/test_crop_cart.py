@@ -53,12 +53,13 @@ def source(tmp_path, settings, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_save_only_stages_drafts(source):
+@pytest.mark.parametrize("regions", [[REGION], [REGION, dict(REGION, x=.15, label="Shared wall")]])
+def test_save_only_stages_drafts(source, regions):
     project, plan, actor = source
     counts = (FloorPlan.objects.count(), FloorPlanAsset.objects.count(), IngestionRun.objects.count())
-    result = stage_crops(plan, [REGION], actor)
+    result = stage_crops(plan, regions, actor)
     assert result["state"] == "draft" and result["planIds"] == []
-    assert LayoutCropDraft.objects.filter(owner=actor).count() == 1
+    assert LayoutCropDraft.objects.filter(owner=actor).count() == len(regions)
     assert not OutboxMessage.objects.exists()
     assert counts == (FloorPlan.objects.count(), FloorPlanAsset.objects.count(), IngestionRun.objects.count())
     plan.refresh_from_db()

@@ -6,6 +6,72 @@ The [buyer frontend](../frontend/README.md) runs separately on port 5173 and pro
 this backend on port 8002. It includes requirements, ranked map/feed results and
 shortlists; submitted matches require the recommendation worker described below.
 
+## Builder Portal and Account Provisioning
+
+Builders sign in at the frontend **`/builder/login`**, not Django `/admin`.
+The portal lists only projects belonging to their active organizations. Active
+`owner` and `editor` memberships grant project management; `viewer`, revoked or
+suspended memberships do not. Membership and organization status are checked on
+every request, including uploads and document access.
+
+A **platform administrator** provisions accounts using Django admin:
+
+1. Create an active organization (or select the existing one).
+2. Create an active user with a securely supplied password. Leave **Staff status**
+   and **Superuser status** unchecked, and do not grant reviewer/admin groups.
+3. Reopen the saved user's edit page. Under **Builder organization access**, select
+   the organization from the dropdown, choose `owner` or `editor`, and set status
+   to `active`. Save the user. The separate Organization memberships screen is
+   also available. A user may manage multiple assigned organizations.
+4. Direct the builder to `http://127.0.0.1:5173/builder/login` locally, or the
+   deployment's frontend `/builder/login` URL. Do not share administrator credentials.
+
+Organization status (`active`, `inactive`, `suspended`) and verification state
+(`pending`, `verified`, `rejected`) use model enums and admin dropdowns. Membership
+roles and statuses also use enums; only active owner/editor memberships grant access.
+Organization verification is separate from membership eligibility.
+
+Users can also sign in on the homepage and choose **Buyer** or **Builder**.
+The choice never grants permissions. A correct password without an eligible
+membership produces an explicit access-assignment error on builder sign-in;
+incorrect credentials still produce the generic invalid-credentials error.
+
+There is no builder self-registration or ability to claim organizations, assign
+memberships, change organization ownership, grant staff permissions or publish
+projects. The legacy developer-organization API also restricts organization
+creation/update/deletion to platform staff.
+
+The builder API uses existing session cookies and CSRF protection:
+
+| Endpoint | Methods | Purpose |
+| --- | --- | --- |
+| `/api/v1/auth/builder-login` | GET, POST | Initialize CSRF, then authenticate an assigned builder |
+| `/api/v1/builder/organizations` | GET | Assigned active management organizations |
+| `/api/v1/builder/projects` | GET, POST | List own projects or create in an assigned organization |
+| `/api/v1/builder/projects/{id}` | GET, PATCH | Read/edit own project metadata |
+| `/api/v1/builder/projects/{id}:archive` | POST | Retire a project without deleting evidence |
+| `/api/v1/builder/projects/{id}/layouts` | GET | Eligible individual layouts |
+| `/api/v1/builder/projects/{id}/layouts/{layoutId}` | PATCH | Edit a layout alias and optional total INR price |
+
+Project edits/archive and layout edits require `expectedUpdatedAt` from the latest
+object response; stale changes return HTTP 409. Organization IDs, verification,
+publication state, evidence/provenance and staff permissions cannot be mass-assigned.
+Project creation reuses registration normalization, duplicate protection and the
+existing unavailable-verification fallback; it does not claim registry verification.
+Private metadata and unrelated organizations/projects are not returned.
+
+Document uploads reuse the existing upload-intent, binary content and idempotent
+completion endpoints under `/api/v1/developer-projects/{id}`. Completion queues
+scanning/extraction; the browser does not run a worker or invoke a model. Builders
+submit through `:submit-review`; reviewers still approve evidence and publication
+independently. Editing a published project or its layouts moves it back to
+`needs_review`. Archiving preserves evidence and cancels pending extraction work
+using the existing retirement service. Archived projects cannot be edited, queued
+for reanalysis, uploaded to or resubmitted.
+
+The development-only public preview flag described below still applies to buyer
+media visibility; it does not grant project mutation or publishing rights.
+
 ## Admin Quick Links and Extraction Corrections
 
 The admin sidebar includes **Active queue**, **My active cart**, **Maps: incomplete data**,
@@ -137,6 +203,10 @@ it is not certified carpet area and may include decks or overlapping spaces.
 Evaluation and manual room corrections store `areaSqFt` as length times width,
 rounded to two decimals. The API also calculates missing/stale room areas from
 legacy dimensions on read, without changing evidence or triggering evaluation.
+Gallery items expose `layoutIds` for eligible unit layouts derived from that image,
+including saved crop ancestry. These IDs follow the same review/visibility policy
+as layout pricing, work across gallery pagination, and do not expose raw provenance
+or document IDs. The frontend uses them to scope the floor-plan comparison table.
 
 ### Buyer daily-commute locations
 
@@ -1013,6 +1083,25 @@ Queue payloads pin the profile ID, provider, model, and nonsecret configuration 
 
 ### Ad hoc flat separation
 
+The builder project workspace provides private **Project images**, **Amenities**,
+**Floor plans**, and **Layouts** tabs with previews and existing layout price/name
+editing. Active organization owners/editors can crop a verified source page into
+their private draft cart, explicitly attach drafts and queue evaluation, add source
+pages as floor plans or amenities, and re-evaluate individual layouts. These actions
+use the same crop, provenance, extraction, retry, and review pipelines as admin;
+opening media or saving crop drafts does not invoke AI.
+
+Builder media routes live under `/api/v1/builder/projects/{id}/media`. Every
+metadata/image/action route checks the current active organization membership,
+including nested document, asset, plan, and draft IDs. Drafts are private to their
+creator. Archived projects are read-only; being staff alone does not grant builder
+access. Mutations require session CSRF protection and a UUID `requestId`; repeating
+an identical request returns its original result, while changing its payload with
+the same ID returns a conflict. Attachment, source-page addition, and re-evaluation
+require explicit confirmation and may incur configured model costs. Queue creation,
+publication invalidation, and the replay record commit together. Builders cannot
+approve or publish; changed published projects require independent review again.
+
 Staff administrators can open a clean full-floor record under **Admin → Floor plans** and choose **Separate flats**. The operation supports `script`, `ai`, and `both`; combined mode runs the methods independently so an inconclusive script result does not block AI. AI uses only configured server-side vision profiles. Generated crops remain review proposals, and the source is preserved unless explicit supersession is requested and all selected methods succeed.
 
 Each project also has a **Media dashboard** link in Django admin with project-scoped Amenities, Floor plans, and Layouts tabs. Layout cards expose extracted room sizes, calculated rectangular areas, counts, confidence, features, and provenance. **Report for update** creates a deduplicated high-priority review task; it does not silently mutate or rerun extraction.
@@ -1031,6 +1120,49 @@ The project admin list has a **Projects per page** selector for 10, 20, 50, or a
 Project records and media dashboards include previous/next project controls. The media dashboard also includes a back-to-project action and a simple carousel of the project's saved images. Local administrators can generate missing script layouts across all eligible projects with `python manage.py separate_all_floor_plan_units --report <new-report.json>`; existing script segmentation is not replaced and ambiguous sources are reported for follow-up.
 
 The equivalent staff-only API is `POST /api/v1/admin/floor-plans/{floorPlanId}:segment-units` with an `Idempotency-Key`. `GET /api/v1/admin/floor-plan-segmentation` discovers safe mode/profile metadata. For local development, `isolate_floor_plan_units` exposes the same service and is rejected unless `DEBUG=true` and `ENVIRONMENT` is `local` or `development`. See [SKILLS.md](SKILLS.md) for portal, API, CLI, and AI-query-skill usage.
+
+For automatic extraction on **PostgreSQL**, run a single persistent dispatcher
+with the backend virtual environment and the same data root, database, scanner,
+vision profiles, and credentials as the API:
+
+```powershell
+$env:DATABASE_BACKEND = 'postgresql'
+& $Python manage.py run_extraction_dispatcher --poll-seconds 2
+```
+
+Run this alongside Django, not inside an HTTP request. It discovers eligible
+extraction jobs across all accounts (including builders), reserves free slots up
+to `INGESTION_MAX_WORKERS` (default 8), counts existing manual workers, and keeps
+polling after the queue empties. PostgreSQL locks prevent duplicate dispatchers
+and concurrent processing of the same message. Each job has a worker heartbeat
+and progress on the evaluation jobs page; completed worker records are retained.
+The dispatcher honors retry delays, cancelled operations, inactive organizations,
+retired/merged projects, and existing dead letters. Model calls retain their
+separate `VISION_MAX_CONCURRENT_REQUESTS` limit.
+
+Starting the dispatcher authorizes processing existing and future eligible work,
+which may incur configured model costs. **Configure a working malware scanner
+before starting it normally**; unconfigured scanning is not bypassed by default, and affected uploads
+will exhaust the normal retry budget with `PROVIDER_UNAVAILABLE`. Stop with
+Ctrl+C (active jobs finish); restart after worker-code or environment changes.
+Use a process supervisor for automatic restart in production. No OS service or
+scheduled task is installed automatically.
+
+**Temporary local builder-upload exception:** the local dispatcher task currently
+sets `LOCAL_TRUST_BUILDER_UPLOADS=true`, explicitly approved while ClamAV setup is
+deferred. This requires `DEBUG=true` and `ENVIRONMENT=local` or `development`.
+Only uploads whose uploader still has active owner/editor rights in the project's
+active organization qualify. Other uploads retain the configured scanner, and
+previously rejected sources are not accepted. Source hash, size, MIME checks,
+extraction, layout generation, retries, and independent publication review remain
+unchanged. Each trusted document gets a `document.malware_scan_skipped` audit
+event with `malwareScanned=false`. The legacy `scan_status=clean` value means
+accepted for processing in this mode, **not** that ClamAV scanned the document.
+The flag defaults to false and is rejected outside local/development DEBUG mode.
+
+TODO: install/configure ClamAV and its signature updates, remove the local task's
+`LOCAL_TRUST_BUILDER_UPLOADS` exception, scan previously trusted documents, and
+verify builder uploads with real malware scanning before any production rollout.
 
 For a timer, schedule `python manage.py process_outbox --once --event-type documents --limit 5` with Windows Task Scheduler or cron using the backend virtual environment and backend working directory. Set the same catalog/credential environment variables as the API. Do not overlap scheduled runs; use one worker for SQLite. For periodic processing in a supervised worker, use `python manage.py process_outbox --event-type documents --poll-seconds 300 --limit 5`. The legacy default `--event-type all` still processes both event types. No OS timer is installed or enabled automatically.
 
@@ -1084,3 +1216,15 @@ The backup includes `db.sqlite3`, `media.zip`, `media-manifest.json` (original s
 In admin, **Floor plan assets → Image category** can filter floor plans, flat layouts, design, amenities or unclassified candidates. Script identification remains heuristic: cleanup removes historical duplicates, not every possible false positive.
 
 Production configuration must provide exact hosts/origins, HTTPS, a strong secret, private media storage, and least-privilege worker identities. Original evidence should not be served from local storage in production; replace Django storage with a private object-store backend. Reviewer/admin accounts should be protected by the selected identity provider's MFA and conditional-access policies.
+## Builder media activity and name confirmation
+
+Organization records expose **Confirm name changes**, defaulting to false, in
+Django admin. The builder media response includes `confirmNameChanges`; this
+controls only the extra name-save dialog, not authorization, version checks,
+review requirements, destructive-action confirmations, or AI-cost confirmations.
+
+Deactivating a floor plan through admin or builder media also persists inactive
+state on its derived layouts and audits each changed record. Plan/asset ancestry
+is used first; legacy manual page crops are matched only when the document page
+has one visible floor-plan source. Reactivating a floor plan does not reactivate
+its layouts. No existing inactive plans are backfilled by the setting migration.

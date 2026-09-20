@@ -136,7 +136,7 @@ def stage_crops(plan, raw_regions, actor, rotation_degrees=0):
     require_enabled("media.crop_drafts", actor=actor, project=destination)
     if type(rotation_degrees) is not int or rotation_degrees not in {-180, -90, 0, 90, 180}:
         raise ValueError("Invalid rotation.")
-    regions = validate_regions(raw_regions)
+    regions = validate_regions(raw_regions, allow_overlap=True)
     if not regions or len(regions) > CART_LIMIT:
         raise ValueError("Select between 1 and 20 crops.")
     with work_lock("crop-cart", actor.pk), work_lock("document", plan.document_id):
@@ -307,18 +307,33 @@ def attach_drafts(project, actor, draft_ids, replacement_ids=(), vision_profile_
                     bounds = draft.bounds | {"sourceAssetId": str(source.pk)}
                     key = storage.save(f"output/media/images/{project.pk}/layouts/{source.pk}/manual/{draft.pk}.png", ContentFile(data))
                     keys.append(key)
+                    category = draft.bounds.get("category", "layouts")
+                    if category not in {"layouts", "floor-plans", "amenities", "project-images"}:
+                        raise ValueError("Invalid crop category; discard this draft and crop again.")
                     asset = FloorPlanAsset.objects.create(project=project, document=source.document, workflow_run=workflow,
-                        page_number=source.page_number, asset_type="unit_crop", object_key=key, byte_length=len(data),
+                        page_number=source.page_number, asset_type="unit_crop" if category == "layouts" else "plan_crop",
+                        object_key=key, byte_length=len(data),
                         sha256=draft.sha256, pixel_width=draft.pixel_width, pixel_height=draft.pixel_height,
-                        source_bounds=bounds | {"category": "layouts", "segmentationMethod": "manual", "draftId": str(draft.pk)},
+                        source_bounds=bounds | {"category": category, "segmentationMethod": "manual",
+                            "draftId": str(draft.pk), "manualPageAddition": category == "amenities",
+                            "sourceSha256": source.document.sha256},
                         detector_version="manual-crop-cart-1.0", detection_confidence=0)
+                    if category in {"amenities", "project-images"}:
+                        if category == "amenities":
+                            from .source_page_additions import _queue_page
+                            _queue_page(asset, category, actor, selection)
+                        continue
                     plan = FloorPlan.objects.create(project=project, document=source.document, workflow_run=workflow,
-                        asset=asset, page_number=source.page_number, plan_scope="flat",
+                        asset=asset, page_number=source.page_number, plan_scope="flat" if category == "layouts" else "floor",
                         plan_name=f"{draft.label} [manual {draft.pk}]", display_name=draft.label, confidence=0,
                         raw_extraction={"segmentationMethod": "manual", "sourcePlanName": draft.label,
                                         "draftId": str(draft.pk), "boundingBox": bounds},
                         review_state="manual_crop_needs_evaluation", extractor_version="manual-crop-cart-1.0")
-                    queue_layout_evaluation(plan, actor=actor, vision_selection=selection)
+                    if category == "floor-plans":
+                        from .floor_plan_layout_jobs import queue_floor_plan_layouts
+                        queue_floor_plan_layouts(plan, actor, vision_selection=selection)
+                    else:
+                        queue_layout_evaluation(plan, actor=actor, vision_selection=selection)
                     ReviewTask.objects.create(project=project, task_type="floor_plan", priority=1,
                                               resolution={"floorPlanId": str(plan.pk)})
                     new_ids.append(str(plan.pk))

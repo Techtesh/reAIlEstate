@@ -2,6 +2,14 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 from .output_views import ProjectExtractionOutputView, IngestionOutputDownloadView
 from .commute_locations_views import CommuteLocationResolveView, CommuteLocationSearchView
+from .builder_views import (
+    BuilderLoginView, BuilderOrganizationsView, BuilderProjectsView, BuilderProjectView,
+    BuilderProjectArchiveView, BuilderLayoutsView,
+)
+from .builder_media import (
+    BuilderMediaView, BuilderAssetView, BuilderPageView, BuilderDraftPreviewView,
+    BuilderCropView, BuilderDraftActionView, BuilderEvaluateView, BuilderPagesView, BuilderPictureView, BuilderActionsView,
+)
 
 from .views import (
     AccountDeleteView,
@@ -78,6 +86,23 @@ router.register("admin/amenities", AmenityAdminViewSet, basename="admin-amenity"
 router.register("admin/feature-flags", FeatureFlagAdminViewSet, basename="admin-feature-flag")
 
 urlpatterns = [
+    path("builder/projects/<uuid:project_id>/media/picture", BuilderPictureView.as_view()),
+    path("builder/projects/<uuid:project_id>/media", BuilderMediaView.as_view()),
+    path("builder/projects/<uuid:project_id>/media/actions", BuilderActionsView.as_view()),
+    path("builder/projects/<uuid:project_id>/media/assets/<uuid:asset_id>", BuilderAssetView.as_view()),
+    path("builder/projects/<uuid:project_id>/media/documents/<uuid:document_id>/pages/<int:page_number>", BuilderPageView.as_view()),
+    path("builder/projects/<uuid:project_id>/media/drafts/<uuid:draft_id>", BuilderDraftPreviewView.as_view()),
+    path("builder/projects/<uuid:project_id>/media/crops", BuilderCropView.as_view()),
+    path("builder/projects/<uuid:project_id>/media/drafts", BuilderDraftActionView.as_view()),
+    path("builder/projects/<uuid:project_id>/media/evaluate", BuilderEvaluateView.as_view()),
+    path("builder/projects/<uuid:project_id>/media/pages", BuilderPagesView.as_view()),
+    path("auth/builder-login", BuilderLoginView.as_view()),
+    path("builder/organizations", BuilderOrganizationsView.as_view()),
+    path("builder/projects", BuilderProjectsView.as_view()),
+    path("builder/projects/<uuid:project_id>", BuilderProjectView.as_view()),
+    path("builder/projects/<uuid:project_id>:archive", BuilderProjectArchiveView.as_view()),
+    path("builder/projects/<uuid:project_id>/layouts", BuilderLayoutsView.as_view()),
+    path("builder/projects/<uuid:project_id>/layouts/<uuid:layout_id>", BuilderLayoutsView.as_view()),
     path("commute-locations/search", CommuteLocationSearchView.as_view()),
     path("commute-locations/resolve", CommuteLocationResolveView.as_view()),
     path("map-stations", MapStationListView.as_view()),
