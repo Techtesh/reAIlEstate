@@ -300,7 +300,8 @@ def project_transit_maps(project):
 
 
 def location_reviewer_allowed(task, actor):
-    return (not getattr(settings, "PROJECT_LOCATION_REQUIRE_SECOND_APPROVER", True)
+    return (not (getattr(settings, "PROJECT_LOCATION_REQUIRE_SECOND_APPROVER", True)
+                 or task.resolution.get("source") == "builder_project_location")
             or str(task.resolution.get("submittedBy")) != str(actor.pk))
 
 
@@ -349,7 +350,8 @@ def _save_google_location(previous_project, previous_task, place, actor, routes=
         if not location_reviewer_allowed(task, actor):
             raise ValueError("This location requires a different reviewer.")
         approval_policy = {
-            "secondApproverRequired": getattr(settings, "PROJECT_LOCATION_REQUIRE_SECOND_APPROVER", True),
+            "secondApproverRequired": (getattr(settings, "PROJECT_LOCATION_REQUIRE_SECOND_APPROVER", True)
+                                      or task.resolution.get("source") == "builder_project_location"),
             "selfApproved": str(task.resolution.get("submittedBy")) == str(actor.pk),
         }
         current.latitude = Decimal(str(location["latitude"]))

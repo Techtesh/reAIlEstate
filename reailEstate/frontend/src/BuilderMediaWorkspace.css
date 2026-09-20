@@ -33,6 +33,11 @@
 .builder-media fieldset { min-width: 0; }
 .builder-media [aria-label="Plan management"] .builder-check { display: flex; gap: 8px; margin: 10px 0; }
 .builder-media [aria-label="Plan management"] input[type="checkbox"] { width: auto; flex-shrink: 0; }
+.builder-plan-row { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+.builder-plan-row .builder-check { flex: 1; min-width: 0; align-items: center; }
+.builder-plan-row > button { flex-shrink: 0; margin-left: auto; }
+.builder-plan-replacement { margin-top: 16px; }
+.builder-plan-replacement select { display: block; min-height: 90px; }
 .builder-confirm:focus { outline: 2px solid var(--green); outline-offset: 4px; }
 .builder-media-thumbnails { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
 .builder-media-thumbnails > button, .builder-media-thumbnails > .builder-media-draft { width: 140px; max-width: 100%; border: 1px solid var(--line); padding: 8px; background: white; color: var(--ink); overflow-wrap: anywhere; }

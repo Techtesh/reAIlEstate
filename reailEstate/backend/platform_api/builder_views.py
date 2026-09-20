@@ -12,7 +12,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .builder_access import builder_memberships
+from .builder_locations import project_location_data, resolve_project_location, submit_project_location
 from .domain.layout_titles import validate_layout_display_name
+from .external_sources import coordinates
 from .layout_names import save_layout_name
 from .layout_pricing import pricing_layouts, save_layout_price
 from .models import Organization, Project, ReviewTask
@@ -44,12 +46,29 @@ class AddressInput(StrictInput):
     locality = serializers.CharField(max_length=128, allow_blank=True, required=False)
 
 
+class ProjectLocationInput(StrictInput):
+    mapsUrl = serializers.CharField(max_length=8192, required=False)
+    latitude = serializers.JSONField(required=False)
+    longitude = serializers.JSONField(required=False)
+
+    def validate(self, attrs):
+        if set(attrs) == {"mapsUrl"}:
+            return attrs
+        if set(attrs) == {"latitude", "longitude"}:
+            try:
+                return coordinates(attrs)
+            except (TypeError, ValueError, OverflowError):
+                raise ValidationError("Enter finite numeric latitude (-90 to 90) and longitude (-180 to 180).") from None
+        raise ValidationError("Enter either a Google Maps link or both latitude and longitude, not both.")
+
+
 class ProjectInput(StrictInput):
     submittedName = serializers.CharField(max_length=255)
     mahaReraId = serializers.CharField(max_length=64)
     locality = serializers.CharField(max_length=128, allow_blank=True, required=False)
     address = AddressInput(required=False)
     processingAttested = serializers.BooleanField(required=False)
+    location = ProjectLocationInput(required=False)
 
     def validate_mahaReraId(self, value):
         return normalize_maha_rera_id(value)
@@ -89,6 +108,7 @@ def project_data(project):
         "organizationName": project.organization.legal_name,
         "submittedName": project.submitted_name, "mahaReraId": project.maha_rera_id or "",
         "locality": project.locality,
+        "location": project_location_data(project),
         "address": {key: value for key, value in project.address.items()
                     if key in AddressInput().fields and isinstance(value, str)},
         "processingAttested": project.processing_attested, "status": project.status,
@@ -178,6 +198,8 @@ class BuilderProjectsView(BuilderView, DeveloperProjectCreateView):
             pk=values.pop("organizationId"),
             pk__in=builder_memberships(request.user).values("organization_id"),
         )
+        location = values.pop("location", None)
+        reference = resolve_project_location(location) if location is not None else None
         locality = values.pop("locality", values.get("address", {}).get("locality", ""))
         values["address"] = {**values.get("address", {}), "locality": locality}
         try:
@@ -190,6 +212,11 @@ class BuilderProjectsView(BuilderView, DeveloperProjectCreateView):
         if response.status_code != 201:
             raise BuilderConflict("A project with this registration already exists.")
         project = Project.objects.select_related("organization").get(pk=response.data["id"])
+        if reference is not None:
+            submit_project_location(project, reference, request.user)
+            require_new_review(project)
+            project.save(update_fields=["status", "updated_at"])
+            audit(request, "builder.project_updated", project, metadata={"fields": ["location"]})
         return Response(project_data(project), status=201)
 
 
@@ -203,6 +230,8 @@ class BuilderProjectView(BuilderView):
         data.is_valid(raise_exception=True)
         values = data.validated_data
         project = locked_project(request.user, project_id, values.pop("expectedUpdatedAt", None))
+        location = values.pop("location", None)
+        reference = resolve_project_location(location) if location is not None else None
         if "locality" not in values and "locality" in values.get("address", {}):
             values["locality"] = values["address"]["locality"]
         changed = []
@@ -222,6 +251,8 @@ class BuilderProjectView(BuilderView):
             if address != project.address:
                 project.address = address
                 changed.append("address")
+        if reference is not None and submit_project_location(project, reference, request.user):
+            changed.append("location")
         if not changed:
             return Response(project_data(project))
         if "maha_rera_id" in changed:

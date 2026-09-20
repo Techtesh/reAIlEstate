@@ -420,6 +420,12 @@ class BuilderCropView(BuilderMediaAction):
     def prepare(self, project, actor, values):
         scoped_document(project, values["documentId"], values["sourceSha256"])
         if "targetPlanId" not in values:
+            if values["category"] == "layouts":
+                from .domain.geometry import validate_regions
+
+                regions = validate_regions(values["regions"], allow_overlap=True)
+                if any(region.width * region.height + 1e-15 < 0.02 for region in regions):
+                    raise ValueError("Each new layout crop must cover at least 2% of the source image area.")
             return None
         plan = scoped_plan(project, values["targetPlanId"])
         check_version(plan, values["expectedUpdatedAt"])

@@ -55,6 +55,13 @@ INR prices can be edited; changing published data requires independent review.
 Conflicting edits retain local entries and block saving until an explicit reload.
 Archiving requires confirmation, retires the project and does not delete evidence.
 
+In **Project details**, use **Project location entry method** to supply a Google
+Maps pin/share link or a latitude/longitude pair. A short Maps link is resolved
+through the existing restricted Google resolver; links without a unique pin need
+coordinates instead. Saving creates a private location proposal for independent
+review, not a published map pin. Later metadata edits keep the saved location by
+default. Incomplete, out-of-range or unresolved entries are not saved.
+
 The **Project media workspace** has tabs in this order: **Project images**,
 **Amenities**, **Floor plans**, **Layouts**. It provides private previews, a
 carousel, a layout review table, and the existing alias/total-INR-price editors.
@@ -107,11 +114,15 @@ starting a new rectangle automatically retains the previous one, without requiri
 Default labels can be edited in the retained-crop list or the current **Crop label**
 field. **Add layout crop** remains available when entering percentage bounds.
 Numbered outlines and a removable list keep track of unsaved selections. **Save layout drafts**
-saves all added rectangles plus the current labeled rectangle in one request,
+saves all valid added rectangles plus the valid current labeled rectangle in one request,
 always in the layouts category and without modifying the floor plan or running AI.
 Manual rectangles may overlap to include shared walls and adjacent homes; the
 automatic extraction overlap check is not applied to user-selected crops.
-Each new rectangle covers 1-70% of the source page.
+Each new layout rectangle covers 2-70% of the source image area (width times height).
+Smaller added rectangles are dropped with a warning; a smaller unfinished/current
+rectangle is silently ignored when saving so stray gestures do not create extra
+layouts. Exactly 2% is accepted. The minimum does not change existing crop updates
+or non-layout media crops, and backend validation also rejects undersized new layouts.
 Validation and server failures appear beside the Save button;
 failed saves keep all local rectangles and do not create drafts.
 Select the saved drafts below and use **Attach selected drafts** to confirm
@@ -129,6 +140,11 @@ explicit cost confirmation. Source-page bulk additions are not exposed by this U
 committing retains its identity and alias rather than adding a duplicate.
 The plan-management controls support activation/deactivation, reversible removal,
 restoration, and explicitly replacing selected layouts with selected crop drafts.
+Each checkbox shows the saved enabled state: checked means enabled. Changing it
+requires confirmation. Disabled plans show a trash icon on the right for confirmed,
+reversible deletion; original evidence is retained. Failed changes keep the saved
+checkbox state. When drafts are selected, a separate **Layouts to replace with drafts**
+selector chooses replacement targets without changing their enabled state.
 Deactivating a floor plan also deactivates its derived layouts. Activating the floor
 plan later does not automatically reactivate layouts.
 Layout rotation/normalization, floor-plan layout extraction, saved-amenity

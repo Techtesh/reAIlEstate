@@ -146,6 +146,30 @@ def test_automatic_region_validation_still_rejects_excessive_overlap():
     assert len(validate_regions(regions, allow_overlap=True)) == 2
 
 
+@pytest.mark.parametrize("width,expected", [(.199, 400), (.2, 202)])
+def test_new_builder_layout_crops_require_two_percent_area(media, width, expected):
+    client, project, document, _ = media
+    body = dict(crop_body(document), category="layouts",
+                regions=[REGION, dict(REGION, label="Boundary crop", width=width, height=.1)])
+    response = client.post(base(project) + "/crops", body, format="json")
+    assert response.status_code == expected, response.content
+    if expected == 400:
+        assert "at least 2%" in response.json()["errors"]["detail"]
+        assert not LayoutCropDraft.objects.exists()
+    else:
+        assert LayoutCropDraft.objects.count() == 2
+    assert not OutboxMessage.objects.exists()
+
+
+def test_small_nonlayout_crops_keep_the_existing_area_rule(media):
+    client, project, document, _ = media
+    body = dict(crop_body(document), category="amenities",
+                regions=[dict(REGION, width=.15, height=.1)])
+    response = client.post(base(project) + "/crops", body, format="json")
+    assert response.status_code == 202, response.content
+    assert LayoutCropDraft.objects.count() == 1
+
+
 def test_media_shares_admin_room_areas_and_current_evaluation_states(media):
     from django.utils import timezone
     from platform_api.layout_evaluation_status import layout_evaluation_states

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, ApiError, apiPath, cancelSessionRequests, json, onSessionExpired } from './api'
 import { BuilderMediaWorkspace, type BuilderLayout as Layout } from './BuilderMediaWorkspace'
+import { coordinates } from './buyer'
 import './BuilderPortal.css'
 
 type Account = { id: string | number; username: string; email: string }
@@ -11,8 +12,10 @@ type Project = {
   id: string; organizationId: string; organizationName: string; submittedName: string
   mahaReraId: string; locality: string; address: Address; processingAttested: boolean
   status: string; verificationStatus: string; updatedAt: string; createdAt: string
+  location?: { latitude: number; longitude: number; reviewState: string } | null
 }
-type ProjectDraft = Pick<Project, 'submittedName' | 'mahaReraId' | 'locality' | 'address' | 'processingAttested'>
+type LocationEntry = { method: 'unchanged' | 'coordinates' | 'maps'; latitude: string; longitude: string; mapsUrl: string }
+type ProjectDraft = Pick<Project, 'submittedName' | 'mahaReraId' | 'locality' | 'address' | 'processingAttested'> & { locationEntry: LocationEntry }
 type Evidence = { id: string; originalName: string; status: string; scanStatus: string; byteLength: number; errorCategory?: string }
 type UploadIntent = { documentId: string; uploadAction: string; method: 'PUT'; requiredHeaders: Record<string, string>; maximumSize: number }
 type Upload = { file: File; key: string; intent: UploadIntent | null; phase: 'intent' | 'put' | 'complete' | 'done' }
@@ -20,11 +23,16 @@ const message = (error: unknown) => error instanceof Error ? error.message : 'Th
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError'
 const pathFor = (id: string) => `/api/v1/builder/projects/${encodeURIComponent(id)}`
 const documentsFor = (id: string) => `/api/v1/developer-projects/${encodeURIComponent(id)}/documents`
-const emptyDraft = (): ProjectDraft => ({ submittedName: '', mahaReraId: '', locality: '', address: { line1: '', line2: '', city: '', pincode: '' }, processingAttested: false })
+const locationEntry = (project?: Project): LocationEntry => ({
+  method: 'unchanged', latitude: String(project?.location?.latitude ?? ''),
+  longitude: String(project?.location?.longitude ?? ''), mapsUrl: '',
+})
+const emptyDraft = (): ProjectDraft => ({ submittedName: '', mahaReraId: '', locality: '', address: { line1: '', line2: '', city: '', pincode: '' }, processingAttested: false, locationEntry: locationEntry() })
 const projectDraft = (project: Project): ProjectDraft => ({
   submittedName: project.submittedName, mahaReraId: project.mahaReraId, locality: project.locality,
   address: { line1: project.address?.line1 ?? '', line2: project.address?.line2 ?? '', city: project.address?.city ?? '', pincode: project.address?.pincode ?? '' },
   processingAttested: project.processingAttested,
+  locationEntry: locationEntry(project),
 })
 
 function useRequestScope() {
@@ -188,11 +196,19 @@ function ProjectEditor({ organization, initial, onSaved, onDirty }: { organizati
     setError(message(error))
   }
   async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(''); setNotice('')
+    event.preventDefault(); setError(''); setNotice('')
+    const { locationEntry: entry, ...details } = draft
+    const point = coordinates(entry)
+    if (entry.method === 'coordinates' && !point) {
+      setError('Enter a latitude from -90 to 90 and a longitude from -180 to 180.'); return
+    }
+    const location = entry.method === 'maps' ? { mapsUrl: entry.mapsUrl.trim() }
+      : entry.method === 'coordinates' && point ? { latitude: point[0], longitude: point[1] } : undefined
+    setBusy(true)
     try {
       const saved = await api<Project>(project ? pathFor(project.id) : '/api/v1/builder/projects', {
         method: project ? 'PATCH' : 'POST', signal,
-        body: json({ ...draft, ...(project ? { expectedUpdatedAt: project.updatedAt } : { organizationId: organization.id }) }),
+        body: json({ ...details, ...(location ? { location } : {}), ...(project ? { expectedUpdatedAt: project.updatedAt } : { organizationId: organization.id }) }),
       })
       accepted(saved); setNotice('Project saved. Changes require independent review before publication.')
     } catch (error) { failure(error) } finally { if (!signal.aborted) setBusy(false) }
@@ -249,7 +265,21 @@ function ProjectEditor({ organization, initial, onSaved, onDirty }: { organizati
         <label>Address line 2<input value={draft.address.line2} onChange={event => setDraft({ ...draft, address: { ...draft.address, line2: event.target.value } })} /></label>
         <label>City<input value={draft.address.city} onChange={event => setDraft({ ...draft, address: { ...draft.address, city: event.target.value } })} /></label>
         <label>PIN code<input value={draft.address.pincode} inputMode="numeric" pattern="[0-9]{6}" title="Six digit PIN code" onChange={event => setDraft({ ...draft, address: { ...draft.address, pincode: event.target.value } })} /></label>
-      </div><label className="builder-check"><input type="checkbox" checked={draft.processingAttested} onChange={event => setDraft({ ...draft, processingAttested: event.target.checked })} />I am authorized to submit and process this project’s documents and evidence.</label><p className="data-note">Attestation is required before review. MahaRERA verification is not legal certification.</p><button className="primary" type="submit" disabled={conflict}>{busy ? 'Saving…' : project ? 'Save project changes' : 'Create project'}</button></fieldset></form>
+      </div>
+        <fieldset className="builder-location"><legend>Project map location (optional)</legend>
+          {project?.location ? <p className="data-note">Saved location: {project.location.latitude}, {project.location.longitude}. {project.location.reviewState === 'accepted' ? 'Independently reviewed.' : 'Awaiting independent review.'}</p> : <p className="data-note">No map location supplied.</p>}
+          <p id="builder-location-help" className="data-note">Provide a Google Maps pin/share link or latitude and longitude. Saving a short link contacts Google to resolve it. Location changes require independent review; saving does not publish them.</p>
+          <label>Project location entry method<select aria-describedby="builder-location-help" value={draft.locationEntry.method} onChange={event => setDraft({ ...draft, locationEntry: { ...draft.locationEntry, method: event.target.value as LocationEntry['method'] } })}>
+            <option value="unchanged">{project?.location ? 'Keep saved location' : 'Not provided'}</option>
+            <option value="maps">Google Maps link</option><option value="coordinates">Latitude / longitude</option>
+          </select></label>
+          {draft.locationEntry.method === 'maps' && <label>Project Google Maps link<input type="url" required maxLength={8192} autoComplete="off" placeholder="https://maps.app.goo.gl/…" value={draft.locationEntry.mapsUrl} onChange={event => setDraft({ ...draft, locationEntry: { ...draft.locationEntry, mapsUrl: event.target.value } })} /><span className="data-note">Use one project pin, not a directions or map viewport link. If the link cannot be resolved, use coordinates.</span></label>}
+          {draft.locationEntry.method === 'coordinates' && <div className="builder-form-grid">
+            <label>Project latitude<input type="number" required step="any" min="-90" max="90" autoComplete="off" value={draft.locationEntry.latitude} onChange={event => setDraft({ ...draft, locationEntry: { ...draft.locationEntry, latitude: event.target.value } })} /></label>
+            <label>Project longitude<input type="number" required step="any" min="-180" max="180" autoComplete="off" value={draft.locationEntry.longitude} onChange={event => setDraft({ ...draft, locationEntry: { ...draft.locationEntry, longitude: event.target.value } })} /></label>
+          </div>}
+        </fieldset>
+        <label className="builder-check"><input type="checkbox" checked={draft.processingAttested} onChange={event => setDraft({ ...draft, processingAttested: event.target.checked })} />I am authorized to submit and process this project’s documents and evidence.</label><p className="data-note">Attestation is required before review. MahaRERA verification is not legal certification.</p><button className="primary" type="submit" disabled={conflict}>{busy ? 'Saving…' : project ? 'Save project changes' : 'Create project'}</button></fieldset></form>
       {project && !locked && <div className="builder-actions"><button className="secondary" disabled={busy || conflict || dirty || mediaDirty} onClick={() => void submitReview()}>Submit for review</button><button className="secondary" disabled={busy || conflict || dirty || mediaDirty} onClick={() => setConfirmArchive(true)}>Archive project</button>{(dirty || mediaDirty) && <p>Save your project and layout changes and finish crop editing before submitting or archiving.</p>}</div>}
       {confirmArchive && <div className="builder-confirm" role="group" aria-label="Confirm archive"><h3>Archive this project?</h3><p>This retires the project and prevents further edits. It does not delete documents or evidence.</p><div className="button-row"><button className="primary" disabled={busy || conflict || dirty || mediaDirty} onClick={() => void archive()}>Confirm archive</button><button className="secondary" disabled={busy} onClick={() => setConfirmArchive(false)}>Cancel archive</button></div></div>}
     </section>

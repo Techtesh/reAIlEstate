@@ -22,6 +22,11 @@
 .builder-login label { margin-bottom: 20px; }
 .builder-login .data-note { margin-top: 20px; margin-bottom: 0; }
 .builder-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-bottom: 22px; }
+.builder-location { border: 1px solid var(--line); border-radius: 6px; padding: 16px; margin-bottom: 22px; min-width: 0; }
+.builder-location legend { font-weight: 700; padding: 0 6px; }
+.builder-location > label { margin-bottom: 16px; }
+.builder-location .data-note { overflow-wrap: anywhere; }
+.builder-location .builder-form-grid { margin-bottom: 0; }
 .builder-check { flex-direction: row; align-items: flex-start; line-height: 1.7; margin-bottom: 12px; }
 .builder-check input { margin-top: 3px; }
 .builder-status { background: var(--mint); padding: 12px; border-radius: 5px; }

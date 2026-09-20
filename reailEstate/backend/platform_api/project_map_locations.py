@@ -2,6 +2,7 @@ from django.conf import settings
 from django.db.models import Q
 
 from .external_sources import coordinates
+from .builder_locations import BUILDER_LOCATION_SOURCE
 from .models import ReviewTask
 
 
@@ -27,6 +28,8 @@ def project_map_location(project):
         return unavailable
     reference = ReviewTask.objects.filter(project=project, task_type="external_sources").filter(
         Q(resolution__manualLocation__isnull=False) | Q(resolution__googlePlaceId__isnull=False)
+    ).exclude(
+        Q(resolution__source=BUILDER_LOCATION_SOURCE) & ~Q(resolution__reviewState="accepted")
     ).order_by("-created_at", "-pk").first()
     if not reference:
         return unavailable

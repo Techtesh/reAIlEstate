@@ -26,6 +26,7 @@ const initialProject = {
   mahaReraId: 'P51800000001', locality: 'Powai',
   address: { line1: 'Evidence Road', line2: '', city: 'Mumbai', pincode: '400076' },
   processingAttested: true, status: 'draft', verificationStatus: 'manual_required',
+  location: null as { latitude: number; longitude: number; reviewState: string } | null,
   updatedAt: '2026-09-19T10:00:00Z', createdAt: '2026-09-19T10:00:00Z',
 }
 const initialLayout = { id: layoutId, name: 'Garden 2BHK', price: '15000000.00' as string | null, configurationType: '2BHK', carpetAreaSqFt: '740', updatedAt: '2026-09-19T10:00:00Z', reviewState: 'pending_review' }
@@ -42,7 +43,7 @@ async function mockBuilder(page: Page, signedIn = true) {
   }), 'base64')
   const state = {
     imageBytes: png, mediaImageUrl: `${mediaPath}/assets/${assetId}`,
-    signedIn, builder: true, rejectLogin: false, conflict: false, expirePatch: false,
+    signedIn, builder: true, rejectLogin: false, conflict: false, expirePatch: false, locationFailure: false,
     failComplete: false, unsafeUpload: false, reviewFailure: false, duplicateUpload: false,
     project: structuredClone(initialProject),
     projects: [structuredClone(initialProject)],
@@ -92,10 +93,18 @@ async function mockBuilder(page: Page, signedIn = true) {
       if (method === 'PATCH') {
         if (state.expirePatch) { state.signedIn = false; return respond({ detail: 'Session expired.' }, 401) }
         if (state.conflict) { state.project = { ...state.project, submittedName: 'Saved by another editor', updatedAt: bump() }; return respond({ detail: 'Another editor updated this project.' }, 409) }
+        if (state.locationFailure && body.location) return respond({ detail: 'This location could not be resolved. Use coordinates.' }, 400)
         expect(body.expectedUpdatedAt).toBe(state.project.updatedAt)
         expect(body).not.toHaveProperty('organizationId')
         expect(body).not.toHaveProperty('status')
         state.project = { ...state.project, ...body, status: state.project.status === 'published' ? 'needs_review' : state.project.status, updatedAt: bump() } as typeof initialProject
+        if (body.location && typeof body.location === 'object') {
+          state.project.location = {
+            latitude: 'latitude' in body.location ? Number(body.location.latitude) : 19.123456,
+            longitude: 'longitude' in body.location ? Number(body.location.longitude) : 72.987654,
+            reviewState: 'unreviewed',
+          }
+        }
       }
       return respond(state.project)
     }
@@ -359,6 +368,55 @@ test('conflicts preserve edits until explicit discard and reload', async ({ page
   await page.getByRole('button', { name: 'Discard entries and reload' }).click()
   await expect(page.getByLabel('Project name', { exact: true })).toHaveValue('Saved by another editor')
   await expect(page.getByRole('button', { name: 'Save project changes' })).toBeEnabled()
+})
+
+for (const method of ['maps', 'coordinates']) {
+  test(`project details saves ${method} location for review and keeps it on later metadata edits`, async ({ page }) => {
+    const state = await mockBuilder(page)
+    await openProject(page, false)
+    await page.getByLabel('Project location entry method').selectOption(method)
+    if (method === 'maps') {
+      await page.getByLabel('Project Google Maps link').fill('https://www.google.com/maps?q=19.123456,72.987654')
+    } else {
+      await page.getByLabel('Project latitude').fill('19.123456')
+      await page.getByLabel('Project longitude').fill('72.987654')
+    }
+    await expect(page.getByRole('button', { name: 'Crop source page', exact: true })).toBeDisabled()
+    await page.getByRole('button', { name: 'Save project changes', exact: true }).click()
+    await expect(page.getByText(/Saved location: 19.123456, 72.987654/)).toContainText('Awaiting independent review')
+    const patches = () => state.requests.filter(request => request.method === 'PATCH' && request.path === projectPath)
+    expect(patches()[0].body.location).toEqual(method === 'maps'
+      ? { mapsUrl: 'https://www.google.com/maps?q=19.123456,72.987654' }
+      : { latitude: 19.123456, longitude: 72.987654 })
+    expect(patches()[0].body).not.toHaveProperty('locationEntry')
+    await expect(page.getByLabel('Project location entry method')).toHaveValue('unchanged')
+    await page.getByLabel('Project name', { exact: true }).fill('Builder Gardens updated')
+    await page.getByRole('button', { name: 'Save project changes', exact: true }).click()
+    await expect(page.getByText(/Saved location: 19.123456, 72.987654/)).toBeVisible()
+    expect(patches()[1].body).not.toHaveProperty('location')
+    expect(state.requests.some(request => request.path.endsWith(':publish'))).toBe(false)
+  })
+}
+
+test('project location rejects incomplete coordinates and preserves an unresolved Maps entry', async ({ page }) => {
+  const state = await mockBuilder(page)
+  await openProject(page, false)
+  await page.getByLabel('Project location entry method').selectOption('coordinates')
+  await page.getByLabel('Project latitude').fill('91')
+  await page.getByLabel('Project longitude').fill('72')
+  await page.getByRole('button', { name: 'Save project changes', exact: true }).click()
+  expect(state.requests.filter(request => request.method === 'PATCH')).toHaveLength(0)
+  await page.getByLabel('Project latitude').fill('19')
+  await page.getByLabel('Project longitude').fill('')
+  await page.getByRole('button', { name: 'Save project changes', exact: true }).click()
+  expect(state.requests.filter(request => request.method === 'PATCH')).toHaveLength(0)
+  await page.getByLabel('Project location entry method').selectOption('maps')
+  await page.getByLabel('Project Google Maps link').fill('https://maps.app.goo.gl/project')
+  state.locationFailure = true
+  await page.getByRole('button', { name: 'Save project changes', exact: true }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'could not be resolved' })).toBeVisible()
+  await expect(page.getByLabel('Project Google Maps link')).toHaveValue('https://maps.app.goo.gl/project')
+  expect(state.requests.filter(request => request.method === 'PATCH')).toHaveLength(1)
 })
 
 test('layout edits accept optional INR price and require review', async ({ page }) => {
@@ -786,6 +844,9 @@ test('manual multi-layout crops retain all rectangles and request ID after a fai
     await page.getByLabel('WIDTH (%)', { exact: true }).fill('40')
     await page.getByRole('button', { name: 'Add layout crop', exact: true }).click()
   }
+  await page.getByLabel('Crop label').fill('Unintended current crop')
+  await page.getByLabel('WIDTH (%)', { exact: true }).fill('1')
+  await page.getByLabel('HEIGHT (%)', { exact: true }).fill('1')
   await page.getByRole('button', { name: 'Save layout drafts', exact: true }).click()
   await expect(page.getByRole('alert').filter({ hasText: 'No automatic retry' })).toBeVisible()
   await expect(page.getByRole('list', { name: 'Unsaved layout crops' }).getByRole('listitem')).toHaveCount(2)
@@ -798,6 +859,76 @@ test('manual multi-layout crops retain all rectangles and request ID after a fai
   const attempts = state.requests.filter(item => item.path === `${mediaPath}/crops`)
   expect(attempts).toHaveLength(2)
   expect(attempts[1].body).toEqual(attempts[0].body)
+  expect(attempts[0].body.regions).toHaveLength(2)
+})
+
+test('manual layout save silently drops a stray current rectangle after four intended crops', async ({ page }) => {
+  const state = await mockBuilder(page)
+  await openProject(page, false)
+  await page.getByRole('tab', { name: 'Floor plans', exact: true }).click()
+  await page.getByRole('button', { name: 'Manually crop layouts', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Add layout crop', exact: true })).toBeEnabled()
+  for (let index = 1; index <= 4; index++) {
+    await page.getByLabel('Crop label').fill(`Wing A Refuge ${index}`)
+    await page.getByLabel('WIDTH (%)', { exact: true }).fill('20')
+    await page.getByLabel('HEIGHT (%)', { exact: true }).fill('10')
+    await page.getByRole('button', { name: 'Add layout crop', exact: true }).click()
+  }
+  await page.getByLabel('Crop label').fill('Layout 5')
+  await page.getByLabel('WIDTH (%)', { exact: true }).fill('19.9')
+  await page.getByLabel('HEIGHT (%)', { exact: true }).fill('10')
+  await page.getByRole('button', { name: 'Save layout drafts', exact: true }).click()
+  await expect(page.getByText('4 layout draft(s) saved. Select them below and attach to queue evaluation.')).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  expect(state.mediaDrafts.map(draft => draft.label)).toEqual([1, 2, 3, 4].map(index => `Wing A Refuge ${index}`))
+  const requests = state.requests.filter(item => item.path.endsWith('/crops'))
+  expect(requests).toHaveLength(1)
+  expect(requests[0].body.regions).toHaveLength(4)
+  expect(state.mediaJobs).toHaveLength(0)
+})
+
+test('adding an undersized layout drops it with a warning without losing valid crops', async ({ page }) => {
+  const state = await mockBuilder(page)
+  await openProject(page, false)
+  await page.getByRole('tab', { name: 'Floor plans', exact: true }).click()
+  await page.getByRole('button', { name: 'Manually crop layouts', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Add layout crop', exact: true })).toBeEnabled()
+  await page.getByLabel('Crop label').fill('Valid 2 percent layout')
+  await page.getByLabel('WIDTH (%)', { exact: true }).fill('20')
+  await page.getByLabel('HEIGHT (%)', { exact: true }).fill('10')
+  await page.getByRole('button', { name: 'Add layout crop', exact: true }).click()
+  await page.getByLabel('Crop label').fill('Accidental sliver')
+  await page.getByLabel('WIDTH (%)', { exact: true }).fill('1')
+  await page.getByRole('button', { name: 'Add layout crop', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Dropped 1 crop(s) below 2%')
+  await expect(page.getByRole('alert')).toContainText('Accidental sliver')
+  await expect(page.getByRole('list', { name: 'Unsaved layout crops' }).getByRole('listitem')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Save layout drafts', exact: true }).click()
+  await expect(page.getByText('1 layout draft(s) saved. Select them below and attach to queue evaluation.')).toBeVisible()
+  expect(state.mediaDrafts.map(draft => draft.label)).toEqual(['Valid 2 percent layout'])
+})
+
+test('drawing the next layout drops a tiny earlier rectangle with a warning', async ({ page }) => {
+  const state = await mockBuilder(page)
+  await openProject(page, false)
+  await page.getByRole('tab', { name: 'Floor plans', exact: true }).click()
+  await page.getByRole('button', { name: 'Manually crop layouts', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Add layout crop', exact: true })).toBeEnabled()
+  const image = page.getByRole('img', { name: 'Original source page 1' })
+  await image.scrollIntoViewIfNeeded()
+  const box = await image.boundingBox()
+  if (!box) throw new Error('Crop image was not rendered')
+  for (const width of [.01, .3]) {
+    await page.mouse.move(box.x + box.width * .1, box.y + box.height * .1)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width * (.1 + width), box.y + box.height * .4, { steps: 4 })
+    await page.mouse.up()
+  }
+  await expect(page.getByRole('alert')).toContainText('Dropped 1 crop(s) below 2%')
+  await expect(page.getByRole('list', { name: 'Unsaved layout crops' }).getByRole('listitem')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Save layout drafts', exact: true }).click()
+  await expect(page.getByText('1 layout draft(s) saved. Select them below and attach to queue evaluation.')).toBeVisible()
+  expect(state.mediaDrafts).toHaveLength(1)
 })
 
 test('manual multi-layout crops protect orientation and source changes and enforce the 20-crop limit', async ({ page }) => {
@@ -852,12 +983,13 @@ test('crop save accepts shared-wall overlap and shows size and server rejections
   await page.getByLabel('WIDTH (%)', { exact: true }).fill('5')
   await page.getByLabel('HEIGHT (%)', { exact: true }).fill('5')
   await save.click()
-  await expect(editor.getByRole('alert')).toContainText('"Small layout" covers 0.25%')
+  await expect(editor.getByRole('alert')).toContainText('at least one layout crop covering 2%')
   await expect(editor.getByRole('alert')).toBeInViewport()
+  await page.getByLabel('Crop label').fill('Small layout')
   await page.getByLabel('WIDTH (%)', { exact: true }).fill('90')
   await page.getByLabel('HEIGHT (%)', { exact: true }).fill('90')
   await save.click()
-  await expect(editor.getByRole('alert')).toContainText('between 1% and 70%')
+  await expect(editor.getByRole('alert')).toContainText('between 2% and 70%')
   await page.getByLabel('WIDTH (%)', { exact: true }).fill('40')
   await page.getByLabel('HEIGHT (%)', { exact: true }).fill('40')
   await page.getByRole('button', { name: 'Add layout crop', exact: true }).click()
@@ -1204,13 +1336,48 @@ test('project picture upload waits for confirmation and sends multipart with CSR
 test('plan lifecycle operations require confirmation and retain original evidence', async ({ page }) => {
   const state = await mockBuilder(page)
   await openProject(page)
-  for (const button of ['Deactivate plan', 'Activate plan', 'Remove plan', 'Restore plan']) {
-    await page.getByRole('button', { name: button, exact: true }).click()
+  const enabled = page.getByRole('checkbox', { name: 'Enabled: Garden 2BHK', exact: true })
+  const remove = page.getByRole('button', { name: 'Delete Garden 2BHK', exact: true })
+  await expect(enabled).toBeChecked()
+  await expect(remove).toHaveCount(0)
+  await enabled.click()
+  expect(state.requests.filter(item => item.path.endsWith('/actions'))).toHaveLength(0)
+  await page.getByRole('button', { name: 'Cancel media action', exact: true }).click()
+  await expect(enabled).toBeChecked()
+  for (const active of [false, true, false]) {
+    await enabled.click()
     await page.getByRole('button', { name: 'Confirm media change' }).click()
     await expect(page.getByRole('group', { name: 'Confirm media action' })).toHaveCount(0)
+    await expect(enabled).toBeChecked({ checked: active })
+    await expect(remove).toHaveCount(active ? 0 : 1)
   }
-  expect(state.requests.filter(item => item.path.endsWith('/actions')).map(item => item.body.action)).toEqual(['set-active', 'set-active', 'remove', 'restore'])
+  await page.setViewportSize({ width: 390, height: 844 })
+  await remove.scrollIntoViewIfNeeded()
+  const deleteBox = await remove.boundingBox()
+  expect(deleteBox && deleteBox.x + deleteBox.width).toBeLessThanOrEqual(390)
+  await remove.click()
+  await expect(page.getByRole('group', { name: 'Confirm media action' })).toContainText('source evidence will be retained')
+  await page.getByRole('button', { name: 'Confirm media change' }).click()
+  await expect(enabled).toBeDisabled()
+  await expect(remove).toHaveCount(0)
+  await page.getByRole('button', { name: 'Restore Garden 2BHK', exact: true }).click()
+  await page.getByRole('button', { name: 'Confirm media change' }).click()
+  await expect(enabled).toBeEnabled()
+  expect(state.requests.filter(item => item.path.endsWith('/actions')).map(item => item.body.action)).toEqual(['set-active', 'set-active', 'set-active', 'remove', 'restore'])
   expect(state.requests.filter(item => item.method === 'DELETE')).toHaveLength(0)
+})
+
+test('enabled checkboxes retain saved state when an activity update fails', async ({ page }) => {
+  const state = await mockBuilder(page)
+  state.mediaActionFailure = true
+  await openProject(page)
+  const enabled = page.getByRole('checkbox', { name: 'Enabled: Garden 2BHK', exact: true })
+  await enabled.click()
+  await page.getByRole('button', { name: 'Confirm media change' }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'No automatic retry' })).toBeVisible()
+  await expect(enabled).toBeChecked()
+  await expect(page.getByRole('button', { name: 'Delete Garden 2BHK', exact: true })).toHaveCount(0)
+  expect(state.requests.filter(item => item.path.endsWith('/actions'))).toHaveLength(1)
 })
 
 test('floor deactivation warns about derived layouts and refreshes their inactive state', async ({ page }) => {
@@ -1222,6 +1389,8 @@ test('floor deactivation warns about derived layouts and refreshes their inactiv
   expect(state.floorActive).toBe(true)
   await page.getByRole('button', { name: 'Confirm media change' }).click()
   await expect(page.getByRole('button', { name: 'Activate plan', exact: true })).toBeEnabled()
+  await expect(page.getByRole('checkbox', { name: 'Enabled: First floor', exact: true })).not.toBeChecked()
+  await expect(page.getByRole('checkbox', { name: 'Enabled: Garden 2BHK', exact: true })).not.toBeChecked()
   await page.getByRole('tab', { name: 'Layouts', exact: true }).click()
   await expect(page.getByRole('complementary', { name: 'Layout directory' })).toContainText('Inactive')
   await expect(page.getByRole('button', { name: 'Activate plan', exact: true })).toBeVisible()
@@ -1241,7 +1410,8 @@ test('bulk replacement is explicit and carries only selected layout and draft ID
   state.mediaDrafts = [{ id: draftId, label: 'Replacement crop', imageUrl: `${mediaPath}/drafts/${draftId}` }]
   await openProject(page)
   await page.getByRole('checkbox', { name: 'Replacement crop' }).check()
-  await page.getByRole('checkbox', { name: /Select Garden 2BHK/ }).check()
+  await page.getByLabel('Layouts to replace with drafts').selectOption(layoutId)
+  await expect(page.getByRole('checkbox', { name: 'Enabled: Garden 2BHK', exact: true })).toBeChecked()
   await page.getByRole('button', { name: 'Replace selected layouts with drafts' }).click()
   await expect(page.getByRole('group', { name: 'Confirm media action' })).toContainText('Replace selected layouts')
   await page.getByRole('button', { name: 'Confirm and queue evaluation' }).click()

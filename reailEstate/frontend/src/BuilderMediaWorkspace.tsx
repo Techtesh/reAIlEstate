@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from 'react'
-import { Check, Maximize2, Pencil, X } from 'lucide-react'
+import { Check, Maximize2, Pencil, Trash2, X } from 'lucide-react'
 import { api, ApiError, apiPath, json } from './api'
 import './BuilderMediaWorkspace.css'
 
@@ -44,6 +44,7 @@ const tabs: { id: Category; label: string }[] = [
 ]
 const emptyRegion = (): Region => ({ label: '', x: 0, y: 0, width: 1, height: 1 })
 const hasRectangle = ({ x, y, width, height }: Region) => x !== 0 || y !== 0 || width !== 1 || height !== 1
+const minimumLayoutArea = 0.02
 function nextLayoutLabel(regions: Region[]) {
   let number = regions.length + 1
   while (regions.some(region => region.label === `Layout ${number}`)) number++
@@ -138,13 +139,14 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [conflict, setConflict] = useState(false)
   const [layoutDirty, setLayoutDirty] = useState<Set<string>>(() => new Set())
   const [crop, setCrop] = useState<Crop | null>(null), [cropReady, setCropReady] = useState(false), [cropImageError, setCropImageError] = useState(false)
+  const [cropWarning, setCropWarning] = useState('')
   const [selectedDrafts, setSelectedDrafts] = useState<string[]>([]), [profile, setProfile] = useState('')
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
   const [selectedPlans, setSelectedPlans] = useState<string[]>([])
   const [rename, setRename] = useState<{ itemId: string; value: string } | null>(null)
   const [previewVersion, setPreviewVersion] = useState(0)
   const scope = useRef<AbortController | null>(null), pending = useRef(false)
-  const drag = useRef<{ x: number; y: number; before: Crop; editing: Crop } | null>(null)
+  const drag = useRef<{ x: number; y: number; before: Crop; editing: Crop; dropped?: Region } | null>(null)
   const cropImage = useRef<HTMLImageElement>(null)
   const cropEditor = useRef<HTMLElement>(null), confirmationPanel = useRef<HTMLDivElement>(null)
   const nameButton = useRef<HTMLButtonElement>(null), wasRenaming = useRef(false)
@@ -198,6 +200,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     setPreviewVersion(current => current + 1)
     if (plans) setLayouts(plans)
     setSelectedDrafts(current => current.filter(id => data.drafts.some(draft => draft.id === id)))
+    setSelectedPlans(current => current.filter(id => data.items.some(item => item.planId === id && item.reviewState !== 'removed_by_user')))
   }
   async function refreshClicked() {
     if (pending.current) return
@@ -236,14 +239,14 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     const document = item ? media?.documents.find(document => document.id === item.documentId) : media?.documents.find(cropSourceAvailable)
     if (!document || !cropSourceAvailable(document)) { setError(document?.error || 'No readable source pages are available for cropping. Upload valid evidence and refresh media.'); return }
     editCrop({ documentId: document.id, pageNumber: item?.pageNumber ?? 1, sourceSha256: item?.sourceSha256 ?? document.sha256, region: { ...emptyRegion(), label: multipleLayouts ? '' : (item?.label ?? '').slice(0, 64) }, category: multipleLayouts ? 'layouts' : item?.category ?? (tab === 'project-images' ? 'layouts' : tab), rotationDegrees: 0, ...(update && item ? { target: item } : {}), ...(multipleLayouts ? { layoutRegions: [] } : {}) })
-    setCropReady(false); setCropImageError(false); setError('')
+    setCropReady(false); setCropImageError(false); setError(''); setCropWarning('')
   }
   function replaceSource(documentId: string, pageNumber: number) {
     const document = media?.documents.find(document => document.id === documentId)
     if (!document || !cropSourceAvailable(document)) { setError(document?.error || 'The selected source document has no readable pages. Refresh media.'); return }
     if (crop && (json(crop.region) !== json(emptyRegion()) || crop.layoutRegions?.length) && !window.confirm('Discard all unsaved crop rectangles and labels to change the source page?')) return
     editCrop({ documentId, pageNumber, sourceSha256: document.sha256, region: emptyRegion(), category: crop?.category ?? 'layouts', rotationDegrees: 0, ...(crop?.layoutRegions ? { layoutRegions: [] } : {}) })
-    setCropReady(false); setCropImageError(false)
+    setCropReady(false); setCropImageError(false); setCropWarning('')
   }
   function editCrop(next: Crop | null) {
     if (json(next) !== json(crop)) cropRequest.current = null
@@ -264,24 +267,28 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     const position = point(event)
     if (!position) return
     let regions = crop.layoutRegions
+    let dropped: Region | undefined
     const keepCurrent = !!regions && hasRectangle(crop.region)
     if (regions && keepCurrent) {
       const region = { ...crop.region, label: crop.region.label.trim() || nextLayoutLabel(regions) }
-      if (!validRegion(region)) return
-      regions = [...regions, region]
+      if (undersizedLayout(region)) dropped = region
+      else {
+        if (!validRegion(region)) return
+        regions = [...regions, region]
+      }
     }
     if (regions && regions.length >= 20) { setError('Save these 20 layout crops before drawing more.'); return }
     const label = regions ? (!keepCurrent && crop.region.label.trim()) || nextLayoutLabel(regions) : crop.region.label
     const editing = { ...crop, ...(regions ? { layoutRegions: regions } : {}), region: { ...crop.region, label, ...position, width: 0, height: 0 } }
     event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId)
-    drag.current = { ...position, before: crop, editing }
+    drag.current = { ...position, before: crop, editing, dropped }
     editCrop(editing)
   }
   function finishRectangle(event: PointerEvent<HTMLDivElement>) {
     const position = point(event), origin = drag.current
     if (origin) {
       if (!position || position.x === origin.x || position.y === origin.y || mutationBlocked) editCrop(origin.before)
-      else { move(event); setError('') }
+      else { move(event); setError(''); if (origin.dropped) warnDropped([origin.dropped]) }
     }
     drag.current = null
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
@@ -289,6 +296,14 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
   function cancelRectangle() {
     if (drag.current) editCrop(drag.current.before)
     drag.current = null
+  }
+  function undersizedLayout(region: Region) {
+    return !crop?.target && crop?.category === 'layouts' &&
+      [region.width, region.height].every(value => Number.isFinite(value) && value >= 0) &&
+      region.width * region.height + Number.EPSILON < minimumLayoutArea
+  }
+  function warnDropped(regions: Region[]) {
+    if (regions.length) setCropWarning(`Dropped ${regions.length} crop(s) below 2% of the source image area: ${regions.map(region => region.label.trim() || 'Unnamed crop').join(', ')}. Other selections are kept.`)
   }
   function validRegion(region: Region) {
     const { x, y, width, height, label } = region
@@ -298,13 +313,18 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     if (!crop?.target && x === 0 && y === 0 && width === 1 && height === 1) {
       setError('Draw a crop rectangle or reduce its width/height before saving. To keep an entire page, use Add full page below.'); return false
     }
-    if (!crop?.target && (width * height < 0.01 || width * height > 0.70)) {
-      setError(`"${label.trim()}" covers ${(width * height * 100).toFixed(2)}% of the source page. Each new crop must cover between 1% and 70%. Resize this rectangle before saving; your other selections are kept.`); return false
+    const minimumArea = crop?.category === 'layouts' ? minimumLayoutArea : 0.01
+    if (!crop?.target && (width * height + Number.EPSILON < minimumArea || width * height > 0.70)) {
+      setError(`"${label.trim()}" covers ${(width * height * 100).toFixed(2)}% of the source page. Each new crop must cover between ${minimumArea * 100}% and 70%. Resize this rectangle before saving; your other selections are kept.`); return false
     }
     return true
   }
   function addLayoutRegion() {
-    if (!crop?.layoutRegions || !cropReady || !validRegion(crop.region)) return
+    if (!crop?.layoutRegions || !cropReady) return
+    if (undersizedLayout(crop.region)) {
+      warnDropped([crop.region]); editCrop({ ...crop, region: emptyRegion() }); setError(''); return
+    }
+    if (!validRegion(crop.region)) return
     if (crop.layoutRegions.length >= 20) { setError('Save these 20 layout crops before adding more.'); return }
     editCrop({ ...crop, layoutRegions: [...crop.layoutRegions, { ...crop.region, label: crop.region.label.trim() }], region: emptyRegion() })
     setError('')
@@ -313,9 +333,17 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     if (!crop || !cropReady) { setError('Load the original source page before saving a crop.'); return }
     const source = media?.documents.find(document => document.id === crop.documentId)
     if (!source || !cropSourceAvailable(source) || crop.pageNumber < 1 || crop.pageNumber > source.pageCount) { setError(source?.error || 'This source page is unavailable. Choose a readable source document and page.'); return }
-    const regions = [...(crop.layoutRegions ?? [])]
-    if (!crop.layoutRegions || json(crop.region) !== json(emptyRegion())) regions.push({ ...crop.region, label: crop.region.label.trim() })
-    if (!regions.length) { setError('Draw and label at least one layout crop before saving.'); return }
+    const dropped = (crop.layoutRegions ?? []).filter(undersizedLayout)
+    const retained = (crop.layoutRegions ?? []).filter(region => !undersizedLayout(region))
+    const regions = [...retained]
+    const dropCurrent = undersizedLayout(crop.region)
+    if (!crop.layoutRegions || hasRectangle(crop.region)) {
+      if (!dropCurrent) regions.push({ ...crop.region, label: crop.region.label.trim() })
+      else if (!crop.layoutRegions) dropped.push(crop.region)
+    }
+    warnDropped(dropped)
+    if (dropped.length || dropCurrent) editCrop({ ...crop, ...(crop.layoutRegions ? { layoutRegions: retained } : {}), ...(dropCurrent ? { region: emptyRegion() } : {}) })
+    if (!regions.length) { setError('Draw and label at least one layout crop covering 2% or more of the source image before saving.'); return }
     if (regions.length > 20) { setError('Save at most 20 layout crops at a time. Remove a crop or clear the current selection.'); return }
     if (!regions.every(validRegion)) return
     const payload = { documentId: crop.documentId, pageNumber: crop.pageNumber, sourceSha256: crop.sourceSha256, category: crop.category, regions, rotationDegrees: crop.rotationDegrees,
@@ -366,6 +394,12 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     if (action === 'rename' && media?.confirmNameChanges === false) saveMediaAction(values, false)
     else setConfirmation({ kind: 'action', values, title, queues })
   }
+  function changeActivity(item: MediaItem, active: boolean) {
+    action('set-active', active
+      ? item.category === 'floor-plans' ? 'Activate this floor plan? Derived layouts will stay inactive.' : 'Activate this layout?'
+      : item.category === 'floor-plans' ? 'Deactivate this floor plan and its derived layouts?' : 'Deactivate this layout?',
+    [item], { active })
+  }
   function selectImage(item: MediaItem) {
     if (rename && !window.confirm('Discard the unsaved media name?')) return
     setRename(null); setSelectedId(item.id)
@@ -391,6 +425,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     <p>Preview evidence, edit layout aliases and prices, or stage missing layouts from source pages. Changes require independent review.</p>
     {error && !crop && <p role="alert" className="field-error">{error}</p>}
     {notice && <p role="status" className="builder-notice">{notice}</p>}
+    {cropWarning && !crop && <p role="alert" className="builder-notice">Warning: {cropWarning}</p>}
     {locked && <p role="status">Save project edits or resolve the project conflict before changing media. Retired and merged projects are read-only.</p>}
     {media && !media.canEdit && <p role="status">Your organization access permits viewing only. Media changes are unavailable.</p>}
     {changed && <p role="status">Save or explicitly reload your layout entries before cropping, attaching or re-evaluating. Refresh keeps these entries.</p>}
@@ -449,8 +484,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
             <p>Status: {selected.reviewState?.replaceAll('_', ' ') ?? 'Awaiting review'} · {selected.active === false ? 'Inactive' : 'Active'}</p>
             <div className="button-row">
               {selected.reviewState === 'removed_by_user' ? <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => action('restore', 'Restore this removed plan without restarting cancelled jobs?', [selected], { reason: 'Builder restored media' })}>Restore plan</button> : <>
-                <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => action('set-active', selected.active === false ? selected.category === 'floor-plans' ? 'Activate this floor plan? Derived layouts will stay inactive.' : 'Activate this layout?' : selected.category === 'floor-plans' ? 'Deactivate this floor plan and its derived layouts?' : 'Deactivate this layout?', [selected], { active: selected.active === false })}>{selected.active === false ? 'Activate plan' : 'Deactivate plan'}</button>
-                <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => action('remove', 'Remove this plan? Its source evidence will be retained.', [selected], { reason: 'Builder removed duplicate or incorrect media' })}>Remove plan</button>
+                <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => changeActivity(selected, selected.active === false)}>{selected.active === false ? 'Activate plan' : 'Deactivate plan'}</button>
                 {selected.canCrop && <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => startCrop(selected, { update: true })}>Reset / update crop</button>}
                 {selected.canCrop && <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => action('reset-crop', 'Reset this crop to its original source and re-evaluate?', [selected], {}, true)}>Restore original crop</button>}
                 {selected.category === 'floor-plans' && <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation || selected.active === false} onClick={() => action('segment', 'Extract individual layouts from this floor plan?', [selected], {}, true)}>Extract layouts</button>}
@@ -465,7 +499,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     {crop && <section ref={cropEditor} className="builder-crop" aria-label="Crop source editor">
       <h3>{crop.target ? `Update crop: ${crop.target.label}` : crop.layoutRegions ? 'Manually crop layouts' : 'Crop source page'}</h3><p>Drag a rectangle on the original page, or enter percentage bounds. Saving creates a draft only, without model costs. {crop.target && 'Committing this draft updates the existing plan, keeping its identity and alias.'}</p>
       {cropPageAvailable && !cropImageError && <p><a href={apiPath(cropUrl)} target="_blank" rel="noopener noreferrer">Open original source page in new tab</a></p>}
-      {crop.layoutRegions && <p>Draw each layout one after another (up to 20). Starting the next rectangle automatically keeps the previous one; no Add button is required. Overlap is allowed for shared walls and adjacent homes. Default labels can be renamed below. Save layout drafts includes every rectangle, including the current one. This creates new layouts; it does not replace the floor plan.</p>}
+      {crop.layoutRegions && <p>Draw each layout one after another (up to 20). Starting the next rectangle automatically keeps the previous one; no Add button is required. Overlap is allowed for shared walls and adjacent homes. Each layout must cover at least 2% of the source image area. Smaller added crops are dropped with a warning; a smaller current rectangle is silently ignored when saving. Default labels can be renamed below. Save layout drafts includes the valid current rectangle. This creates new layouts; it does not replace the floor plan.</p>}
       <fieldset disabled={mutationBlocked || !!confirmation}>
         <div className="builder-form-grid">
           <label>Source document<select value={crop.documentId} disabled={!!crop.target} onChange={event => replaceSource(event.target.value, 1)}>{media?.documents.map(document => <option key={document.id} value={document.id} disabled={!cropSourceAvailable(document)}>{document.name}{!cropSourceAvailable(document) ? ' (unavailable)' : ''}</option>)}</select></label>
@@ -490,6 +524,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
           <p>{crop.layoutRegions.length} of 20 crops added. These are local selections, not saved drafts yet.</p>
         </>}
         {error && <p role="alert" className="field-error">Media action failed: {error}</p>}
+        {cropWarning && <p role="alert" className="builder-notice">Warning: {cropWarning}</p>}
         {busy && <p role="status">Saving your media action. Please wait for confirmation before attaching drafts.</p>}
         <button className="primary" disabled={!cropReady || !cropPageAvailable} onClick={saveCrop}>{crop.layoutRegions ? 'Save layout drafts' : 'Save crop draft'}</button>
         <p>To process the entire source page instead of the rectangle, add it as a floor plan or amenities page.</p>
@@ -560,16 +595,18 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
         <label>Evaluation profile<select value={profile} disabled={mutationBlocked || !!confirmation} onChange={event => setProfile(event.target.value)}><option value="">Server default</option>{media.profiles.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
         <div className="button-row"><button className="primary" disabled={mutationBlocked || !selectedDrafts.length || !!confirmation} onClick={() => setConfirmation({ kind: 'attach', draftIds: [...selectedDrafts] })}>Attach selected drafts</button><button className="secondary" disabled={mutationBlocked || !selectedDrafts.length || !!confirmation} onClick={() => setConfirmation({ kind: 'discard', draftIds: [...selectedDrafts] })}>Discard selected drafts</button></div>
       </section>
-      <section aria-label="Plan management"><h3>Plan management</h3><p>Selection applies only to this project. Deactivating a floor plan also deactivates its derived layouts; activating it does not reactivate them. Removing a floor plan can also affect its derived layouts; original evidence is retained.</p>
+      <section aria-label="Plan management"><h3>Plan management</h3><p>Checked means enabled. Uncheck a plan to disable it, then use its trash icon to delete it from the active collection. Deactivating a floor plan also deactivates its derived layouts; activating it does not reactivate them. Original evidence is retained.</p>
         <fieldset disabled={mutationBlocked || !!rename || !!confirmation}>
-          {media.items.filter(item => item.planId).map(item => <label className="builder-check" key={item.id}><input type="checkbox" checked={!!item.planId && selectedPlans.includes(item.planId)} onChange={event => { if (item.planId) { const planId = item.planId; setSelectedPlans(current => event.target.checked ? [...current, planId] : current.filter(id => id !== planId)) } }} />Select {item.label} ({item.reviewState?.replaceAll('_', ' ') ?? 'awaiting review'}, {item.active === false ? 'inactive' : 'active'})</label>)}
-          <div className="button-row">
-            <button className="secondary" disabled={!chosenPlans.length} onClick={() => action('set-active', 'Activate selected plans?', chosenPlans, { active: true })}>Activate selected plans</button>
-            <button className="secondary" disabled={!chosenPlans.length} onClick={() => action('set-active', 'Deactivate selected plans and any layouts derived from selected floor plans?', chosenPlans, { active: false })}>Deactivate selected plans</button>
-            <button className="secondary" disabled={!chosenPlans.length} onClick={() => action('remove', 'Remove selected plans and retain their evidence?', chosenPlans, { reason: 'Builder removed selected media' })}>Remove selected plans</button>
-            <button className="secondary" disabled={!chosenPlans.length || chosenPlans.some(item => item.reviewState !== 'removed_by_user')} onClick={() => action('restore', 'Restore selected plans without restarting cancelled jobs?', chosenPlans, { reason: 'Builder restored selected media' })}>Restore selected plans</button>
+          {media.items.filter(item => item.planId).map(item => <div className="builder-plan-row" key={item.id}>
+            <label className="builder-check"><input type="checkbox" aria-label={`Enabled: ${item.label}`} checked={item.active !== false && item.reviewState !== 'removed_by_user'} disabled={!item.updatedAt || item.reviewState === 'removed_by_user'} onChange={event => changeActivity(item, event.target.checked)} /><span>{item.label} ({item.reviewState?.replaceAll('_', ' ') ?? 'awaiting review'}, {item.active === false ? 'disabled' : 'enabled'})</span></label>
+            {item.reviewState === 'removed_by_user' ? <button className="secondary" disabled={!item.updatedAt} aria-label={`Restore ${item.label}`} onClick={() => action('restore', 'Restore this removed plan without restarting cancelled jobs?', [item], { reason: 'Builder restored media' })}>Restore</button>
+              : item.active === false && <button className="icon-button" disabled={!item.updatedAt} title={`Delete ${item.label}`} aria-label={`Delete ${item.label}`} onClick={() => action('remove', `Delete ${item.label}? Its source evidence will be retained.`, [item], { reason: 'Builder removed disabled media' })}><Trash2 size={18} aria-hidden="true" /></button>}
+          </div>)}
+          {!!selectedDrafts.length && <div className="builder-plan-replacement">
+            <label>Layouts to replace with drafts<select multiple value={selectedPlans} onChange={event => setSelectedPlans(Array.from(event.target.selectedOptions, option => option.value))}>{media.items.flatMap(item => item.planId && item.category === 'layouts' && item.reviewState !== 'removed_by_user' ? [<option key={item.id} value={item.planId}>{item.label}</option>] : [])}</select></label>
+            <p>Replacement is separate from enabled state. Only the layouts selected here will be replaced.</p>
             <button className="secondary" disabled={!selectedDrafts.length || !chosenPlans.length || chosenPlans.some(item => item.category !== 'layouts' || !item.updatedAt)} onClick={() => setConfirmation({ kind: 'attach', draftIds: [...selectedDrafts], replacementIds: [...selectedPlans], replacementTargets: chosenPlans.flatMap(item => item.planId && item.updatedAt ? [{ planId: item.planId, expectedUpdatedAt: item.updatedAt }] : []) })}>Replace selected layouts with drafts</button>
-          </div>
+          </div>}
         </fieldset>
       </section>
       <section aria-label="Project processing"><h3>Project processing</h3><p>These actions queue the standard pipelines. Workers run automatically; opening media never starts extraction.</p>
