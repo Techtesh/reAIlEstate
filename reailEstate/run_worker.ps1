@@ -8,14 +8,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'configure_runtime.ps1')
+. (Join-Path $PSScriptRoot 'runtime_helpers.ps1')
 
-$python = Join-Path $PSScriptRoot 'reailEstate_common\backend\.venv\Scripts\python.exe'
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
-    throw "Python environment is missing: $python"
-}
-
-Set-RealEstateRuntimeEnvironment -ApplicationRoot $PSScriptRoot -VisionProfilesFile $VisionProfilesFile
+$python = Get-RealEstatePython -ApplicationRoot $PSScriptRoot
+Initialize-RealEstateRuntime -ApplicationRoot $PSScriptRoot -VisionProfilesFile $VisionProfilesFile
 
 Write-Host 'Starting shared extraction, media-evaluation, and recommendation worker'
 if (-not [string]::IsNullOrWhiteSpace($env:FLOOR_PLAN_DEFAULT_VISION_PROFILE)) {

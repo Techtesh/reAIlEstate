@@ -94,6 +94,7 @@ from .layout_pages import validate_document_page
 from .project_lifecycle import merge_projects
 from .reanalysis import queue_project_reanalysis
 from .floor_plan_visibility import project_gallery_assets, visible_floor_plans
+from .jobs.events import DOCUMENT_EVENT
 from .feature_flags.api import FeatureFlagAdminViewSet as FeatureFlagAdminViewSet
 
 ALLOWED_UPLOAD_TYPES = FORMATS
@@ -164,6 +165,27 @@ def _requested_vision_selection(data):
         return resolve_vision_selection(data.get("visionProfileId"))
     except ValueError:
         raise ValidationError({"visionProfileId": [{"code": "UNKNOWN_OR_UNAVAILABLE_PROFILE"}]}) from None
+
+
+def _queue_document_processing(document, owner, correlation_id, selection, *, extractor_version, job_status):
+    ExtractionJob.objects.create(
+        document=document,
+        extractor_version=extractor_version,
+        status=job_status,
+    )
+    enqueue_document(document, correlation_id, vision_selection=selection)
+    operation = Operation.objects.create(
+        owner=owner,
+        kind="document_processing",
+        state="pending",
+        result={"documentId": str(document.id)},
+    )
+    return {
+        "operationId": str(operation.id),
+        "statusUrl": f"/api/v1/operations/{operation.id}",
+        "queueStatus": "pending",
+        "visionSelection": selection,
+    }
 
 
 class BuyerCursorPagination(CursorPagination):
@@ -754,15 +776,10 @@ class DocumentCompleteView(APIView):
         document.status = "quarantined"
         document.scan_status = "pending"
         document.save(update_fields=["status", "scan_status", "updated_at"])
-        ExtractionJob.objects.create(document=document, extractor_version="extractor-1.0", status="awaiting_scan")
-        enqueue_document(document, request.correlation_id, vision_selection=selection)
-        operation = Operation.objects.create(owner=request.user, kind="document_processing", state="pending", result={"documentId": str(document.id)})
-        body = {
-            "operationId": str(operation.id),
-            "statusUrl": f"/api/v1/operations/{operation.id}",
-            "queueStatus": "pending",
-            "visionSelection": selection,
-        }
+        body = _queue_document_processing(
+            document, request.user, request.correlation_id, selection,
+            extractor_version="extractor-1.0", job_status="awaiting_scan",
+        )
         _save_idempotency(request.user, key, f"document-complete:{document_id}", status.HTTP_202_ACCEPTED, body)
         audit(request, "document.processing_queued", document)
         return Response(body, status=status.HTTP_202_ACCEPTED)
@@ -1553,7 +1570,7 @@ class ReprocessDocumentAdminView(APIView):
         if existing:
             return Response(existing.response_body, status=existing.response_status)
         if OutboxMessage.objects.filter(
-            event_type="document.processing.requested", payload__documentId=str(document.id),
+            event_type=DOCUMENT_EVENT, payload__documentId=str(document.id),
             published_at__isnull=True, dead_lettered_at__isnull=True,
         ).exists():
             raise ValidationError({"document": [{"code": "ALREADY_QUEUED"}]})
@@ -1567,12 +1584,14 @@ class ReprocessDocumentAdminView(APIView):
         document.status = "quarantined" if document.scan_status != "clean" else "extraction_failed"
         document.error_category = ""
         document.save(update_fields=["status", "error_category", "updated_at"])
-        ExtractionJob.objects.create(document=document, extractor_version=extractor_version, status="queued")
-        enqueue_document(document, request.correlation_id, vision_selection=selection)
-        operation = Operation.objects.create(owner=request.user, kind="document_processing", state="pending", result={"documentId": str(document.id)})
-        body = {"documentId": str(document.id), "status": document.status, "queueStatus": "pending",
-            "visionSelection": selection, "operationId": str(operation.id),
-            "statusUrl": f"/api/v1/operations/{operation.id}"}
+        body = {
+            "documentId": str(document.id),
+            "status": document.status,
+            **_queue_document_processing(
+                document, request.user, request.correlation_id, selection,
+                extractor_version=extractor_version, job_status="queued",
+            ),
+        }
         _save_idempotency(request.user, key, f"document-reprocess:{document_id}", status.HTTP_202_ACCEPTED, body)
         audit(request, "document.reprocessing_requested", document, reason_code=reason, metadata={"extractorVersion": extractor_version})
         return Response(body, status=status.HTTP_202_ACCEPTED)

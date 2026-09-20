@@ -3,9 +3,10 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { ArrowRight, Building2, Heart, House, List, Map as MapIcon, MapPin, RefreshCw, ShieldCheck, SlidersHorizontal, Table2, X } from 'lucide-react'
 import { api, collection, json } from './api'
 import { componentLabel, configurationArea, coordinates, dateLabel, lowestPrice, projectPrice, projectStatusLabel, reasonLabel, type CommutePlace, type Match, type Project, type Snapshot, type User } from './buyer'
+import { errorMessage } from './errors'
 import { ProjectMap } from './ProjectMap'
 import { ProjectGallery } from './ProjectGallery'
-import { Empty, errorMessage, SignInPrompt } from './App'
+import { Empty, SignInPrompt } from './SharedUi'
 
 export type CatalogueProps = { projects: Project[]; user: User | null; loading: boolean; error: string; onRetry: () => void; savedIds: string[]; busy: boolean; toggleShortlist: (project: Project) => Promise<void>; onSignIn: () => void }
 type BrowseProps = CatalogueProps & { title: string; eyebrow: string; matches: Match[]; shortlist?: boolean; snapshot?: Snapshot; commutePlaces?: CommutePlace[]; commutePanel?: ReactNode }

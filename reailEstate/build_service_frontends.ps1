@@ -3,8 +3,10 @@
 param()
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'runtime_helpers.ps1')
+
 $frontend = Join-Path $PSScriptRoot 'reailEstate_common\frontend'
-$python = Join-Path $PSScriptRoot 'reailEstate_common\backend\.venv\Scripts\python.exe'
+$python = Get-RealEstatePython -ApplicationRoot $PSScriptRoot
 npm --prefix $frontend run build:services
 if ($LASTEXITCODE -ne 0) {
     throw 'Service frontend build failed.'

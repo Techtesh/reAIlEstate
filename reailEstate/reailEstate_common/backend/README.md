@@ -2,9 +2,13 @@
 
 Django/DRF implementation of the contracts in the workspace documentation. It includes session authentication, consent, immutable/versioned buyer requirements, developer organizations, secure upload quarantine, extraction/review boundaries, MahaRERA snapshots, evidence-backed publication, catalog search, deterministic recommendations, comparisons, shortlists/shares, notifications, audit records, operations, metrics, and health/OpenAPI endpoints.
 
-The [buyer frontend](../frontend/README.md) runs separately on port 5173 and proxies
-the buyer service on port 8004. It includes requirements, ranked map/feed results and
-shortlists; submitted matches require the recommendation worker described below.
+Use the repository [`WORKFLOWS.md`](../../../WORKFLOWS.md) as the source of truth
+for service lifecycle, role workflows, workers, maintenance, testing, and deployment
+safety. This file remains the detailed backend command and subsystem reference.
+
+The optional [buyer frontend](../frontend/README.md) development server runs on
+port 5173 and proxies the buyer service on port 8004. The built buyer application
+is served directly by the buyer service at port 8004.
 
 ## Builder Portal and Account Provisioning
 
@@ -302,23 +306,20 @@ three independently runnable service boundaries:
   shortlists, comparisons and travel estimates. Its deployment also serves the
   compiled React application.
 
-Local combined mode remains available for compatibility. The physical service
-entrypoints live in `adminService`, `builderService`, and `buyerService`; shared
-models, migrations, processing code, and frontend source live in
-`reailEstate_common`. From the `reailEstate` directory, run separated roles
-after building the service frontends:
+The physical service entrypoints live in `adminService`, `builderService`, and
+`buyerService`; shared models, migrations, processing code, and frontend source
+live in `reailEstate_common`. The canonical lifecycle command is:
 
 ```powershell
-.\build_service_frontends.ps1
-.\run_service.ps1 -Service admin
-.\run_service.ps1 -Service builder
-.\run_service.ps1 -Service buyer
+.\reailEstate\manage_services.ps1 -Action start
 ```
 
-The default local ports are 8002, 8003 and 8004 respectively. All roles currently
-share PostgreSQL and media storage. Keep writes behind the service that owns the
-capability. Service route modules may import shared `platform_api` application
-code; reusable document/image utilities belong in `realestate_common`.
+See [`WORKFLOWS.md`](../../../WORKFLOWS.md#2-local-service-lifecycle) for status,
+stop, restart, selective service, foreground-debugging, and Vite commands. The
+default local ports are 8002, 8003 and 8004 respectively. All roles currently share
+PostgreSQL and media storage. Keep writes behind the service that owns the capability.
+Service route modules may import shared `platform_api` application code; reusable
+document/image utilities belong in `realestate_common`.
 `PROJECT_DATABASE_ALIAS` and a separate buyer-owned data store are future seams:
 published project reads can move to a read replica, while requirements,
 recommendations, shortlists and preferences move to the buyer database.
@@ -1265,7 +1266,12 @@ TODO: install/configure ClamAV and its signature updates, remove the local task'
 `LOCAL_TRUST_BUILDER_UPLOADS` exception, scan previously trusted documents, and
 verify builder uploads with real malware scanning before any production rollout.
 
-For a timer, schedule `python manage.py process_outbox --once --event-type documents --limit 5` with Windows Task Scheduler or cron using the backend virtual environment and backend working directory. Set the same catalog/credential environment variables as the API. Do not overlap scheduled runs; use one worker for SQLite. For periodic processing in a supervised worker, use `python manage.py process_outbox --event-type documents --poll-seconds 300 --limit 5`. The legacy default `--event-type all` still processes both event types. No OS timer is installed or enabled automatically.
+Normal local operation uses `run_extraction_dispatcher` through
+`manage_services.ps1`; production uses a supervised dispatcher process against
+PostgreSQL. `process_outbox --once` remains available only for bounded diagnostics
+and deliberate maintenance. Do not schedule overlapping invocations. The legacy
+`--event-type all` default still processes both event types, and no OS timer is
+installed or enabled automatically.
 
 The media dashboard's **Run evaluations for this project** processes pending extraction
 jobs for that project, including child jobs created while processing. It does not

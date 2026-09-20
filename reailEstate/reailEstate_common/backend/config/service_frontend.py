@@ -2,7 +2,7 @@ from django.conf import settings
 from django.http import FileResponse, HttpResponse
 
 
-def index(request):
+def service_frontend(request):
     path = settings.FRONTEND_DIST / "index.html"
     if not path.is_file():
         return HttpResponse(

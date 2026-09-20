@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { api, ApiError, json } from './api'
 import { coordinates, dateLabel, type CommutePlace, type LocatedPlace, type Profile } from './buyer'
+import { errorMessage, isAbortError } from './errors'
 
 function LocationPicker({ place, onChange, signedIn }: { place: CommutePlace; onChange: (place: CommutePlace) => void; signedIn: boolean }) {
   const [method, setMethod] = useState('search')
@@ -42,10 +43,10 @@ function LocationPicker({ place, onChange, signedIn }: { place: CommutePlace; on
         if (!controller.signal.aborted) { setResults(result.results); if (!result.results.length) setError('No locations found. Add a locality to your search or use coordinates.') }
       }
     } catch (failure) {
-      if (!controller.signal.aborted && !(failure instanceof DOMException && failure.name === 'AbortError')) {
+      if (!controller.signal.aborted && !isAbortError(failure)) {
         setError(failure instanceof ApiError && failure.status === 503 ? 'Google Maps lookup is unavailable. Use coordinates or a full Google Maps pin link instead.'
           : failure instanceof ApiError && failure.status === 400 ? 'This location could not be resolved. Use a single Google Maps pin link, a Plus Code with its locality, or coordinates.'
-          : failure instanceof Error ? failure.message : 'Location lookup failed. Please try again.')
+          : errorMessage(failure, 'Location lookup failed. Please try again.'))
       }
     } finally { if (!controller.signal.aborted) setBusy(false) }
   }

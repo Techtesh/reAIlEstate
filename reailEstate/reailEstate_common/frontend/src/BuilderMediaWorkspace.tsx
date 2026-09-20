@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { Check, Maximize2, Pencil, Trash2, X } from 'lucide-react'
 import { api, ApiError, apiPath, json } from './api'
+import { errorMessage, isAbortError } from './errors'
 import './BuilderMediaWorkspace.css'
 
 export type BuilderLayout = { id: string; name: string; price: string | null; configurationType: string; carpetAreaSqFt: string | null; updatedAt: string; reviewState: string }
@@ -50,8 +51,8 @@ function nextLayoutLabel(regions: Region[]) {
   while (regions.some(region => region.label === `Layout ${number}`)) number++
   return `Layout ${number}`
 }
-const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError'
-const message = (error: unknown) => error instanceof Error ? error.message : 'The media action could not be completed.'
+const aborted = isAbortError
+const message = (error: unknown) => errorMessage(error, 'The media action could not be completed.')
 const cropSourceAvailable = (document: MediaDocument | undefined) => !!document && !document.error && document.pageCount > 0
 function measurement(value: string | number | null | undefined, unit: string) {
   return value != null && Number.isFinite(Number(value)) && Number(value) > 0

@@ -64,7 +64,7 @@ def test_admin_service_exposes_admin_page_read_routes(name, kwargs, buyer_expose
             reverse(name, kwargs=kwargs, urlconf="buyer_service.urls")
 
 
-def test_buyer_frontend_csp_allows_its_static_bundle(client, settings, tmp_path):
+def test_service_frontend_csp_allows_its_static_bundle(client, settings, tmp_path):
     (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
     settings.ROOT_URLCONF = "buyer_service.urls"
     settings.FRONTEND_DIST = tmp_path

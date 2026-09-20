@@ -3,6 +3,9 @@
 React 19, TypeScript and Vite buyer experience backed by the existing Django API.
 It provides guided and summary requirements, ranked map/feed results, an explainable
 score sheet, published project details, comparisons and account-owned shortlists.
+See the repository [`WORKFLOWS.md`](../../../WORKFLOWS.md) for the canonical
+service lifecycle and complete buyer, builder, reviewer, worker, and deployment
+workflow catalogue.
 
 ## Run Locally
 
@@ -10,7 +13,7 @@ Use Node.js 22.12+ and npm. From the workspace root:
 
 ```powershell
 npm --prefix reailEstate/reailEstate_common/frontend ci
-npm --prefix reailEstate/reailEstate_common/frontend run dev -- --mode buyer
+npm --prefix reailEstate/reailEstate_common/frontend run dev:buyer
 ```
 
 Open http://127.0.0.1:5173/. Django must already be running at
@@ -21,7 +24,15 @@ Do not recreate the database, reingest samples or publish projects for frontend 
 The Vite proxy forwards `/api` to Django while preserving the incoming Host header
 for same-origin session cookies, CSRF checks and pagination links. Use the loopback
 address above consistently. No API credentials belong in frontend environment files.
-If port 5173 is occupied, use `npm --prefix reailEstate/reailEstate_common/frontend run dev -- --mode buyer --port 5176`.
+If port 5173 is occupied, use `npm --prefix reailEstate/reailEstate_common/frontend run dev:buyer -- --port 5176`.
+
+Builder hot reload is separate:
+
+```powershell
+npm --prefix reailEstate/reailEstate_common/frontend run dev:builder
+```
+
+It listens on port 5174 and proxies only to the builder service on port 8003.
 
 Sign in using an existing workspace account. Account creation is administered in
 Django; the buyer UI does not offer public registration. Guest requirements can be

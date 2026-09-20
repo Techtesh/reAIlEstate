@@ -4,6 +4,10 @@ This repository uses a perforated-monolith layout: three independently runnable
 service entrypoints share one Django domain, one React source tree, one PostgreSQL
 schema, and one media store.
 
+The canonical operating and product-flow catalogue is
+[`../WORKFLOWS.md`](../WORKFLOWS.md). Use it for setup, start/stop/status,
+role workflows, workers, maintenance, testing, and deployment safety.
+
 | Project | Responsibility |
 |---------|----------------|
 | `adminService` | Administration, review, publishing, operations, and schema migrations |
@@ -17,27 +21,25 @@ and migration history are intentionally unchanged.
 
 ## Local services
 
-Build the buyer and builder bundles:
+From the repository root, use the lifecycle controller:
 
 ```powershell
-.\build_service_frontends.ps1
+.\reailEstate\manage_services.ps1 -Action start
+.\reailEstate\manage_services.ps1 -Action status
+.\reailEstate\manage_services.ps1 -Action stop
 ```
 
-Start a service in a separate terminal:
+Startup builds both frontend bundles, applies pending migrations through the admin
+service, and starts admin, builder, buyer, and the shared worker. The resulting
+interfaces are:
 
-```powershell
-.\run_service.ps1 -Service admin
-.\run_service.ps1 -Service builder
-.\run_service.ps1 -Service buyer
-```
+- Admin: `http://127.0.0.1:8002/admin/`
+- Builder: `http://127.0.0.1:8003/`
+- Buyer: `http://127.0.0.1:8004/`
 
-Start the shared background worker in one additional terminal. Document ingestion,
-page analysis, crop evaluation, and floor splitting remain queued until this process
-claims them:
-
-```powershell
-.\run_worker.ps1
-```
+For foreground debugging, use `run_service.ps1` and `run_worker.ps1` directly.
+For buyer hot reload, start only the buyer API and use
+`npm --prefix .\reailEstate\reailEstate_common\frontend run dev:buyer`.
 
 For local AI extraction, copy
 `reailEstate_common/backend/vision-profiles.example.json` to the ignored
@@ -47,10 +49,9 @@ one profile, it becomes the default and AI extraction is enabled. For multiple
 profiles, set `FLOOR_PLAN_DEFAULT_VISION_PROFILE` before starting the service. Use
 `-VisionProfilesFile <path>` to load a different local profile file.
 
-The default ports are 8002, 8003, and 8004. The Compose layout includes the shared
-background worker. For the single-host container layout, set `POSTGRES_PASSWORD` and
-`DJANGO_SECRET_KEY`, then use
-`docker compose -f compose.services.yml up --build`.
+The Compose layout includes PostgreSQL, migrations, all web services, and the shared
+worker. See [`../WORKFLOWS.md`](../WORKFLOWS.md) before using it.
 
-Cloud-specific `.deployments` infrastructure is intentionally deferred until an
-Azure subscription/region and AWS account/region are selected.
+Azure has validated planning artifacts but no authorized apply. AWS remains
+offline-validated without an approved account deployment. Neither cloud may be
+deployed without new approval.

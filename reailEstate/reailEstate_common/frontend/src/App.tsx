@@ -1,8 +1,10 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { BrowserRouter, Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowRight, Building2, House, LogIn, LogOut, MapPin, X } from 'lucide-react'
+import { ArrowRight, House, LogIn, LogOut, MapPin, X } from 'lucide-react'
 import { api, ApiError, cancelSessionRequests, collection, json, onSessionExpired } from './api'
 import { dateLabel, draftSchema, newDraft, placesSchema, resumeDraft, type Draft, type Profile, type Project, type Shortlist, type User } from './buyer'
+import { errorMessage, isAbortError } from './errors'
+import { Empty, SignInPrompt } from './SharedUi'
 import { Requirements, type AmenityOption } from './Requirements'
 import { Browse, Matches } from './Browse'
 import { ShortlistCommute } from './CommuteLocations'
@@ -13,7 +15,6 @@ import './App.css'
 const appRole = import.meta.env.MODE
 const builderWorkspaceEnabled = appRole !== 'buyer'
 
-export const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'This action could not be completed.'
 function initialDraft() {
   try { const stored = JSON.parse(sessionStorage.getItem('mmr-safe-draft') ?? '{}'); return resumeDraft({ home: stored.home, weights: stored.weights }) } catch { return newDraft() }
 }
@@ -99,7 +100,7 @@ function BuyerApp() {
     try { sessionStorage.removeItem('mmr-safe-draft') } catch {}
   }
   function handleError(error: unknown) {
-    if (error instanceof DOMException && error.name === 'AbortError') return
+    if (isAbortError(error)) return
     if (error instanceof ApiError && [401, 403].includes(error.status)) {
       const safeHome = draft.home, safeWeights = draft.weights
       clearPrivateState(); setDraft({ ...newDraft(), home: safeHome, weights: safeWeights }); setUser(null); setAfterLogin(''); setLoginOpen(true)
@@ -218,8 +219,6 @@ function Login({ onClose, onSuccess, onBuilder }: { onClose: () => void; onSucce
     finally { setBusy(false) }
   }}><label>Username<input name="username" autoComplete="username" required autoFocus /></label><label>Password<input name="password" type="password" autoComplete="current-password" required /></label><button className="primary" disabled={busy}>{busy ? 'Signing in...' : `Sign in as ${workspace === 'builder' ? 'Builder' : 'Buyer'}`}<ArrowRight size={18} /></button></form><p className="data-note">{workspace === 'builder' ? 'Builder access requires an active owner or editor organization membership.' : 'Need an account? Contact the workspace administrator.'}</p></dialog>
 }
-export function Empty({ title, detail, action, onAction }: { title: string; detail: string; action?: string; onAction?: () => void }) { return <div className="empty-state"><Building2 size={36} strokeWidth={1.3} /><h2>{title}</h2><p>{detail}</p>{action && <button className="primary" onClick={onAction}>{action}<ArrowRight size={18} /></button>}</div> }
-export function SignInPrompt({ onSignIn }: { onSignIn: () => void }) { return <Empty title="A private place for your home search" detail="Sign in for saved requirements, personalized matches and shortlists." action="Sign in" onAction={onSignIn} /> }
 function Privacy() { return <main id="main" className="page-width prose"><p className="eyebrow">Policy 1.0</p><h1 tabIndex={-1}>Your information stays yours</h1><h2>Requirements and recommendations</h2><p>With your consent, your account saves your home requirements, budget, destinations (including exact coordinates when supplied) and priorities to calculate personalized project matches. They are not public listings. Your destination markers appear only on your shortlist map.</p><h2>Guest drafts</h2><p>Budgets, destinations and additional notes stay in tab memory until saved. Closing or refreshing the tab discards these sensitive guest entries. Home configurations and scoring weights can remain in session storage until the tab closes.</p><h2>Map data</h2><p>Project and station markers come from Homefinder's public catalogue. User-added station candidates and saved references do not establish operating status; unverified records are labelled accordingly.</p><p>The map loads OpenStreetMap tiles. The tile provider receives your IP address and requested map area, which may include areas around your destinations, but not destination names or your requirement profile. Map tiles are subject to OpenStreetMap's privacy and usage policies. No Google map is embedded.</p><p>Choosing Look up location sends your search, Plus Code or Google Maps share link through our backend to Google as needed. This happens only on your request, not when opening the map. Entering coordinates directly does not call Google. Google Maps privacy and usage terms apply to these lookups.</p><h2>Control and retention</h2><p>You can sign out at any time. Saved records remain in your account under the backend's retention policy. Contact the workspace administrator for consent withdrawal, account export or deletion. Signing out clears private information from this view.</p><h2>Decision support, not an offer</h2><p>Match scores are specific to your requirements. Prices, availability, commute estimates and registry status may change. MahaRERA information is not legal certification. Adding destination markers does not calculate travel times.</p></main> }
 function AppRoute() {
   const { pathname } = useLocation()

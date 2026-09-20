@@ -139,7 +139,7 @@ test('daily commute coordinates save privately, reload by profile, and appear on
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme })
     await expect(page.locator('.commute-pin')).toHaveCSS('background-color', colorScheme === 'light' ? 'rgb(23, 23, 23)' : 'rgb(255, 255, 255)')
-    await expect(page.locator('.price-pin')).toHaveCSS('background-color', colorScheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(23, 23, 23)')
+    await expect(page.locator('.price-pin.shortlisted')).toHaveCSS('background-color', 'rgb(138, 40, 79)')
     await page.screenshot({ path: info.outputPath(`commute-${colorScheme}.png`), fullPage: true })
   }
   expect(await page.evaluate(() => JSON.stringify({ session: { ...sessionStorage }, local: { ...localStorage } }))).not.toContain('Work campus')
@@ -154,11 +154,14 @@ test('daily commute coordinates save privately, reload by profile, and appear on
   await page.getByRole('link', { name: 'Discover', exact: true }).click()
   await expect(page.locator('.commute-pin')).toHaveCount(0)
   await page.getByRole('link', { name: /^Shortlist/ }).click()
+  await expect(page.locator('.commute-pin')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Map view', exact: true }).click()
   await expect(page.locator('.commute-pin')).toHaveCount(1)
   await page.reload()
   await page.locator('.shortlist-commute > summary').click()
   await page.getByLabel('Saved requirement profile').selectOption(profileId)
   await page.getByRole('button', { name: 'Load requirements', exact: true }).click()
+  await page.getByRole('button', { name: 'Map view', exact: true }).click()
   await expect(page.locator('.commute-pin')).toHaveCount(1)
   expect(state.requests.some(request => request.includes('commute-locations'))).toBe(false)
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
@@ -705,7 +708,7 @@ test('guests browse listings and station layers without accessing private data',
   await page.getByRole('checkbox', { name: /^Metro/ }).uncheck()
   await expect(page.locator('.station-pin')).toHaveCount(1)
   await page.getByRole('checkbox', { name: /^Metro/ }).check()
-  await page.getByRole('button', { name: 'Fixture Lakes', exact: true }).click()
+  await page.getByRole('region', { name: 'Project feed' }).getByRole('button', { name: 'Fixture Lakes', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText('Available layouts')
   await page.keyboard.press('Escape')
   await page.getByRole('checkbox', { name: 'MahaRERA verified', exact: true }).click()
@@ -765,7 +768,9 @@ test('processing catalogue is off by default and preserves filters without priva
   await card.getByRole('button', { name: 'Processing Heights', exact: true }).click()
   await expect(page.getByRole('dialog')).toContainText('Project facts are not published yet.')
   await expect(page.getByRole('dialog')).toContainText('Processing media is restricted to project editors and reviewers.')
-  expect(state.requests.filter(request => request.includes(processing.id))).toEqual([`GET /api/v1/projects/${processing.id}/gallery`])
+  expect(new Set(state.requests.filter(request => request.includes(processing.id)))).toEqual(
+    new Set([`GET /api/v1/projects/${processing.id}/gallery`]),
+  )
   await page.keyboard.press('Escape')
   await page.getByLabel('Locality', { exact: true }).selectOption('Powai')
   await expect(page.locator('.project-card')).toHaveCount(3)

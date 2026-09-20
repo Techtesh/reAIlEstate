@@ -9,6 +9,7 @@ reailEstate/reailEstate_common/backend/vision-profiles.local.json
 reailEstate/reailEstate_common/backend/staticfiles/
 reailEstate/reailEstate_common/frontend/dist/
 reailEstate/reailEstate_common/frontend/node_modules/
+reailEstate/.runtime/
 **/__pycache__/
 **/.terraform/
 *.tfstate

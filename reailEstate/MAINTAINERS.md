@@ -7,6 +7,10 @@ remain the product and design baseline, but some still describe an earlier
 ASP.NET proposal. For runtime behavior, prefer this guide, the service READMEs,
 the URL configuration, and the tests.
 
+Use [`../WORKFLOWS.md`](../WORKFLOWS.md) as the canonical workflow and runtime
+catalogue. This guide explains implementation details and invariants rather than
+duplicating lifecycle commands.
+
 ## Service map
 
 | Area | Runtime owner | Primary source |
@@ -27,7 +31,7 @@ the URL configuration, and the tests.
 ```mermaid
 flowchart LR
     Browser[React buyer app] -->|same-origin /api via Vite proxy| API[Django API and admin]
-    API --> DB[(PostgreSQL or local SQLite)]
+    API --> DB[(PostgreSQL)]
     API --> Files[(Private workspace media)]
     API -->|transactional enqueue| Outbox[(OutboxMessage)]
     Worker[process_outbox worker] -->|claim and dispatch| Outbox
@@ -542,58 +546,24 @@ worker UUID and heartbeat recorded by the queue monitor.
 
 ## Local development
 
-### Backend
-
-From the repository workspace root:
-
-```powershell
-Set-Location ./reailEstate/reailEstate_common/backend
-$Python = (Resolve-Path './.venv/Scripts/python.exe').Path
-$env:WORKSPACE_DATA_ROOT = (Resolve-Path '../..').Path
-$env:DATABASE_BACKEND = 'postgresql'
-$env:PYTHONUTF8 = '1'
-$env:PROJECT_METRO_CATALOGUE_FILE = ''
-docker start realestate-workspace-publish-postgres
-& $Python manage.py runserver 127.0.0.1:8002
-```
-
-`PROJECT_METRO_CATALOGUE_FILE` must point to valid JSON; unset it when no catalogue
-is available. For isolated local work, set `DATABASE_BACKEND=sqlite`. Do not run
-corpus writers against SQLite and PostgreSQL simultaneously.
-
-The bundled metro JSON is currently empty and must not be enabled as a catalogue.
-Do not fabricate authority data to satisfy its test. Configure a validated
-authority-backed catalogue explicitly when available. A server launched with
-`--noreload` must be restarted after Python/template updates; a fresh Django shell
-check is not evidence that the live server loaded the change. Keep credentials in
-the launch environment and do not print them while inspecting or restarting it.
-
-### Frontend
-
-From the repository workspace root:
+Use the canonical lifecycle commands in
+[`../WORKFLOWS.md`](../WORKFLOWS.md#2-local-service-lifecycle):
 
 ```powershell
-npm --prefix reailEstate/reailEstate_common/frontend ci
-npm --prefix reailEstate/reailEstate_common/frontend run dev -- --mode buyer
+.\reailEstate\manage_services.ps1 -Action start
+.\reailEstate\manage_services.ps1 -Action status
+.\reailEstate\manage_services.ps1 -Action stop
 ```
 
-Open `http://127.0.0.1:5173/`. The development proxy expects Django at
-`http://127.0.0.1:8004/`.
+The application runtime uses PostgreSQL. SQLite is limited to isolated test
+configuration and must not be used for application or corpus-writing workflows.
+The persistent `run_extraction_dispatcher` process owns normal document, media,
+and recommendation execution. Use `process_outbox` only for bounded diagnostics
+or deliberate maintenance, as catalogued in `WORKFLOWS.md`.
 
-### Workers
-
-Workers are separate from the web server. Start only the work type you intend to
-consume:
-
-```powershell
-Set-Location ./reailEstate/reailEstate_common/backend
-$Python = (Resolve-Path './.venv/Scripts/python.exe').Path
-& $Python manage.py process_outbox --event-type recommendations
-& $Python manage.py process_outbox --event-type extraction --project-id <project-id> --drain --limit 5
-```
-
-The second command changes shared project state. Confirm the database, project,
-queue depth, and configured providers before running it.
+The bundled metro JSON is currently empty and must not be enabled as an authority
+catalogue. Do not fabricate authority data to satisfy a test. A service launched
+with `--noreload` must be restarted after Python or template updates.
 
 ## Configuration groups
 
@@ -639,46 +609,23 @@ integration. PostgreSQL checks must use a separate disposable test database.
 
 ### Verification snapshot: 2026-09-19
 
-- Backend full-suite run: **990 passed, 53 failed, 5 skipped** (before the final
-   five heading/sort/leaf-import cases were added). This is a red baseline, not a
-   no-regression guarantee; failures have not been established as pre-existing by
-   comparison with a clean starting-worktree baseline.
-- Queue monitor: **40 passed**; layout queue/bulk modes: **49 passed**; targeted
-   route command/prefetch/drain: **6 passed**; new heading/sort and leaf imports:
-   **10 passed**. These targeted totals overlap the full suite.
-- Frontend unit tests: **11 passed**; production browser tests: **18 passed**;
-   TypeScript/Vite build passed. Lint completed with **8 warnings** in unchanged
-   React files; Vite warns about a chunk larger than 500 kB.
-- Changed Python service/command diagnostics are clean; the PowerShell wrapper
-   parses successfully. No live evaluations or paid route calls were made during
-   verification. PostgreSQL regression execution remains unverified.
-
-High-priority follow-up (same date): **192 passed, 1 skipped** across
-`test_feature_flag_adapters.py`, `test_floor_plan_removal.py`,
-`test_floor_plan_vision.py`, `test_floor_plan_pipeline.py`,
-`test_business_ingestion.py`, `test_ingestion_concurrency.py`, and
-`test_project_outputs.py`. The full suite was not rerun after this follow-up.
-
-- Fixed early feature-flag validation errors to use DRF non-field error mappings,
-   returning 400 rather than an internal error without weakening input validation.
-- Corrected the removal test's publication precondition; processing-project fact
-   redaction remains intact. Published detail API tests now cover removal/restore.
-- Added owner-only provider cleanup on success/failure and tests for injected
-   reuse. Credential tests now verify cached reuse and explicit, idempotent close.
-- Updated stale transport-hook and scan-limit assertions to cover current
-   behavior. Extraction prompts, limits, retries, and approval gates are unchanged.
-- No UI validation was required. Editor diagnostics are clean; the adjacent
-   output tests still emit existing Django admin deprecation warnings.
-
-Remaining backend failure groups requiring triage before broader refactoring:
-
-- Bulk/health fixtures violate document uniqueness; isolated admin test sites
-   cannot reverse the queue route; two model-call tests use incompatible transaction
-   fixtures; another persistence test lacks database access permission.
-- Command tests call `handle()` without newer parser defaults (`owner_id`);
-   middleware tests provide an incomplete resolver match.
-- Vision-profile selection and local travel-provider expectations differ from runtime.
-- The authority metro catalogue is empty; a desktop map-layout assertion fails.
+- Consolidation-focused backend suite: **122 passed**.
+- Full isolated SQLite suite: **1,273 passed, 39 failed, 7 skipped** with 341
+  warnings. The remaining failures cluster around processing-coordinate preview
+  policy, builder media/crop fixtures, queue-monitor actions, one domain-boundary
+  assertion, and the intentionally empty authority catalogue.
+- A PostgreSQL-configured full run completed with **1,261 passed, 56 failed,
+  2 skipped**. Additional failures included tests that close or replace database
+  connections and vision-client fixture mismatches. PostgreSQL is the application
+  runtime, but the full test baseline remains red and is not a release gate yet.
+- Frontend unit tests: **18 passed**. Full Playwright suite: **104 passed**.
+  Buyer and builder production bundles built successfully. Lint completed with
+  warnings and no errors.
+- `git diff --check` and PowerShell syntax checks passed. The unified lifecycle
+  smoke test applied migrations, started the three HTTP services and worker,
+  passed live/readiness checks, and stopped every managed process.
+- No live evaluations, paid provider calls, cloud applies, image pushes, or cloud
+  migrations were performed.
 
 Do not declare the whole project SOLID-compliant or regression-free while these
 gates remain red. Resolve each at its owning boundary with a focused reproduction,

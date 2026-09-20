@@ -1,11 +1,11 @@
 from django.contrib import admin
-from django.urls import include, path
+from django.urls import include, path, re_path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from platform_api.views import LiveHealthView, ReadyHealthView
 
 
-def service_urlpatterns(api_urlconf, *, django_admin=False):
+def service_urlpatterns(api_urlconf, *, django_admin=False, frontend=False):
     patterns = [
         path("api/v1/", include(api_urlconf)),
         path("api/v1/", include("platform_api.urls_media")),
@@ -16,4 +16,12 @@ def service_urlpatterns(api_urlconf, *, django_admin=False):
     ]
     if django_admin:
         patterns.insert(0, path("admin/", admin.site.urls))
+    if frontend:
+        from .service_frontend import service_frontend
+
+        patterns.append(re_path(
+            r"^(?!api/|admin/|health/|static/).*$",
+            service_frontend,
+            name="service-frontend",
+        ))
     return patterns

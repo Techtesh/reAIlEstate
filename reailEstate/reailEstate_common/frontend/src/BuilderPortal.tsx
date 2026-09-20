@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api, ApiError, apiPath, cancelSessionRequests, json, onSessionExpired } from './api'
 import { BuilderMediaWorkspace, type BuilderLayout as Layout } from './BuilderMediaWorkspace'
 import { coordinates } from './buyer'
+import { errorMessage, isAbortError } from './errors'
 import './BuilderPortal.css'
 
 type Account = { id: string | number; username: string; email: string }
@@ -19,8 +20,8 @@ type ProjectDraft = Pick<Project, 'submittedName' | 'mahaReraId' | 'locality' | 
 type Evidence = { id: string; originalName: string; status: string; scanStatus: string; byteLength: number; errorCategory?: string }
 type UploadIntent = { documentId: string; uploadAction: string; method: 'PUT'; requiredHeaders: Record<string, string>; maximumSize: number }
 type Upload = { file: File; key: string; intent: UploadIntent | null; phase: 'intent' | 'put' | 'complete' | 'done' }
-const message = (error: unknown) => error instanceof Error ? error.message : 'The action could not be completed.'
-const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError'
+const message = (error: unknown) => errorMessage(error, 'The action could not be completed.')
+const aborted = isAbortError
 const pathFor = (id: string) => `/api/v1/builder/projects/${encodeURIComponent(id)}`
 const documentsFor = (id: string) => `/api/v1/developer-projects/${encodeURIComponent(id)}/documents`
 const locationEntry = (project?: Project): LocationEntry => ({

@@ -4,7 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --mode buyer",
+    "dev:buyer": "vite --mode buyer",
+    "dev:builder": "vite --mode builder --port 5174",
+    "dev:test": "vite --mode development",
     "build": "tsc -b && vite build --mode buyer",
     "build:buyer": "tsc -b && vite build --mode buyer",
     "build:builder": "tsc -b && vite build --mode builder",
@@ -12,7 +15,10 @@
     "test": "vitest run src/buyer.test.ts",
     "test:e2e": "playwright test",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview --mode buyer",
+    "preview:buyer": "vite preview --mode buyer",
+    "preview:builder": "vite preview --mode builder --port 5175",
+    "preview:test": "vite preview --mode development"
   },
   "dependencies": {
     "@fontsource/dm-serif-display": "^5.3.0",

@@ -1,8 +1,8 @@
 import { useEffect, useId, useState } from 'react'
 import { ChevronLeft, ChevronRight, ImageOff, Maximize2, RefreshCw } from 'lucide-react'
 import { api, apiPath } from './api'
-import { errorMessage } from './App'
 import { calculatedRoomArea, dateLabel, inr, priceValue, projectPrice, type Configuration, type Project } from './buyer'
+import { errorMessage } from './errors'
 import { LayoutTable } from './LayoutTable'
 
 type Layout = {

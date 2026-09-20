@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { api } from './api'
+import { errorMessage } from './errors'
 
 type Organization = { id: string; legalName: string; role: string }
 
@@ -23,7 +24,7 @@ export function WorkspaceChooser({ onClose, onBuyer, onBuilder }: {
     api<Organization[]>('/api/v1/builder/organizations', { signal: controller.signal })
       .then(items => { if (!controller.signal.aborted) setOrganizations(items) })
       .catch(failure => {
-        if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : 'Unable to check builder access.')
+        if (!controller.signal.aborted) setError(errorMessage(failure, 'Unable to check builder access.'))
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
