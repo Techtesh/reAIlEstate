@@ -22,12 +22,14 @@ from platform_api.builder_views import (
 )
 from platform_api.output_views import IngestionOutputDownloadView, ProjectExtractionOutputView
 from platform_api.views import (
+    CurrentUserView,
     DeveloperDocumentListView,
     DeveloperProjectCreateView,
     DeveloperSubmitReviewView,
     DocumentCompleteView,
     DocumentContentUploadView,
     MarkDocumentLayoutPageView,
+    OperationView,
     ProjectFloorPlanListView,
     ProjectIngestionQueueView,
     ProjectIngestionRunListView,
@@ -35,11 +37,15 @@ from platform_api.views import (
     ProjectReanalysisView,
     ProjectVisionProfileListView,
     ReprocessDeveloperDocumentView,
+    SessionLogoutView,
     UploadIntentView,
 )
 
 urlpatterns = [
     path("auth/builder-login", BuilderLoginView.as_view()),
+    path("auth/me", CurrentUserView.as_view()),
+    path("auth/logout", SessionLogoutView.as_view()),
+    path("operations/<uuid:operation_id>", OperationView.as_view(), name="operation-status"),
     path("builder/organizations", BuilderOrganizationsView.as_view()),
     path("builder/projects", BuilderProjectsView.as_view()),
     path("builder/projects/<uuid:project_id>", BuilderProjectView.as_view()),

@@ -7,8 +7,10 @@ import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.urls import NoReverseMatch, Resolver404, clear_url_caches, resolve, reverse
+from rest_framework.test import APIClient
 
 from platform_api.integrations import RejectingScanner, get_document_scanner
+from platform_api.models import Operation, Organization, OrganizationMembership
 from realestate_common.malware import ClamAvEndpointScanner
 
 
@@ -36,8 +38,66 @@ def test_only_admin_service_owns_schema_migrations():
     assert settings_buyer.SCHEMA_MIGRATION_OWNER is False
 
 
-def test_buyer_service_exposes_operation_status_for_match_polling():
-    assert resolve(f"/api/v1/operations/{uuid4()}", urlconf="buyer_service.urls")
+@pytest.mark.parametrize("urlconf", ["admin_service.urls", "builder_service.urls", "buyer_service.urls"])
+def test_services_expose_operation_status_for_polling(urlconf):
+    assert resolve(f"/api/v1/operations/{uuid4()}", urlconf=urlconf)
+
+
+@pytest.fixture
+def builder_client(settings):
+    settings.ROOT_URLCONF = "builder_service.urls"
+    clear_url_caches()
+    return APIClient(enforce_csrf_checks=True)
+
+
+@pytest.mark.django_db
+def test_builder_service_session_bootstrap_login_and_logout(builder_client, django_user_model):
+    credentials = {"username": "service-builder", "password": "builder-service-test-only"}
+    user = django_user_model.objects.create_user(**credentials)
+    organization = Organization.objects.create(legal_name="Service builder")
+    OrganizationMembership.objects.create(user=user, organization=organization, role="owner")
+    login_url = "/api/v1/auth/builder-login"
+
+    assert builder_client.get(login_url).status_code == 200
+    assert builder_client.get("/api/v1/auth/me").status_code == 403
+    assert builder_client.post(login_url, credentials, format="json").status_code == 403
+    response = builder_client.post(
+        login_url, credentials, format="json",
+        HTTP_X_CSRFTOKEN=builder_client.cookies["csrftoken"].value,
+    )
+    assert response.status_code == 200
+    assert response.json()["id"] == user.pk
+    assert builder_client.get("/api/v1/auth/me").json()["username"] == user.username
+    assert builder_client.get("/api/v1/builder/organizations").json() == [
+        {"id": str(organization.pk), "legalName": organization.legal_name, "role": "owner"},
+    ]
+
+    assert builder_client.get(login_url).status_code == 200
+    assert builder_client.get("/api/v1/auth/me").status_code == 200
+    assert builder_client.post("/api/v1/auth/logout", {}, format="json").status_code == 403
+    assert builder_client.post(
+        "/api/v1/auth/logout", {}, format="json",
+        HTTP_X_CSRFTOKEN=builder_client.cookies["csrftoken"].value,
+    ).status_code == 204
+    assert builder_client.get("/api/v1/auth/me").status_code == 403
+    assert builder_client.get("/api/v1/builder/organizations").status_code == 403
+
+
+@pytest.mark.django_db
+def test_builder_service_operation_status_is_owner_scoped(builder_client, django_user_model):
+    owner = django_user_model.objects.create_user(username="operation-owner")
+    other = django_user_model.objects.create_user(username="other-operation-owner")
+    operation = Operation.objects.create(owner=owner, kind="document_processing")
+    url = f"/api/v1/operations/{operation.pk}"
+
+    assert builder_client.get(url).status_code == 403
+    builder_client.force_login(owner)
+    response = builder_client.get(url)
+    assert response.status_code == 200
+    assert response.json()["id"] == str(operation.pk)
+    assert response.json()["status"] == "pending"
+    builder_client.force_login(other)
+    assert builder_client.get(url).status_code == 404
 
 
 def test_default_workspace_data_root_survives_common_project_move():
