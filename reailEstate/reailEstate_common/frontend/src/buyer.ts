@@ -35,7 +35,7 @@ export const draftSchema = z.object({
     bathroomsMinimum: z.number().int().min(0).max(10), bathroomsIsHardConstraint: z.boolean(),
   }),
   societyAmenities: z.array(z.object({ code: z.string(), importance: z.enum(['required', 'preferred']), substituteAccepted: z.boolean() })),
-  nearbyAmenities: z.array(z.object({ code: z.string(), importance: z.enum(['required', 'preferred']), maximumDistanceMeters: z.number().int().min(100).max(20000) })),
+  nearbyAmenities: z.array(z.object({ code: z.string(), importance: z.enum(['required', 'preferred']), maximumDistanceMeters: z.number().int().min(100).max(5000) })),
   microMarket: z.object({ preferredLocalities: z.array(z.string()) }),
   budget: z.object({ currency: z.literal('INR'), purchaseMinimum: money, purchaseMaximum: money, allInMaximum: money, isHardConstraint: z.boolean() }),
   weights: z.object({ commute: z.number().min(0).max(1), budget: z.number().min(0).max(1), space: z.number().min(0).max(1), societyAmenities: z.number().min(0).max(1), nearbyAmenities: z.number().min(0).max(1), microMarket: z.number().min(0).max(1), projectConfidence: z.number().min(0).max(1) }),

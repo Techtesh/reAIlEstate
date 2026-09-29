@@ -51,6 +51,7 @@ from .layout_image_normalization import normalize_layout_image
 from .layout_pages import validate_document_page
 from .layout_reanalysis import create_manual_layout_crops
 from .project_lifecycle import merge_projects, project_family_ids, retire_project
+from .project_admin_actions import add_manual_amenities, project_retirement_response
 from .reanalysis import queue_project_reanalysis
 from .workers import process_pending_outbox
 from .source_page_admin import SourcePageAdminMixin
@@ -698,6 +699,15 @@ class ProjectPictureWidget(forms.ClearableFileInput):
 
 
 class ProjectAdminForm(forms.ModelForm):
+    manual_amenities = forms.CharField(
+        label="Add missing amenities",
+        required=False,
+        widget=forms.Textarea(attrs={
+            "rows": 3, "class": "amenity-entry",
+            "placeholder": "For example: gym, swimming pool, children's play area",
+        }),
+        help_text="Separate amenities with commas or new lines. Recognized entries are saved as reviewed manual claims; brochure evidence is retained.",
+    )
     project_picture_source = forms.ChoiceField(
         label="Project pic from documents", required=False, widget=forms.RadioSelect,
         help_text="Choose an extracted image or use the first clean PDF page. An uploaded picture overrides the automatic default.",
@@ -771,7 +781,7 @@ class ProjectMediaPictureForm(ProjectAdminForm):
 
 @admin.register(Project)
 class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, LayoutBulkAdminMixin, CropCartAdminMixin, SourcePageAdminMixin, ImageNavigationAdminMixin, admin.ModelAdmin):
-    form = forms.ModelForm
+    form = ProjectAdminForm
     change_form_template = "admin/platform_api/project_change_form.html"
     change_list_template = "admin/platform_api/project_change_list.html"
     list_display = ("submitted_name", "created_at", "maharera_reference", "google_maps_reference", "locality", "status", "boundary_review_link", "media_dashboard_link")
@@ -788,6 +798,9 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
     }), (None, {
         "classes": ("project-details-grid", "project-address"),
         "fields": ("address", "locality"),
+    }), ("Amenities", {
+        "classes": ("project-details-grid", "project-amenities"),
+        "fields": ("manual_amenities",),
     }))
     ordering = ("submitted_name", "id")
     actions = ("retire_selected_projects", "queue_selected_projects_for_reanalysis")
@@ -863,30 +876,10 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
         if not self.has_delete_permission(request, project):
             from django.core.exceptions import PermissionDenied
             raise PermissionDenied
-        cancel_url = reverse(
-            "admin:platform_api_project_change", args=[project.pk], current_app=self.admin_site.name,
-        )
-        if request.method == "POST":
-            if request.POST.get("confirm") != "yes":
-                return HttpResponseRedirect(cancel_url)
-            try:
-                retire_project(project.id, request.user, "ADMIN_DELETE_CONFIRMED")
-            except ValueError as exc:
-                messages.error(request, f"Project could not be retired: {exc}")
-                return HttpResponseRedirect(cancel_url)
-            messages.success(
-                request,
-                "Project retired. Evidence, layouts, recommendation history, and audit records were preserved.",
-            )
-            return HttpResponseRedirect(reverse(
-                "admin:platform_api_project_changelist", current_app=self.admin_site.name,
-            ))
-        context = {
-            **self.admin_site.each_context(request), "opts": self.model._meta,
-            "original": project, "object": project,
-            "title": "Delete project", "cancel_url": cancel_url,
-        }
-        return TemplateResponse(request, "admin/platform_api/project_delete_confirmation.html", context)
+        return project_retirement_response(self.admin_site, request, project)
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        add_manual_amenities(request, obj, form.cleaned_data.get("manual_amenities", ""), self.message_user)
 
     @admin.action(description="Retire selected projects (safe delete)")
     def retire_selected_projects(self, request, queryset):
@@ -1211,6 +1204,12 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                                 for error in errors:
                                     messages.error(request, error)
                 return HttpResponseRedirect(request.path + "?section=project-images")
+            if action == "add_manual_amenities":
+                if project.status in {"retired", "merged"}:
+                    messages.error(request, "Amenities cannot be changed on a retired or merged project.")
+                else:
+                    add_manual_amenities(request, project, request.POST.get("manual_amenities", ""), self.message_user)
+                return HttpResponseRedirect(request.path + "?section=amenities")
             from .reanalysis import evaluation_retry_warning
             warning = evaluation_retry_warning(project, request.user, request.POST)
             if warning:
@@ -1422,7 +1421,7 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
         )).order_by("page_number", "created_at")
         amenities = assets.filter(source_bounds__category="amenities").select_related("workflow_run")
         amenity_claims = project.project_amenities.select_related("amenity").order_by(
-            "amenity__category", "amenity__display_name"
+            "amenity__display_name"
         )
         plans = visible_floor_plans(FloorPlan.objects.filter(project_id__in=family_ids)).select_related("asset", "document", "workflow_run").order_by(
             "page_number", "plan_name", "created_at"

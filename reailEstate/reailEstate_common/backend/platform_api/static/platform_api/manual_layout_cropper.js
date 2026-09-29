@@ -8,6 +8,10 @@
   const input = root.querySelector('input[name="regions_json"]');
   const rotationInput = root.querySelector('input[name="rotation_degrees"]');
   const rotationLabel = root.querySelector('[data-rotation-label]');
+  const workspace = root.querySelector('.crop-workspace');
+  const stage = root.querySelector('[data-crop-stage]');
+  const theater = root.querySelector('[data-crop-theater]');
+  const fullscreen = root.querySelector('[data-crop-fullscreen]');
   const status = document.createElement('p');
   status.setAttribute('role', 'status');
   list.after(status);
@@ -111,4 +115,21 @@
   image.addEventListener('load', paint);
   image.addEventListener('error', () => { status.textContent = 'Source image could not be loaded.'; });
   sync();
+  theater.addEventListener('click', () => {
+    const active = workspace.classList.toggle('is-theater');
+    theater.setAttribute('aria-pressed', String(active));
+    theater.setAttribute('title', active ? 'Exit theater mode' : 'Theater mode');
+  });
+  fullscreen.addEventListener('click', async () => {
+    if (document.fullscreenElement === stage) {
+      await document.exitFullscreen();
+    } else if (stage.requestFullscreen) {
+      await stage.requestFullscreen();
+    }
+  });
+  document.addEventListener('fullscreenchange', () => {
+    const active = document.fullscreenElement === stage;
+    fullscreen.setAttribute('aria-pressed', String(active));
+    fullscreen.setAttribute('title', active ? 'Exit full screen' : 'Full screen');
+  });
 })();

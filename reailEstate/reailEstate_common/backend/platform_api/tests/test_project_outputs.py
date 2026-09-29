@@ -12,7 +12,7 @@ from rest_framework.test import APIClient
 
 from platform_api.artifact_storage import storage
 from platform_api.document_formats import DOCX, prepare_document
-from platform_api.models import EvidenceDocument, Organization, OrganizationMembership, Project
+from platform_api.models import EvidenceDocument, Organization, OrganizationMembership, OutboxMessage, Project, ProjectAmenity
 from platform_api.project_outputs import build_project_output, extract_fields, layout_metrics, materialize_project_amenities
 from platform_api.rag import SourcePage
 from platform_api.workers import detect_media_type, process_document, enqueue_document
@@ -62,7 +62,7 @@ def test_project_admin_columns_preserve_fields_and_links(client, django_user_mod
     assert list(response.context["adminform"].form.fields) == [
         "organization", "status", "maha_rera_id", "submitted_name",
         "published_fact_set_version", "verification_status", "processing_attested", "verification_checked_at",
-        "address", "locality",
+        "address", "locality", "manual_amenities", "project_picture_source",
     ]
     assert b'name="latitude"' not in response.content and b'name="longitude"' not in response.content
     assert b'project-details-layout' in response.content
@@ -75,6 +75,7 @@ def test_project_admin_columns_preserve_fields_and_links(client, django_user_mod
     assert b'name="project_picture_source"' not in response.content
     assert b'name="_save"' in response.content
     assert b'class="project-address-disclosure">' in response.content
+    assert b"field-manual_amenities" in response.content and b"Add missing amenities" in response.content
     assert b"Layouts, prices and sizes" in response.content
     if adding:
         assert b"Save the project to add layouts" in response.content
@@ -318,6 +319,26 @@ def test_materialize_project_amenities_uses_only_recognized_taxonomy():
 
     assert [item.amenity.taxonomy_code for item in materialized] == ["clubhouse"]
     assert materialized[0].evidence_summary["reviewState"] == "unreviewed"
+
+@pytest.mark.django_db
+def test_materialized_amenities_queue_and_apply_nearby_enrichment(monkeypatch):
+    from platform_api import nearby_amenities
+    from platform_api.workers import process_pending_outbox
+    project = Project.objects.create(organization=Organization.objects.create(legal_name="Nearby Builder"), submitted_name="Nearby Project", latitude=19.12, longitude=72.90)
+
+    class Provider:
+        def nearby_amenities(self, location):
+            assert location["radiusMeters"] == 5_000
+            return {"sourceUrl": "https://source.example.test/nearby", "retrievedAt": "2026-09-29T00:00:00Z", "data": {"amenities": [{"taxonomyCode": "clubhouse", "distanceMeters": 700}, {"taxonomyCode": "gymnasium", "distanceMeters": 4_900, "travelMinutes": 12}, {"taxonomyCode": "gymnasium", "distanceMeters": 5_001}]}}
+
+    monkeypatch.setattr(nearby_amenities, "backend", lambda: Provider())
+    materialize_project_amenities(project, {"amenities": {"social": {"values": ["clubhouse"], "evidence": []}}})
+    message = OutboxMessage.objects.get(event_type="project.nearby_amenities.requested")
+    assert process_pending_outbox(message_ids=[message.id]) == {"processed": 1, "retry": 0, "failed": 0}
+    clubhouse = ProjectAmenity.objects.get(project=project, amenity__taxonomy_code="clubhouse")
+    gym = ProjectAmenity.objects.get(project=project, amenity__taxonomy_code="gymnasium")
+    assert clubhouse.distance_meters is None
+    assert (gym.distance_meters, gym.travel_minutes) == (4_900, 12)
 
 
 def test_legacy_office_requires_explicit_converter(settings):

@@ -15,6 +15,9 @@ class UnavailableProjectEnrichment:
     def stations(self, location):
         return None
 
+    def nearby_amenities(self, location):
+        return None
+
     def developer(self, numbers):
         return None
 

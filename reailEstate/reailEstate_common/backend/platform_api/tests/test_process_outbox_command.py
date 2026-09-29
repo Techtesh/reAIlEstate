@@ -9,7 +9,7 @@ from django.db.models import Q
 
 from platform_api.jobs.events import (
     CROP_EVENT, DOCUMENT_EVENT, EXTRACTION_EVENTS, MEDIA_EVENTS, OUTBOX_EVENT_GROUPS,
-    PAGE_EVENT, RECOMMENDATION_EVENT, UNITS_EVENT,
+    NEARBY_AMENITIES_EVENT, PAGE_EVENT, RECOMMENDATION_EVENT, UNITS_EVENT,
 )
 from platform_api.management.commands import process_outbox
 
@@ -37,14 +37,15 @@ def test_shared_event_contracts():
     assert PAGE_EVENT == "source.page_evaluation.requested"
     assert UNITS_EVENT == "floor_plan.units_evaluation.requested"
     assert RECOMMENDATION_EVENT == "recommendation.computation.requested"
+    assert NEARBY_AMENITIES_EVENT == "project.nearby_amenities.requested"
     assert set(MEDIA_EVENTS) == {CROP_EVENT, PAGE_EVENT, UNITS_EVENT}
     assert len(MEDIA_EVENTS) == 3
-    assert set(EXTRACTION_EVENTS) == {DOCUMENT_EVENT, *MEDIA_EVENTS}
+    assert set(EXTRACTION_EVENTS) == {DOCUMENT_EVENT, *MEDIA_EVENTS, NEARBY_AMENITIES_EVENT}
     assert OUTBOX_EVENT_GROUPS["documents"] == (DOCUMENT_EVENT,)
     assert OUTBOX_EVENT_GROUPS["all"] is None
 
 
-@pytest.mark.parametrize("selector", ["all", "documents", "recommendations", "media"])
+@pytest.mark.parametrize("selector", ["all", "documents", "recommendations", "enrichment", "media"])
 def test_command_parser_accepts_existing_and_media_selectors(selector):
     command = process_outbox.Command()
     parser = command.create_parser("manage.py", "process_outbox")

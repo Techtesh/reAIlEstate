@@ -18,3 +18,8 @@ reailEstate/.runtime/
 *.tfvars
 backend.hcl
 !*.tfvars.example
+node_modules
+.local-logs/django.err.log
+.local-logs/django.out.log
+.local-logs/vite.err.log
+.local-logs/vite.out.log

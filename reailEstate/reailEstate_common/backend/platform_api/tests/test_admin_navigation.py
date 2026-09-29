@@ -113,6 +113,40 @@ def test_sidebar_quick_queue_link(client, records):
     assert b"maharera=missing" in response.content
 
 
+def test_media_dashboard_adds_manual_amenities(client, records):
+    owner, project, _, _ = records
+    client.force_login(owner)
+    url = reverse("admin:platform_api_project_media_dashboard", args=[project.pk])
+
+    response = client.get(url, {"section": "amenities"})
+    assert response.status_code == 200
+    assert b'name="action" value="add_manual_amenities"' in response.content
+    assert b"Add missing amenities" in response.content
+
+    response = client.post(url + "?section=amenities", {
+        "action": "add_manual_amenities",
+        "manual_amenities": "gym, swimming pool",
+    })
+    assert response.status_code == 302
+    assert response.url.endswith("?section=amenities")
+    assert set(project.project_amenities.values_list("amenity__taxonomy_code", flat=True)) == {
+        "gymnasium", "swimming_pool",
+    }
+
+def test_project_delete_confirmation_and_retirement(client, records):
+    owner, project, _, _ = records
+    client.force_login(owner)
+    url = reverse("admin:platform_api_project_delete", args=[project.pk])
+
+    response = client.get(url)
+    assert response.status_code == 200
+    assert b"Delete project" in response.content
+
+    response = client.post(url, {"confirm": "yes"})
+    assert response.status_code == 302
+    project.refresh_from_db()
+    assert project.status == "retired"
+
 def test_quick_cart_is_current_users_total(client, records, django_user_model):
     from platform_api.models import LayoutCropDraft
 

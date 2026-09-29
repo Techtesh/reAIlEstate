@@ -119,6 +119,27 @@ def saved_station_routes(project):
     routes = task.resolution.get("stationRoutes")
     if isinstance(routes, dict) and isinstance(routes.get("groups"), list):
         return routes
+
+    # Accepting a replacement manual pin creates a new reference.  If it is the
+    # same pin as an older reference, retain that reference's already-reviewed
+    # route results rather than making them disappear from the admin view.
+    if project.latitude is not None and project.longitude is not None:
+        current = {"latitude": float(project.latitude), "longitude": float(project.longitude)}
+        for previous in ReviewTask.objects.filter(LOCATION_REFERENCE_QUERY, project=project,
+                task_type="external_sources").exclude(pk=task.pk).order_by("-created_at", "-pk"):
+            previous_routes = previous.resolution.get("stationRoutes")
+            if not isinstance(previous_routes, dict) or not isinstance(previous_routes.get("groups"), list):
+                continue
+            manual = previous.resolution.get("manualLocation")
+            origin = previous_routes.get("origin")
+            candidate = origin or (manual.get("location") if isinstance(manual, dict) else None)
+            try:
+                location = coordinates(candidate)
+            except (TypeError, ValueError):
+                continue
+            if (abs(location["latitude"] - current["latitude"]) <= 0.000001 and
+                    abs(location["longitude"] - current["longitude"]) <= 0.000001):
+                return previous_routes
     path = Path(settings.WORKSPACE_DATA_ROOT) / "output" / "reports" / "google-project-routes.json"
     if not path.is_file():
         path = Path(settings.BASE_DIR) / "reports" / "google-project-routes.json"

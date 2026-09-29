@@ -506,6 +506,9 @@ def _process_transactional_outbox(message_id, scanner=None, extractor=None):
         operation.state = "completed"
         operation.result = {"recommendationRequestId": str(snapshot.id)}
         operation.save(update_fields=["state", "result", "updated_at"])
+    elif message.event_type == "project.nearby_amenities.requested":
+        from .nearby_amenities import enrich_nearby_amenities
+        enrich_nearby_amenities(message.payload["projectId"])
     else:
         raise ValueError(f"Unsupported event type: {message.event_type}")
     InboxMessage.objects.create(consumer="platform-worker", message_id=message.id, result="processed")

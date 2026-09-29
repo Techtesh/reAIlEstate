@@ -276,6 +276,10 @@ def materialize_project_amenities(project, project_output):
             claim.evidence_summary = summary
             claim.save(update_fields=["evidence_summary", "updated_at"])
             materialized.append(claim)
+    # Both admin and builder documents reach this shared seam. The follow-up is
+    # durable, deduplicated while pending, and never performs provider work here.
+    from .nearby_amenities import enqueue_nearby_amenity_enrichment
+    enqueue_nearby_amenity_enrichment(project, materialized)
     return materialized
 
 

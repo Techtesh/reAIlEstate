@@ -42,6 +42,8 @@ def _store_mapping(path, number, project_id, detail_url):
 
 
 def _captcha_handoff(page, headless, stdout):
+    # TODO(maharera-captcha-resolver): Define and approve a compliant resolver interface before
+    # automating any challenge handling. Until then, CAPTCHA completion is human-operated only.
     captcha = page.locator(CAPTCHA_SELECTOR).first
     if not captcha.is_visible():
         return

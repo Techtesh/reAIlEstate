@@ -109,7 +109,8 @@ function Start-Component([string]$Name) {
     if ($Name -eq 'frontend') {
         $frontend = Join-Path $PSScriptRoot 'reailEstate_common\frontend'
         Start-Process -FilePath 'npm.cmd' -ArgumentList @('--prefix', $frontend, 'run', 'dev:buyer') `
-            -WorkingDirectory $PSScriptRoot -RedirectStandardOutput $stdout -RedirectStandardError $stderr | Out-Null
+            -WorkingDirectory $PSScriptRoot -WindowStyle Hidden `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr | Out-Null
     } elseif ($Name -eq 'worker') {
         $script = Join-Path $PSScriptRoot 'run_worker.ps1'
         $arguments = @('-NoProfile', '-File', $script)
@@ -117,7 +118,7 @@ function Start-Component([string]$Name) {
             $arguments += @('-VisionProfilesFile', $VisionProfilesFile)
         }
         Start-Process -FilePath 'pwsh' -ArgumentList $arguments -WorkingDirectory $PSScriptRoot `
-            -RedirectStandardOutput $stdout -RedirectStandardError $stderr | Out-Null
+            -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr | Out-Null
     } else {
         $script = Join-Path $PSScriptRoot 'run_service.ps1'
         $arguments = @('-NoProfile', '-File', $script, '-Service', $Name)
@@ -125,7 +126,7 @@ function Start-Component([string]$Name) {
             $arguments += @('-VisionProfilesFile', $VisionProfilesFile)
         }
         Start-Process -FilePath 'pwsh' -ArgumentList $arguments -WorkingDirectory $PSScriptRoot `
-            -RedirectStandardOutput $stdout -RedirectStandardError $stderr | Out-Null
+            -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr | Out-Null
     }
     Wait-ServiceReady $Name
     Write-Host "Started $Name."

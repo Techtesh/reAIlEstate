@@ -22,6 +22,10 @@
 #project_form .project-details-sidebar { grid-area: sidebar; min-width: 0; }
 #project_form .project-resources { grid-area: resources; grid-template-columns: minmax(0, 1fr); grid-template-areas: "google" "media" "outputs"; }
 #project_form .project-address { grid-template-columns: minmax(0, 1fr); grid-template-areas: "locality" "address"; }
+#project_form .project-amenities { grid-template-columns: minmax(0, 1fr); grid-template-areas: "manual"; margin-top: 18px; padding: 16px; border: 1px solid var(--hairline-color); border-radius: 6px; background: var(--darkened-bg); }
+#project_form .project-amenities .field-manual_amenities { grid-area: manual; }
+#project_form .project-amenities textarea.amenity-entry { display: block; width: 100%; min-height: 96px; padding: 10px 12px; resize: vertical; }
+#project_form .project-amenities .help { max-width: 72ch; margin-top: 8px; }
 #project_form .project-address-disclosure { margin-block: 16px; border: 1px solid var(--hairline-color); border-radius: 4px; padding: 10px; }
 #project_form .project-address-disclosure > summary { cursor: pointer; font-weight: 600; padding-block: 4px; }
 #project_form .project-layout-summary { min-width: 0; padding-block: 16px; }

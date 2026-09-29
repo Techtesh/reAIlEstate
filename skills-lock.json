@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "skills": {
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grill-me/SKILL.md",
+      "computedHash": "5e0c683385eafd83f106ac6c9d67dfbbfe5aa4b3fe65aad114eb1055a99c818f"
+    },
+    "openai-docs": {
+      "source": "openai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/.curated/openai-docs/SKILL.md",
+      "computedHash": "80d1836b9c7cdee24521c47e33a77cbf02b34783267f5a7e32c41557170fa6dd"
+    },
+    "pdf": {
+      "source": "openai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/.curated/pdf/SKILL.md",
+      "computedHash": "af1e0791f5356b6de053e6b97d7703fe0d7ea1997371b9023afd4720bebcf93f"
+    },
+    "playwright": {
+      "source": "openai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/.curated/playwright/SKILL.md",
+      "computedHash": "844a180ab348b8d13044a320b8306e6263e1cda75e158e479a463225e43a5eb1"
+    },
+    "playwright-interactive": {
+      "source": "openai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/.curated/playwright-interactive/SKILL.md",
+      "computedHash": "3e9e650b0fe2fe0659fd5b4054fafa62fd07b7153210a41c4a812b05b4f52b69"
+    },
+    "screenshot": {
+      "source": "openai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/.curated/screenshot/SKILL.md",
+      "computedHash": "08ad9780b78f73c1a9abdcedd443108019ba2264a56b7f287006cbe99c3ed0c1"
+    },
+    "security-best-practices": {
+      "source": "openai/skills",
+      "sourceType": "github",
+      "skillPath": "skills/.curated/security-best-practices/SKILL.md",
+      "computedHash": "0c42fff660b6f7e85add36437edc36976466bb254b7cd9eb38ec67b2ad64a9bf"
+    }
+  }
+}

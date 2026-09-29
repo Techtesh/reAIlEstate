@@ -184,6 +184,17 @@
       {% empty %}<tr><td colspan="5">No structured amenities are available.</td></tr>{% endfor %}
       </tbody></table>
     </section>
+    <form method="post" action="?section=amenities" class="module media-panel amenity-manual-entry">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add_manual_amenities">
+      <fieldset{% if not can_report or original.status == 'retired' or original.status == 'merged' %} disabled{% endif %}>
+        <legend>Add missing amenities</legend>
+        <label for="manual-amenities">Amenity names</label>
+        <textarea id="manual-amenities" name="manual_amenities" rows="3" placeholder="For example: gym, swimming pool, children's play area"></textarea>
+        <p class="help">Separate entries with commas or new lines. Recognized amenities are added as reviewed manual claims; brochure evidence remains unchanged.</p>
+        <button type="submit" class="default">Add amenities</button>
+      </fieldset>
+    </form>
     <div class="media-grid">
       {% for item in amenities %}
         <article class="media-card">

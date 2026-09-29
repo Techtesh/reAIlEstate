@@ -26,6 +26,8 @@ from .travel import commute_scores
 
 MAHA_RERA_PATTERN = re.compile(r"^[A-Z][0-9A-Z]{8,19}$")
 REQUIREMENT_SECTIONS = ("places", "home", "societyAmenities", "nearbyAmenities", "microMarket", "budget", "weights")
+MAX_NEARBY_AMENITY_DISTANCE_METERS = 5_000
+
 DEFAULT_WEIGHTS = {
     "commute": 0.30,
     "budget": 0.25,
@@ -272,12 +274,13 @@ def _amenity_score(project, preferences, nearby=False):
         candidate = next((item for item in amenities if item.amenity.taxonomy_code == preference.get("code")), None)
         if candidate and candidate.availability_state == "available":
             if nearby:
-                max_distance = preference.get("maximumDistanceMeters")
-                if max_distance is None or candidate.distance_meters is None or candidate.distance_meters <= max_distance:
+                max_distance = min(preference.get("maximumDistanceMeters") or MAX_NEARBY_AMENITY_DISTANCE_METERS, MAX_NEARBY_AMENITY_DISTANCE_METERS)
+                if candidate.distance_meters is not None and candidate.distance_meters <= max_distance:
                     matched += weight
             else:
                 matched += weight
-        elif candidate and preference.get("substituteAccepted") and candidate.availability_state == "nearby_equivalent":
+        elif (candidate and preference.get("substituteAccepted") and candidate.availability_state == "nearby_equivalent"
+                and candidate.distance_meters is not None and candidate.distance_meters <= MAX_NEARBY_AMENITY_DISTANCE_METERS):
             matched += weight * 0.65
     return matched / total if total else None
 
@@ -388,7 +391,7 @@ def compute_recommendations(requirement_version, snapshot=None):
     scored.sort(key=lambda item: (-item[0], str(item[2].id)))
     RecommendationItem.objects.bulk_create([
         RecommendationItem(snapshot=snapshot, rank=index, score=round(score, 2), confidence=quality, project=project, components=components, reason_codes=reasons)
-        for index, (score, quality, project, components, reasons) in enumerate(scored, start=1)
+        for index, (score, quality, project, components, reasons) in enumerate(scored[:10], start=1)
     ])
     snapshot.state = "ready"
     snapshot.generated_at = timezone.now()

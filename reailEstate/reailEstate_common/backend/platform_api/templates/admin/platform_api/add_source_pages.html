@@ -34,8 +34,15 @@
     <p class="help">Browsing does not select a page for saving. Check the pages you want to add.</p>
     <div class="source-page-workspace">
       <div class="source-page-list">{{ form.pages }}</div>
-      <figure class="source-page-preview"><img data-page-preview src="{{ preview_url }}" alt="Original source page preview"><figcaption data-preview-label>Page 1</figcaption></figure>
+      <figure class="source-page-preview">
+        <img data-page-preview src="{{ preview_url }}" alt="Original source page preview">
+        <figcaption><span data-preview-label>Page 1</span><button type="button" class="button" data-preview-theater-open aria-haspopup="dialog">Expand image</button></figcaption>
+      </figure>
     </div>
+    <dialog class="source-page-theater" data-preview-theater aria-labelledby="source-page-theater-title">
+      <div class="source-page-theater__bar"><h2 id="source-page-theater-title">Source page preview</h2><div><button type="button" class="button" data-preview-theater-fullscreen>Full screen</button><button type="button" class="button" data-preview-theater-close>Close</button></div></div>
+      <img data-preview-theater-image src="{{ preview_url }}" alt="Expanded original source page preview">
+    </dialog>
     {{ form.vision_profile_id.as_field_group }}
     <div class="media-actions"><button type="submit" class="default">Save to cart</button>
     <a class="button" href="{{ cancel_url }}">Cancel</a></div>

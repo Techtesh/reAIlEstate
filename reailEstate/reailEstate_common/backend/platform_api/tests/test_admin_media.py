@@ -52,6 +52,13 @@ def test_project_dashboard_uses_external_carousel_script():
     assert "addEventListener" not in source
 
 
+def test_source_page_picker_includes_image_theater_controls():
+    source = get_template("admin/platform_api/add_source_pages.html").template.source
+    assert 'data-preview-theater' in source
+    assert 'data-preview-theater-open' in source
+    assert 'data-preview-theater-fullscreen' in source
+    assert 'data-preview-theater-close' in source
+
 def test_project_dashboard_media_tab_order():
     source = get_template("admin/platform_api/project_media_dashboard.html").template.source
     sections = ["project-images", "amenities", "floor-plans", "layouts"]
