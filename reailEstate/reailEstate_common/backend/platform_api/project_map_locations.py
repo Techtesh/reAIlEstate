@@ -13,7 +13,7 @@ def _location(value):
         return None
 
 
-def project_map_location(project):
+def project_map_location(project, *, allow_demo_pins=False):
     unavailable = {"latitude": None, "longitude": None, "location_status": "unavailable"}
     if project.status not in {"published", "ingestion", "needs_review"}:
         return unavailable
@@ -23,6 +23,9 @@ def project_map_location(project):
     })
     if project.status == "published" and stored:
         return {**stored, "location_status": "published"}
+    # Imported demo coordinates are never accepted project locations or facts.
+    if allow_demo_pins and project.address.get("demoPin") is True and stored:
+        return {**stored, "location_status": "provisional"}
     preview = settings.PROJECT_PUBLIC_PREVIEW_ENABLED
     if not stored and not preview:
         return unavailable

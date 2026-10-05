@@ -3,7 +3,7 @@ import { defineConfig } from 'vite'
 import { randomBytes } from 'node:crypto'
 
 const nonce = randomBytes(24).toString('base64')
-const policy = (development: boolean) => `default-src 'self'; script-src 'self'${development ? ` 'nonce-${nonce}'` : ''}; style-src 'self'${development ? ` 'nonce-${nonce}'` : ''}; img-src 'self' data: https://tile.openstreetmap.org; font-src 'self'; connect-src 'self'${development ? ' ws://127.0.0.1:*' : ''}; worker-src ${development ? "'self' blob:" : "'none'"}; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`
+const policy = (development: boolean) => `default-src 'self'; script-src 'self'${development ? ` 'nonce-${nonce}'` : ''}; style-src 'self'${development ? ` 'nonce-${nonce}'` : ''}; img-src 'self' data: https://tile.openstreetmap.org https://server.arcgisonline.com https://a.basemaps.cartocdn.com; font-src 'self'; connect-src 'self'${development ? ' ws://127.0.0.1:*' : ''}; worker-src ${development ? "'self' blob:" : "'none'"}; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`
 export default defineConfig(({ command, mode }) => {
   const apiPort = mode === 'builder' ? 8003 : 8004
   return {

@@ -34,6 +34,8 @@ _DEFINITIONS = (
     FeatureDefinition("operations.extraction_execute", "Global emergency switch for extraction execution.",
                       True, targetable=False),
     FeatureDefinition("operations.legacy_destructive", "Opt in to legacy destructive operations.", False),
+    FeatureDefinition("showDemoPinsOnBrowse", "Show unverified DemoPins projects in Browse.", True,
+                      targetable=False),
 )
 
 REGISTRY: Mapping[str, FeatureDefinition] = MappingProxyType({item.key: item for item in _DEFINITIONS})

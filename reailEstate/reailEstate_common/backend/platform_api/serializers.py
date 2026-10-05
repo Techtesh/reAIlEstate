@@ -141,6 +141,19 @@ class ProjectListSerializer(serializers.ModelSerializer):
     amenities = serializers.SerializerMethodField()
 
     def to_representation(self, instance):
+        # Demo pins are intentionally map-only, unreviewed records. Their
+        # compact representation avoids per-project media, layout, and price
+        # lookups while preserving the public list contract used by Browse.
+        if instance.address.get("demoPin") is True:
+            return {
+                "id": str(instance.pk), "submitted_name": instance.submitted_name,
+                "project_pic": None, "price_min": None, "price_max": None,
+                "maha_rera_id": "", "locality": instance.locality,
+                "status": instance.status, "verification_status": "unavailable",
+                "verification_checked_at": None, "latitude": str(instance.latitude),
+                "longitude": str(instance.longitude), "location_status": "provisional",
+                "configurations": [], "amenities": [], "updated_at": instance.updated_at.isoformat(),
+            }
         if instance.status == "published":
             return super().to_representation(instance)
         return {
@@ -164,7 +177,9 @@ class ProjectListSerializer(serializers.ModelSerializer):
         if not hasattr(self, "_map_locations"):
             self._map_locations = {}
         if obj.pk not in self._map_locations:
-            self._map_locations[obj.pk] = project_map_location(obj)
+            self._map_locations[obj.pk] = project_map_location(
+                obj, allow_demo_pins=bool(self.context.get("show_demo_pins", False)),
+            )
         return self._map_locations[obj.pk]
 
     def get_latitude(self, obj):

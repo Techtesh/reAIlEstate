@@ -152,7 +152,7 @@
 .media-tools .page-crop-stage,
 .media-tools .crop-stage { position: relative; background: #242a35; overflow: auto; max-height: 72vh; border-radius: 8px; cursor: crosshair; }
 .media-tools .crop-stage { line-height: 0; user-select: none; }
-.media-tools .crop-view-controls { position: absolute; right: 12px; bottom: 12px; z-index: 2; display: flex; gap: 8px; opacity: 0; transform: translateY(6px); transition: opacity .16s ease, transform .16s ease; }
+.media-tools .crop-view-controls { position: sticky; left: 100%; bottom: 12px; z-index: 3; display: flex; width: max-content; justify-content: flex-end; gap: 8px; margin: -52px 12px 12px auto; opacity: 1; transform: none; transition: opacity .16s ease, transform .16s ease; }
 .media-tools .crop-stage:hover .crop-view-controls, .media-tools .crop-stage:focus-within .crop-view-controls, .media-tools .crop-view-controls:focus-within { opacity: 1; transform: none; }
 .media-tools .crop-view-controls .button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; padding: 9px; border-color: rgb(255 255 255 / .55); background: rgb(18 24 32 / .82); color: #fff; }
 .media-tools .crop-view-controls .button:hover, .media-tools .crop-view-controls .button[aria-pressed="true"] { background: rgb(18 24 32 / .98); border-color: #fff; }

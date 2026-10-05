@@ -699,15 +699,7 @@ class ProjectPictureWidget(forms.ClearableFileInput):
 
 
 class ProjectAdminForm(forms.ModelForm):
-    manual_amenities = forms.CharField(
-        label="Add missing amenities",
-        required=False,
-        widget=forms.Textarea(attrs={
-            "rows": 3, "class": "amenity-entry",
-            "placeholder": "For example: gym, swimming pool, children's play area",
-        }),
-        help_text="Separate amenities with commas or new lines. Recognized entries are saved as reviewed manual claims; brochure evidence is retained.",
-    )
+
     project_picture_source = forms.ChoiceField(
         label="Project pic from documents", required=False, widget=forms.RadioSelect,
         help_text="Choose an extracted image or use the first clean PDF page. An uploaded picture overrides the automatic default.",
@@ -798,10 +790,8 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
     }), (None, {
         "classes": ("project-details-grid", "project-address"),
         "fields": ("address", "locality"),
-    }), ("Amenities", {
-        "classes": ("project-details-grid", "project-amenities"),
-        "fields": ("manual_amenities",),
     }))
+
     ordering = ("submitted_name", "id")
     actions = ("retire_selected_projects", "queue_selected_projects_for_reanalysis")
 
@@ -833,6 +823,8 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
         queryset = super().get_queryset(request).exclude(address__has_key="mergedIntoProjectId").exclude(
             merge_out__state="applied"
         )
+        if request.GET.get("show_inactive_organizations") != "true":
+            queryset = queryset.filter(organization__status=Organization.Status.ACTIVE)
         return google_match_annotations(queryset).annotate(
             admin_preserved_filters=models.Value(self.get_preserved_filters(request), output_field=models.CharField()))
 
@@ -877,9 +869,6 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
             from django.core.exceptions import PermissionDenied
             raise PermissionDenied
         return project_retirement_response(self.admin_site, request, project)
-    def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
-        add_manual_amenities(request, obj, form.cleaned_data.get("manual_amenities", ""), self.message_user)
 
     @admin.action(description="Retire selected projects (safe delete)")
     def retire_selected_projects(self, request, queryset):
@@ -907,6 +896,14 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
             selected = "20"
         context = dict(extra_context or {})
         context["project_page_size"] = selected
+        show_inactive_organizations = request.GET.get("show_inactive_organizations") == "true"
+        scope_query = request.GET.copy()
+        if show_inactive_organizations:
+            scope_query.pop("show_inactive_organizations", None)
+        else:
+            scope_query["show_inactive_organizations"] = "true"
+        context["show_inactive_organizations"] = show_inactive_organizations
+        context["organization_scope_toggle_url"] = "?" + scope_query.urlencode()
         context["run_reanalysis_cart_url"] = reverse(
             "admin:platform_api_project_run_reanalysis_cart", current_app=self.admin_site.name,
         )

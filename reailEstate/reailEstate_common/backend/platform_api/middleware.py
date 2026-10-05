@@ -48,7 +48,8 @@ class CorrelationIdMiddleware:
         elif match and match.url_name == "service-frontend":
             policy += (
                 "; script-src 'self'; style-src 'self'; "
-                "img-src 'self' data: https://tile.openstreetmap.org; "
+                "img-src 'self' data: https://tile.openstreetmap.org "
+                "https://server.arcgisonline.com https://a.basemaps.cartocdn.com; "
                 "font-src 'self'; connect-src 'self'; worker-src 'none'; form-action 'self'"
             )
         response["Content-Security-Policy"] = policy

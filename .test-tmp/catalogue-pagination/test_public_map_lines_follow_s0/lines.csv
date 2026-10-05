@@ -1,0 +1,16 @@
+name,line,latitude,longitude,kind
+Zulu,Line 1,19.1,72.9,metro
+Alpha,Line 1,19.2,72.9,metro
+Alpha,Line 1,19.2,72.9,metro
+Conflict,Line 1,19.3,72.9,metro
+Bravo,Line 1,19.4,72.9,metro
+Charlie,Line 1,19.5,72.9,metro
+Invalid,Line 1,nan,72.9,metro
+Delta,Line 1,19.6,72.9,metro
+Echo,Line 1,19.7,72.9,metro
+Shared,Line 2,19.7,72.9,metro
+Foxtrot,Line 2,19.8,72.9,metro
+Rail,Line 2,19.8,72.9,railway
+Rail end,Line 2,19.9,72.9,railway
+Conflict,Line 1,19.35,72.9,metro
+Unknown,,19.9,72.9,metro

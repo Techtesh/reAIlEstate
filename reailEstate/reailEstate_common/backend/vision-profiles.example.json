@@ -1,8 +1,8 @@
 {
-  "ollama-local": {
-    "label": "Local Ollama vision",
+  "ollama-gemma3": {
+    "label": "Local Ollama Gemma 3 vision",
     "provider": "ollama",
-    "model": "qwen2.5vl:7b",
+    "model": "gemma3:4b",
     "base_url": "http://127.0.0.1:11434/v1",
     "response_format": "json_object"
   },

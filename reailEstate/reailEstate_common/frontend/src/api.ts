@@ -61,7 +61,7 @@ export async function api<Result>(path: string, options: RequestInit = {}): Prom
   return result
 }
 export const json = (value: unknown) => JSON.stringify(value)
-export async function collection<Item>(path: string, signal?: AbortSignal): Promise<Item[]> {
+export async function collection<Item>(path: string, signal?: AbortSignal, onPage?: (items: Item[]) => void): Promise<Item[]> {
   const all: Item[] = []
   let next: string | null = path
   const visited = new Set<string>()
@@ -70,9 +70,14 @@ export async function collection<Item>(path: string, signal?: AbortSignal): Prom
     if (visited.has(localPath)) throw new ApiError(0, 'The catalogue could not be loaded completely. Please retry.')
     visited.add(localPath)
     const page: Item[] | { results: Item[]; next: string | null } = await api(localPath, { signal })
-    if (Array.isArray(page)) return [...all, ...page]
+    if (Array.isArray(page)) {
+      all.push(...page)
+      onPage?.([...all])
+      return all
+    }
     all.push(...page.results)
     next = page.next
+    onPage?.([...all])
   }
   return all
 }

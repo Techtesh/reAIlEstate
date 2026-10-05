@@ -17,6 +17,7 @@ function lineColor(kind: MapStation['kind'], name: string) {
   return (kind === 'metro' && colors[name.trim().toLowerCase()]) || (kind === 'metro' ? '#52636b' : '#75494c')
 }
 
+
 type FocusRequest = { projectId: string; version: number }
 
 function Controls({ positions, focused, focusVersion, onFit }: { positions: string; focused: Project | undefined; focusVersion: number; onFit: () => void }) {
@@ -59,6 +60,11 @@ function Controls({ positions, focused, focusVersion, onFit }: { positions: stri
   return <button type="button" className="map-fit icon-button" title="Fit map locations" aria-label="Fit map locations" onClick={() => { onFit(); fit() }}><LocateFixed size={20} /></button>
 }
 
+function MapSelectionClearer({ onClear }: { onClear: () => void }) {
+  useMapEvents({ click: onClear })
+  return null
+}
+
 type ProjectMapProps = {
   projects: Project[]
   matches: Match[]
@@ -92,7 +98,65 @@ function StationMarkers({ stations }: { stations: MapStation[] }) {
   })}</>
 }
 
+type MapCluster = { key: string; projects: Project[]; position: [number, number] }
+
+function projectIcon(project: Project, selected: string, shortlisted: Set<string>) {
+  const label = document.createElement('span')
+  label.textContent = project.submittedName
+  const isShortlisted = shortlisted.has(project.id)
+  return divIcon({ html: label, className: `price-pin${project.verificationStatus === 'verified' ? ' registry-verified' : ''}${selected === project.id ? ' selected' : ''}${isShortlisted ? ' shortlisted' : ''}${project.locationStatus === 'provisional' ? ' provisional' : ''}`, iconSize: [180, 38], iconAnchor: [90, 38] })
+}
+
+function ProjectMarkers({ projects, matches, selected, shortlisted, onSelect }: { projects: Project[]; matches: Match[]; selected: string; shortlisted: Set<string>; onSelect: (id: string) => void }) {
+  const map = useMap()
+  const [, setRevision] = useState(0)
+  useMapEvents({ moveend: () => setRevision(value => value + 1), zoomend: () => setRevision(value => value + 1), resize: () => setRevision(value => value + 1) })
+  const bounds = map.getBounds().pad(.06)
+  const zoom = map.getZoom()
+  const cellSize = zoom >= 15 ? 1 : zoom >= 13 ? 28 : 58
+  const clusters = new Map<string, MapCluster>()
+  const selectedProject = projects.find(project => project.id === selected)
+  for (const project of projects) {
+    if (project.id === selectedProject?.id) continue
+    const point = coordinates(project)
+    if (!point || !bounds.contains(point)) continue
+    const projected = map.latLngToContainerPoint(point)
+    const key = `${Math.floor(projected.x / cellSize)}:${Math.floor(projected.y / cellSize)}`
+    const cluster = clusters.get(key) ?? { key, projects: [], position: [0, 0] }
+    cluster.projects.push(project)
+    cluster.position = [cluster.position[0] + point[0], cluster.position[1] + point[1]]
+    clusters.set(key, cluster)
+  }
+  const matchByProject = new Map(matches.map(match => [match.projectId, match]))
+  const projectMarker = (project: Project, position: [number, number], spreadOrder = 0) => {
+    const match = matchByProject.get(project.id), isShortlisted = shortlisted.has(project.id)
+    const title = `${project.submittedName}${isShortlisted ? ' - shortlisted' : ''}${project.locationStatus === 'provisional' ? ' - unverified demo location' : ''}`
+    return <Marker key={project.id} position={position} icon={projectIcon(project, selected, shortlisted)} title={title} alt={`${title}${match ? `, rank ${match.rank}, ${Number(match.score).toFixed(0)}% match` : ''}`} zIndexOffset={(isShortlisted ? 600 : 0) + spreadOrder} eventHandlers={{ click: () => onSelect(project.id), keydown: event => { if (event.originalEvent.key === 'Enter') onSelect(project.id) } }} />
+  }
+  return <>{[...clusters.values()].map(cluster => {
+    const count = cluster.projects.length
+    const position: [number, number] = [cluster.position[0] / count, cluster.position[1] / count]
+    if (count > 1 && zoom < 15) {
+      const label = document.createElement('span')
+      label.textContent = String(count)
+      const icon = divIcon({ html: label, className: 'project-cluster', iconSize: [44, 44], iconAnchor: [22, 22] })
+      return <Marker key={cluster.key} position={position} icon={icon} title={`${count} projects in this area`} alt={`${count} projects in this area`} zIndexOffset={200} eventHandlers={{ click: () => map.fitBounds(latLngBounds(cluster.projects.map(coordinates).filter((point): point is [number, number] => point !== null)).pad(.35), { maxZoom: Math.min(zoom + 3, 16), animate: true }) }}><Popup><div className="station-details"><strong>{count} unverified projects</strong><span>Zoom in to explore individual projects.</span></div></Popup></Marker>
+    }
+    if (count > 1) {
+      const radius = Math.min(100, 44 + count * 20)
+      return cluster.projects.map((project, index) => {
+        const point = coordinates(project)!
+        const center = map.latLngToContainerPoint(point)
+        const angle = Math.PI * 2 * index / count - Math.PI / 2
+        const spread = map.containerPointToLatLng([center.x + Math.cos(angle) * radius, center.y + Math.sin(angle) * radius])
+        return projectMarker(project, [spread.lat, spread.lng], index)
+      })
+    }
+    return projectMarker(cluster.projects[0], position)
+  })}{selectedProject && coordinates(selectedProject) && <Marker position={coordinates(selectedProject)!} icon={projectIcon(selectedProject, selected, shortlisted)} title={selectedProject.submittedName} alt={selectedProject.submittedName} zIndexOffset={1000} eventHandlers={{ click: () => onSelect(selectedProject.id) }} />}</>
+}
 export function ProjectMap({ projects, matches, selected, onSelect, onInspect, commutePlaces = [], shortlistedIds = [], focusRequest = null, onFit = () => {} }: ProjectMapProps) {
+  const [mapLayer, setMapLayer] = useState<'satellite' | 'commute'>('satellite')
   const [tileError, setTileError] = useState(false)
   const [retry, setRetry] = useState(0)
   const [stations, setStations] = useState<MapStation[]>([])
@@ -175,26 +239,21 @@ export function ProjectMap({ projects, matches, selected, onSelect, onInspect, c
         {commutePlaces.length > 0 && <span className="commute-legend"><i className="commute-swatch" aria-hidden="true" />{commuteMarkers.length} daily destinations mapped{commuteMarkers.length < commutePlaces.length && `; ${commutePlaces.length - commuteMarkers.length} without exact locations`}</span>}
       </div>
     </div>
-    <div className="map-canvas">
-    <MapContainer center={[19.14, 72.96]} zoom={11} className="project-map" zoomAnimation={false} fadeAnimation={false} scrollWheelZoom attributionControl zoomControl>
-      <TileLayer key={retry} url="https://tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19}
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    <div className={`map-canvas map-canvas-${mapLayer}`}>
+    <div className="map-style-switch" role="group" aria-label="Map layer">
+      {(['satellite', 'commute'] as const).map(layer => <button key={layer} type="button" aria-pressed={mapLayer === layer} onClick={() => { setMapLayer(layer); setTileError(false) }}>{layer === 'satellite' ? 'Satellite' : 'Commute'}</button>)}
+    </div>
+    <MapContainer center={[19.14, 72.96]} zoom={11} className="project-map" zoomAnimation fadeAnimation scrollWheelZoom attributionControl zoomControl>
+      <TileLayer key={`${retry}:${mapLayer}`} url={mapLayer === 'satellite' ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'} maxZoom={19}
+        attribution={mapLayer === 'satellite' ? 'Tiles &copy; Esri' : '&copy; OpenStreetMap contributors'}
+        keepBuffer={6} updateWhenZooming={false} updateWhenIdle
         eventHandlers={{ tileerror: () => setTileError(true) }} />
+      <MapSelectionClearer onClear={() => onSelect('')} />
       <Controls positions={positions} focused={focusedProject} focusVersion={focusRequest?.version ?? 0} onFit={onFit} />
       {segments.map(segment => <Polyline key={`outline:${segment.key}`} className="transit-line-outline" positions={segment.points} interactive={false} pathOptions={{ color: '#ffffff', weight: 11, opacity: .9 }} />)}
       {segments.map(segment => <Polyline key={segment.key} className={`transit-line${segment.line.source === 'user_requested' ? ' transit-connection' : ''}`} positions={segment.points} interactive={false} pathOptions={{ color: lineColor(segment.line.kind, segment.line.name), weight: 7, opacity: 1 }} />)}
-      {projects.map(project => {
-        const point = coordinates(project)
-        if (!point) return null
-        const match = matches.find(item => item.projectId === project.id)
-        const isShortlisted = shortlisted.has(project.id)
-        const label = document.createElement('span')
-        label.textContent = project.submittedName
-        const icon = divIcon({ html: label, className: `price-pin${project.verificationStatus === 'verified' ? ' registry-verified' : ''}${selected === project.id ? ' selected' : ''}${isShortlisted ? ' shortlisted' : ''}${project.locationStatus === 'provisional' ? ' provisional' : ''}`, iconSize: [180, 38], iconAnchor: [90, 38] })
-        const title = `${project.submittedName}${isShortlisted ? ' - shortlisted' : ''}${project.locationStatus === 'provisional' ? ' - provisional location, not reviewed' : ''}`
-        return <Marker key={project.id} position={point} icon={icon} title={title} alt={`${title}${match ? `, rank ${match.rank}, ${Number(match.score).toFixed(0)}% match` : ''}`} zIndexOffset={selected === project.id ? 1000 : isShortlisted ? 600 : 0} eventHandlers={{ click: () => onSelect(project.id), keydown: event => { if (event.originalEvent.key === 'Enter') onSelect(project.id) } }} />
-      })}
-      {commuteMarkers.map(({ place, point, number }) => {
+      {<ProjectMarkers projects={projects} matches={matches} selected={selected} shortlisted={shortlisted} onSelect={onSelect} />}
+      {mapLayer === 'commute' && commuteMarkers.map(({ place, point, number }) => {
         const label = document.createElement('span')
         label.textContent = String(number)
         const icon = divIcon({ html: label, className: 'commute-pin', iconSize: [32, 32], iconAnchor: [16, 36] })

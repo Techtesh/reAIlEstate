@@ -1,8 +1,8 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<script src="{% static 'platform_api/manual_layout_cropper.js' %}?v=4" defer></script>{% endblock %}
+{% block extrahead %}{{ block.super }}<script src="{% static 'platform_api/manual_layout_cropper.js' %}?v=5" defer></script>{% endblock %}
 {% block extrastyle %}{{ block.super }}
-<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}">
+<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}?v=5">
 {% endblock %}
 {% block content %}
 <div id="content-main" class="media-tools" data-manual-cropper>

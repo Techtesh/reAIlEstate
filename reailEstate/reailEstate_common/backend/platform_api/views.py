@@ -94,6 +94,7 @@ from .layout_pages import validate_document_page
 from .project_lifecycle import merge_projects
 from .reanalysis import queue_project_reanalysis
 from .floor_plan_visibility import project_gallery_assets, visible_floor_plans
+from .feature_flags import is_enabled
 from .jobs.events import DOCUMENT_EVENT
 from .feature_flags.api import FeatureFlagAdminViewSet as FeatureFlagAdminViewSet
 
@@ -190,6 +191,9 @@ def _queue_document_processing(document, owner, correlation_id, selection, *, ex
 
 class BuyerCursorPagination(CursorPagination):
     ordering = ("-created_at", "id")
+    # Demo Browse needs the complete map dataset. Fifty-row pages turn the
+    # 1,590-pin fixture into 32 anonymous requests, exceeding its 30/min limit.
+    page_size = 250
 
 
 class ConsentViewSet(viewsets.ModelViewSet):
@@ -457,8 +461,14 @@ class ProjectViewSet(viewsets.ReadOnlyModelViewSet):
             raise ValidationError({"includeProcessing": "Use true or false."})
         preview_detail = self.action == "retrieve" and settings.PROJECT_PUBLIC_PREVIEW_ENABLED
         states = ["published", "ingestion", "needs_review"] if preview_detail or (self.action == "list" and include_processing == "true") else ["published"]
+        self.show_demo_pins = bool(
+            self.action == "list" and include_processing == "true"
+            and is_enabled("showDemoPinsOnBrowse", actor=self.request.user)
+        )
         queryset = Project.objects.filter(status__in=states).exclude(address__has_key="mergedIntoProjectId").exclude(
             merge_out__state="applied").prefetch_related("project_amenities__amenity", "metrics", "verification_snapshots", "facts")
+        if not self.show_demo_pins:
+            queryset = queryset.exclude(organization__legal_name="DemoPins")
         from .layout_pricing import annotate_project_prices
 
         queryset = annotate_project_prices(queryset, can_review=settings.PROJECT_PUBLIC_PREVIEW_ENABLED)
@@ -487,6 +497,11 @@ class ProjectViewSet(viewsets.ReadOnlyModelViewSet):
         if params.get("amenity"):
             queryset = queryset.filter(project_amenities__amenity__taxonomy_code=params["amenity"])
         return queryset.distinct().order_by("submitted_name")
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["show_demo_pins"] = bool(getattr(self, "show_demo_pins", False))
+        return context
 
     def get_serializer_class(self):
         if self.action == "retrieve" and settings.PROJECT_PUBLIC_PREVIEW_ENABLED:
