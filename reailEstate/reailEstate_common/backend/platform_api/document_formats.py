@@ -1,6 +1,5 @@
 """Common upload formats and optional sandboxed Office conversion after malware scanning."""
 
-import io
 import shutil
 import subprocess
 import tempfile

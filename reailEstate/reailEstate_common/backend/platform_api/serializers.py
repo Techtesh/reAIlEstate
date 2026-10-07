@@ -15,7 +15,6 @@ from .models import (
     OrganizationMembership,
     Project,
     ProjectAmenity,
-    ProjectFact,
     ProjectMetric,
     RecommendationItem,
     RecommendationSnapshot,
@@ -27,7 +26,7 @@ from .models import (
     TransactionRecordLink,
     VerificationSnapshot,
 )
-from .services import completion_for, normalize_maha_rera_id, validate_requirement_payload
+from .services import completion_for, normalize_maha_rera_id
 from .feature_flags.serializers import FeatureFlagSerializer as FeatureFlagSerializer
 
 

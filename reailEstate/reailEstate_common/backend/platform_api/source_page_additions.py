@@ -36,14 +36,12 @@ CATEGORIES = {"layouts": "Layout", "floor-plans": "Floor plan", "amenities": "Am
 
 
 def _authorize(actor, project):
-    from .models import OrganizationMembership
+    from .builder_access import builder_can_manage
     if not actor or not actor.is_active:
         raise PermissionDenied
     if actor.is_staff and actor.has_perm("platform_api.change_project"):
         return
-    if not OrganizationMembership.objects.filter(
-        organization=project.organization, user=actor, status="active", role__in=["owner", "editor"]
-    ).exists():
+    if not builder_can_manage(actor, project):
         raise PermissionDenied
 
 

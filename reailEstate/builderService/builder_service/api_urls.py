@@ -41,7 +41,11 @@ from platform_api.views import (
     UploadIntentView,
 )
 
+from platform_api.organization_roles_views import OrganizationRolesView, OrganizationRoleMembersView
+
 urlpatterns = [
+    path("builder/organizations/<uuid:organization_id>/roles", OrganizationRolesView.as_view()),
+    path("builder/organizations/<uuid:organization_id>/roles/<uuid:role_id>/members", OrganizationRoleMembersView.as_view()),
     path("auth/builder-login", BuilderLoginView.as_view()),
     path("auth/me", CurrentUserView.as_view()),
     path("auth/logout", SessionLogoutView.as_view()),

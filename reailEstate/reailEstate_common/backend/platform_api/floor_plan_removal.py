@@ -52,14 +52,6 @@ def authorize_plan_removal(actor, project):
         raise PermissionDenied
 
 
-def _pending_jobs(plan_id):
-    # Never match on asset, source page, workflow, or document: those may be shared.
-    return OutboxMessage.objects.filter(
-        event_type__in=PLAN_JOB_EVENTS, payload__floorPlanId=str(plan_id),
-        published_at__isnull=True, dead_lettered_at__isnull=True,
-    )
-
-
 def _pending_batch_jobs(plan_ids):
     return OutboxMessage.objects.filter(
         event_type__in=PLAN_JOB_EVENTS, payload__floorPlanId__in=[str(pk) for pk in plan_ids],

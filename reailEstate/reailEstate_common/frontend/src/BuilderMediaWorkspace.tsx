@@ -51,7 +51,6 @@ function nextLayoutLabel(regions: Region[]) {
   while (regions.some(region => region.label === `Layout ${number}`)) number++
   return `Layout ${number}`
 }
-const aborted = isAbortError
 const message = (error: unknown) => errorMessage(error, 'The media action could not be completed.')
 const cropSourceAvailable = (document: MediaDocument | undefined) => !!document && !document.error && document.pageCount > 0
 function measurement(value: string | number | null | undefined, unit: string) {
@@ -185,7 +184,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
       controller.signal.throwIfAborted()
       if (data.projectId !== projectId) throw new Error('Media does not belong to the selected project.')
       setMedia(data); setLayouts(plans)
-    }).catch(failure => { if (!aborted(failure)) setError(message(failure)) })
+    }).catch(failure => { if (!isAbortError(failure)) setError(message(failure)) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => { controller.abort(); scope.current = null }
   }, [root, projectId, projectPath])
@@ -207,7 +206,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     if (pending.current) return
     pending.current = true; setLoading(true); setError('')
     try { await refresh(); setConflict(false); setConfirmation(null); setNotice('Media and jobs refreshed. Local crop and layout entries have been kept. Choose an action again to confirm against the refreshed version.') }
-    catch (failure) { if (!aborted(failure)) setError(message(failure)) }
+    catch (failure) { if (!isAbortError(failure)) setError(message(failure)) }
     finally { pending.current = false; if (scope.current) setLoading(false) }
   }
   async function layoutSaved(saved: BuilderLayout) {
@@ -216,7 +215,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     onChanged()
     pending.current = true; setLoading(true); setError('')
     try { await refresh(false) }
-    catch (failure) { if (!aborted(failure)) setError(`${message(failure)} The layout was saved. Refresh media; do not repeat the save.`) }
+    catch (failure) { if (!isAbortError(failure)) setError(`${message(failure)} The layout was saved. Refresh media; do not repeat the save.`) }
     finally { pending.current = false; if (scope.current) setLoading(false) }
   }
   async function mutate(endpoint: string, payload: unknown, success: string, completed: () => void) {
@@ -229,7 +228,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
       onChanged('Media updated. Independent review is required.')
       await refresh(true)
     } catch (failure) {
-      if (!aborted(failure)) {
+      if (!isAbortError(failure)) {
         if (failure instanceof ApiError && failure.status === 409) setConflict(true)
         setError(`${message(failure)} ${written ? 'The action succeeded, but refresh failed. Refresh media; do not repeat the action.' : 'No automatic retry was made. Refresh media and jobs before explicitly trying again.'}`)
       }
@@ -542,7 +541,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
       {selected.evaluation?.error && <p className="field-error">Evaluation error: {selected.evaluation.error}{selected.evaluation.error === 'MANUAL_CROP_NOT_SINGLE_LAYOUT' && '. This crop appears to contain multiple homes. Update its boundary to one layout before re-evaluating.'}</p>}
       {selected.qualityWarning && <p className="field-error">Boundary review: {selected.qualityWarning}</p>}
       {selected.evaluation?.state === 'queued' && selected.evaluation.retryAt && new Date(selected.evaluation.retryAt).getTime() > Date.now() && <p>Scheduled for: {new Date(selected.evaluation.retryAt).toLocaleString()}</p>}
-      {!!selected.dimensions?.length ? <div className="builder-media-table"><table><caption>Room measurements for {selected.label}</caption><thead><tr><th scope="col">Room</th><th scope="col">Length</th><th scope="col">Width</th><th scope="col">Area</th></tr></thead><tbody>
+      {selected.dimensions?.length ? <div className="builder-media-table"><table><caption>Room measurements for {selected.label}</caption><thead><tr><th scope="col">Room</th><th scope="col">Length</th><th scope="col">Width</th><th scope="col">Area</th></tr></thead><tbody>
         {selected.dimensions.map((room, index) => <tr key={index}><th scope="row">{room.room || room.name || 'Room'}</th><td>{measurement(room.lengthFt, 'ft')}</td><td>{measurement(room.widthFt, 'ft')}</td><td>{measurement(room.areaSqFt, 'sq ft')}</td></tr>)}
       </tbody></table></div> : <p>{['queued', 'running'].includes(selected.evaluation?.state ?? '') ? 'Room dimensions are pending extraction, not yet missing.' : ['failed', 'cancelled'].includes(selected.evaluation?.state ?? '') ? 'Room dimensions are unavailable because evaluation did not complete. Review the error or crop boundary.' : selected.evaluation?.state === 'not_queued' ? 'No room dimensions are saved. Queue extraction to evaluate this layout.' : selected.evaluation?.state === 'crop_remaining' ? 'Finish cropping this image to an individual layout before evaluating room sizes.' : 'No readable room dimensions were extracted. Treat this as unknown, not zero.'}</p>}
       <p>Calculated room area: {measurement(selected.roomRectangleSumSqFt, 'sq ft')}. Sum of available room rectangles, not carpet area.</p>

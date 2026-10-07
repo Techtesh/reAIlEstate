@@ -8,12 +8,13 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.test.utils import override_settings
 from django.utils import timezone
+
+from realestate_common.reports import write_json_report
 
 from platform_api.artifact_storage import storage
 from platform_api.floor_plan_agent import FloorPlanAgent
@@ -38,10 +39,7 @@ class Command(BaseCommand):
         parser.add_argument("--retry-attempts", type=int, default=3, help="Extra per-image attempts for transient provider failures (0-5).")
         parser.add_argument("--delay-seconds", type=float, default=2.0, help="Delay between model calls (0-60 seconds).")
 
-    def save_report(self, path, report):
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        temporary.replace(path)
+    save_report = staticmethod(write_json_report)
 
     def handle(self, *args, **options):
         if not 0 <= options["retry_attempts"] <= 5 or not 0 <= options["delay_seconds"] <= 60:

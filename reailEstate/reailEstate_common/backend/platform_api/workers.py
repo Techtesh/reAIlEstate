@@ -12,7 +12,7 @@ from .business_ingestion import extract_project_knowledge
 from .builder_scan_policy import scan_builder_document
 from .floor_plan_vision import get_floor_plan_vision_provider, resolve_vision_selection
 from .integrations import ProviderUnavailable, get_document_scanner
-from .models import EvidenceDocument, ExtractionJob, InboxMessage, Operation, OutboxMessage, RecommendationSnapshot, RequirementVersion, ReviewTask
+from .models import EvidenceDocument, InboxMessage, Operation, OutboxMessage, RecommendationSnapshot, RequirementVersion, ReviewTask
 from .rag import ingest_document, DocumentTextExtractor
 from .document_formats import office_signature, CONVERTED_FORMATS, prepare_document
 from .document_images import collect_document_images

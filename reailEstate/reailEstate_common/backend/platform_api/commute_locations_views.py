@@ -6,21 +6,18 @@ from rest_framework.views import APIView
 
 from .commute_locations import CommuteLocationError, resolve_location, search_locations
 
+from .api_common import NoStoreResponseMixin
+
 
 class CommuteLocationThrottle(UserRateThrottle):
     scope = "commute_locations"
     rate = "20/min"
 
 
-class PrivateCommuteLocationView(APIView):
+class PrivateCommuteLocationView(NoStoreResponseMixin, APIView):
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]
     throttle_classes = [UserRateThrottle, CommuteLocationThrottle]
-
-    def finalize_response(self, request, response, *args, **kwargs):
-        response = super().finalize_response(request, response, *args, **kwargs)
-        response["Cache-Control"] = "private, no-store"
-        return response
 
     def lookup_response(self, request, lookup):
         try:

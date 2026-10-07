@@ -43,6 +43,26 @@ class Organization(TimestampedModel):
         return self.legal_name
 
 
+class OrganizationRole(TimestampedModel):
+    """A reusable access role within one organization."""
+
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="roles")
+    name = models.CharField(max_length=80)
+    description = models.CharField(max_length=255, blank=True)
+    base_role = models.CharField(max_length=32, choices=[
+        ("owner", "Owner"), ("editor", "Editor"), ("viewer", "Viewer"),
+    ])
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            models.functions.Lower("name"), "organization", name="unique_organization_role_name",
+        )]
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.organization}: {self.name}"
+
+
 class OrganizationMembership(TimestampedModel):
     class Role(models.TextChoices):
         OWNER = "owner", "Owner"
@@ -59,8 +79,19 @@ class OrganizationMembership(TimestampedModel):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="memberships")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="organization_memberships")
     role = models.CharField(max_length=32, choices=Role.choices)
+    named_role = models.ForeignKey(OrganizationRole, null=True, blank=True, on_delete=models.PROTECT, related_name="memberships")
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.ACTIVE)
     version = models.PositiveIntegerField(default=1)
+
+    def clean(self):
+        super().clean()
+        if self.named_role_id and self.named_role.organization_id != self.organization_id:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({"named_role": "Choose a role belonging to this organization."})
+
+    @property
+    def effective_role(self):
+        return self.named_role.base_role if self.named_role_id else self.role
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["organization", "user"], name="unique_organization_member")]

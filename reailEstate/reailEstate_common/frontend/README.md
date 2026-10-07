@@ -360,8 +360,8 @@ and offers a status check. See [queue commands](../backend/README.md#ingestion-a
 
 ## Privacy and Concurrency
 
-Budgets, destinations and notes stay in React memory until the user signs in and
-consents to saving. Only home preferences, weights and an owner-keyed opaque latest
+Unsubmitted budgets, destinations and notes stay in React memory. Signed-in users
+can consent to account storage; unsigned beta users can consent to browser cookies. Only home preferences, weights and an owner-keyed opaque latest
 match URL are stored in session storage. No profile payloads or credentials are
 stored in browser globals, local storage, logs or test traces.
 
@@ -378,7 +378,38 @@ offers the server version or a new profile, never an overwrite. Conflict choices
 are available on Shortlist too. Submitted versions are immutable. Submission retries
 retain their idempotency key unless the draft changes.
 Signing out or detecting session expiry clears private state and cancels in-flight
-requests. Refreshing an unsaved guest draft discards its sensitive fields.
+requests. Refreshing an unsubmitted guest draft discards its sensitive fields. Submitted beta
+queries are restored from the consented cookie.
+
+## Roles, themes and public beta
+
+Organization owners open **Roles & member onboarding** in the builder workspace to
+create an owner/editor/viewer template and apply it to up to 100 existing active
+usernames in one batch. Platform admins manage permission groups and organization
+roles in Django admin. Account creation remains an administrator action.
+
+Buyer and builder headers include **System / Light / Dark** controls. The preference
+is saved under the `theme` local-storage key, follows OS changes in System mode,
+and synchronizes between tabs. Django admin uses its native theme control and the
+same preference key when served on the same origin.
+
+Unsigned visitors can create one local beta matching run per browser. With explicit
+cookie consent, `mmr-beta-shortlist` stores the validated query, top ten ranked results
+and saved project IDs as a compressed cookie for 90 days. Budget, space and society
+amenities use the published catalogue; commute, nearby amenities, micro-market and
+evidence confidence are unavailable. This beta preview does not create a server
+profile or a worker job. Signed-in runs continue using the full recommendation pipeline.
+Cookies contain IDs and scores; listings are read from the current published catalogue,
+so withdrawn projects disappear. Oversized queries and blocked cookies produce an error
+without consuming the trial.
+
+Deleting browser data removes the query/results while `mmr-beta-used` preserves the
+one-run limit. This is a browser-level beta limit; clearing cookies or changing browsers
+resets it. Anyone sharing the browser can view saved query data. On HTTP local previews
+the cookies omit Secure; HTTPS deployments use Secure, SameSite=Lax and Path=/.
+Gzip/base64 is compression, not encryption, and cookies accompany same-origin requests.
+Cookies require CompressionStream/DecompressionStream support; write serialization
+uses Web Locks where available. Query/result deletion does not remove the user's theme.
 
 ## Verification
 

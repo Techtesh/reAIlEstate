@@ -13,6 +13,8 @@ from django.db import transaction
 from django.utils import timezone
 from filelock import FileLock, Timeout
 
+from realestate_common.reports import write_json_report
+
 from platform_api.external_sources import GoogleProjectMaps
 from platform_api.models import AuditEvent, Project, ReviewTask
 
@@ -63,13 +65,7 @@ def read_report(path):
 
 
 def write_report(path, report):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + "." + uuid4().hex + ".tmp")
-    try:
-        temporary.write_text(json.dumps(report, indent=2, ensure_ascii=True, allow_nan=False), encoding="utf-8")
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    write_json_report(path, report, ensure_ascii=True, allow_nan=False)
 
 
 def existing_reference(project):

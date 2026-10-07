@@ -4,6 +4,8 @@ import { api, ApiError, apiPath, cancelSessionRequests, json, onSessionExpired }
 import { BuilderMediaWorkspace, type BuilderLayout as Layout } from './BuilderMediaWorkspace'
 import { coordinates } from './buyer'
 import { errorMessage, isAbortError } from './errors'
+import { ThemeControl } from './ThemeControl'
+import { OrganizationRoles } from './OrganizationRoles'
 import './BuilderPortal.css'
 
 type Account = { id: string | number; username: string; email: string }
@@ -21,7 +23,6 @@ type Evidence = { id: string; originalName: string; status: string; scanStatus: 
 type UploadIntent = { documentId: string; uploadAction: string; method: 'PUT'; requiredHeaders: Record<string, string>; maximumSize: number }
 type Upload = { file: File; key: string; intent: UploadIntent | null; phase: 'intent' | 'put' | 'complete' | 'done' }
 const message = (error: unknown) => errorMessage(error, 'The action could not be completed.')
-const aborted = isAbortError
 const pathFor = (id: string) => `/api/v1/builder/projects/${encodeURIComponent(id)}`
 const documentsFor = (id: string) => `/api/v1/developer-projects/${encodeURIComponent(id)}/documents`
 const locationEntry = (project?: Project): LocationEntry => ({
@@ -80,7 +81,7 @@ export function BuilderPortal() {
         const memberships = await api<Organization[]>('/api/v1/builder/organizations', { signal: controller.signal })
         setUser(account); setOrganizations(memberships); navigate('/builder', { replace: true })
       } catch (failure) {
-        if (aborted(failure)) return
+        if (isAbortError(failure)) return
         if (failure instanceof ApiError && [401, 403].includes(failure.status)) navigate('/builder/login', { replace: true })
         else setError(message(failure))
       } finally { if (!controller.signal.aborted) { booted.current = true; setBooting(false) } }
@@ -99,17 +100,17 @@ export function BuilderPortal() {
       await api('/api/v1/auth/logout', { method: 'POST', body: '{}', signal })
       sessionEnded.current = true
       cancelSessionRequests(); setUser(null); setOrganizations([]); navigate('/builder/login', { replace: true })
-    } catch (failure) { if (!aborted(failure)) setError(message(failure)) }
+    } catch (failure) { if (!isAbortError(failure)) setError(message(failure)) }
     finally { if (!signal.aborted) setBusy(false) }
   }
   return <div className="builder-portal">
     <a className="skip-link" href="#builder-main">Skip to content</a>
-    <header className="builder-header"><Link to="/" className="builder-brand">MMR Homefinder <span>Builder workspace</span></Link><nav aria-label="Builder navigation"><Link to="/browse">Browse homes</Link>{user && <><Link to="/?workspace=choose">Switch workspace</Link><span>{user.username}</span><button className="secondary" onClick={() => void logout()} disabled={busy}>Sign out</button></>}</nav></header>
+    <header className="builder-header"><Link to="/" className="builder-brand">MMR Homefinder <span>Builder workspace</span></Link><nav aria-label="Builder navigation"><ThemeControl /><Link to="/browse">Browse homes</Link>{user && <><Link to="/?workspace=choose">Switch workspace</Link><span>{user.username}</span><button className="secondary" onClick={() => void logout()} disabled={busy}>Sign out</button></>}</nav></header>
     <main id="builder-main" className="builder-main">
       {error && <div role="alert" className="builder-notice">{error}{!user && booted.current && <button className="secondary" onClick={() => setAttempt(value => value + 1)}>Retry connection</button>}</div>}
       {booting ? <p role="status">Connecting to your builder workspace…</p> : !user ? <BuilderLogin key={attempt} onSuccess={signedIn} /> : organizations.length === 0 ? <section className="builder-panel"><h1>Builder access unavailable</h1><p>You need an owner or editor membership in an active organization. A platform administrator must provision your account and membership. Buyer or staff access alone does not grant builder access.</p><p>Sign out to use a different account.</p></section> : <BuilderWorkspace key={user.id} organizations={organizations} />}
     </main>
-    <footer className="builder-footer">Accounts and organization access are managed by the platform administrator. Builders cannot publish their own evidence.</footer>
+    <footer className="builder-footer">Owners can onboard existing accounts with organization roles. New accounts are provisioned by the platform administrator. Builders cannot publish their own evidence.</footer>
   </div>
 }
 
@@ -125,7 +126,7 @@ function BuilderLogin({ onSuccess }: { onSuccess: (account: Account) => Promise<
       const account = await api<Account>('/api/v1/auth/builder-login', { method: 'POST', body: json({ username: data.get('username'), password: data.get('password') }), signal })
       form.reset(); await onSuccess(account)
     } catch (failure) {
-      if (!aborted(failure)) setError(message(failure))
+      if (!isAbortError(failure)) setError(message(failure))
     } finally { if (!signal.aborted) setBusy(false) }
   }
   return <section className="builder-login builder-panel"><p className="eyebrow">For organization owners and editors</p><h1>Builder sign in</h1><p>Manage your organization’s projects and submit evidence for independent review.</p>{error && <p role="alert" className="field-error">{error}</p>}<form onSubmit={event => void login(event)}><fieldset disabled={busy}><label>Username<input name="username" autoComplete="username" required /></label><label>Password<input name="password" type="password" autoComplete="current-password" required /></label><button className="primary" type="submit">{busy ? 'Signing in…' : 'Sign in to builder workspace'}</button></fieldset></form><p className="data-note">No public sign-up. Contact your platform administrator for an account or organization access.</p></section>
@@ -137,6 +138,7 @@ function BuilderWorkspace({ organizations }: { organizations: Organization[] }) 
   const organization = organizations.find(item => item.id === organizationId)!
   return <>
     <div className="builder-heading"><div><p className="eyebrow">Organization workspace</p><h1>Your projects</h1><p>{organization.legalName} · {organization.role}</p></div><label>Active organization<select value={organizationId} onChange={event => { if (!dirty || window.confirm('Discard unsaved project, layout or crop entries and switch organization? An in-flight action may still finish on the server.')) { setDirty(false); setOrganizationId(event.target.value) } }}>{organizations.map(item => <option value={item.id} key={item.id}>{item.legalName} ({item.role})</option>)}</select></label></div>
+    {organization.role === 'owner' && <OrganizationRoles key={`roles-${organizationId}`} organizationId={organizationId} />}
     <OrganizationProjects key={organizationId} organization={organization} dirty={dirty} onDirty={setDirty} />
   </>
 }
@@ -151,7 +153,7 @@ function OrganizationProjects({ organization, dirty, onDirty }: { organization: 
     setLoading(true); setError('')
     api<Project[]>('/api/v1/builder/projects', { signal: AbortSignal.any([signal, controller.signal]) })
       .then(items => setProjects(items.filter(item => item.organizationId === organization.id)))
-      .catch(failure => { if (!aborted(failure)) setError(message(failure)) })
+      .catch(failure => { if (!isAbortError(failure)) setError(message(failure)) })
       .finally(() => { if (!controller.signal.aborted && !signal.aborted) setLoading(false) })
     return () => controller.abort()
   }, [organization.id, signal, reload])
@@ -192,7 +194,7 @@ function ProjectEditor({ organization, initial, onSaved, onDirty }: { organizati
   }, [dirty, mediaDirty, busy])
   function accepted(saved: Project) { setProject(saved); setDraft(projectDraft(saved)); onSaved(saved) }
   function failure(error: unknown) {
-    if (aborted(error)) return
+    if (isAbortError(error)) return
     if (error instanceof ApiError && error.status === 409) setConflict(true)
     setError(message(error))
   }
@@ -295,12 +297,12 @@ function ProjectDocuments({ projectId, locked }: { projectId: string; locked: bo
   const fileInput = useRef<HTMLInputElement>(null)
   useEffect(() => {
     setLoading(true)
-    api<Evidence[]>(documentsFor(projectId), { signal }).then(setDocuments).catch(error => { if (!aborted(error)) setError(message(error)) }).finally(() => { if (!signal.aborted) setLoading(false) })
+    api<Evidence[]>(documentsFor(projectId), { signal }).then(setDocuments).catch(error => { if (!isAbortError(error)) setError(message(error)) }).finally(() => { if (!signal.aborted) setLoading(false) })
   }, [projectId, signal])
   async function refresh() {
     setLoading(true); setError('')
     try { setDocuments(await api<Evidence[]>(documentsFor(projectId), { signal })) }
-    catch (error) { if (!aborted(error)) setError(message(error)) }
+    catch (error) { if (!isAbortError(error)) setError(message(error)) }
     finally { if (!signal.aborted) setLoading(false) }
   }
   function select(file: File | undefined) {
@@ -341,7 +343,7 @@ function ProjectDocuments({ projectId, locked }: { projectId: string; locked: bo
         await refresh()
       }
     } catch (failure) {
-      if (!aborted(failure)) {
+      if (!isAbortError(failure)) {
         const rejectedIntent = current.phase === 'intent' && failure instanceof ApiError && [400, 409, 413, 415].includes(failure.status)
         if (rejectedIntent) {
           setUpload(null)
@@ -371,13 +373,13 @@ function LayoutEditor({ layout, projectId, locked, onSaved, onDirty }: { layout:
     event.preventDefault(); setBusy(true); setError('')
     if (price !== '' && (!/^\d+(\.\d{1,2})?$/.test(price) || Number(price) <= 0)) { setError('Enter a positive INR amount with up to two decimal places, or leave price blank.'); setBusy(false); return }
     try { onSaved(await api<Layout>(`${pathFor(projectId)}/layouts/${encodeURIComponent(layout.id)}`, { method: 'PATCH', signal, body: json({ name: layout.name, price: price || null, expectedUpdatedAt: layout.updatedAt }) })) }
-    catch (error) { if (!aborted(error)) { setError(message(error)); if (error instanceof ApiError && error.status === 409) setConflict(true) } }
+    catch (error) { if (!isAbortError(error)) { setError(message(error)); if (error instanceof ApiError && error.status === 409) setConflict(true) } }
     finally { if (!signal.aborted) setBusy(false) }
   }
   async function reload() {
     setBusy(true); setError('')
     try { const latest = await api<Layout[]>(`${pathFor(projectId)}/layouts`, { signal }); const saved = latest.find(item => item.id === layout.id); if (!saved) throw new Error('This layout is no longer available.'); setPrice(saved.price ?? ''); setConflict(false); onSaved(saved) }
-    catch (error) { if (!aborted(error)) setError(message(error)) } finally { if (!signal.aborted) setBusy(false) }
+    catch (error) { if (!isAbortError(error)) setError(message(error)) } finally { if (!signal.aborted) setBusy(false) }
   }
   return <form className="builder-layout" aria-label={`Edit layout ${layout.name}`} onSubmit={event => void save(event)}><p>{layout.configurationType} · Carpet area: {layout.carpetAreaSqFt ?? 'Unknown'}{layout.carpetAreaSqFt ? ' sq ft' : ''} · Review: {layout.reviewState.replaceAll('_', ' ')}</p>{error && <p role="alert" className="field-error">{error}</p>}{conflict && <div className="builder-conflict" role="alert"><p>No changes were overwritten. Your entries remain below. Copy your edits before discarding them to reload.</p><button className="secondary" type="button" disabled={busy} onClick={() => void reload()}>Discard layout entries and reload</button></div>}<fieldset disabled={busy || locked}><label>Total price (INR)<input value={price} inputMode="decimal" placeholder="Leave blank for unknown" onChange={event => setPrice(event.target.value)} /></label><button className="secondary" type="submit" disabled={conflict}>{busy ? 'Saving layout…' : 'Save layout'}</button></fieldset></form>
 }

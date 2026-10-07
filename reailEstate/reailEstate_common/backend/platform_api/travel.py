@@ -7,7 +7,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from .integrations import ProviderUnavailable, RouteResult, UnavailableRoutingProvider
-from .models import Project, RequirementVersion, TravelEstimate
+from .models import RequirementVersion, TravelEstimate
 
 
 MODE_SPEED_KPH = {

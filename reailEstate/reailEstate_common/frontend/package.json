@@ -12,7 +12,7 @@
     "build:buyer": "tsc -b && vite build --mode buyer",
     "build:builder": "tsc -b && vite build --mode builder",
     "build:services": "tsc -b && vite build --mode buyer && vite build --mode builder",
-    "test": "vitest run src/buyer.test.ts",
+    "test": "vitest run src",
     "test:e2e": "playwright test",
     "lint": "oxlint",
     "preview": "vite preview --mode buyer",

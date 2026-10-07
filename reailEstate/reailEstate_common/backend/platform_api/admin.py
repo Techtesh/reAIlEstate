@@ -77,7 +77,7 @@ from .project_layout_health import (
 
 class BuilderMembershipInline(admin.TabularInline):
     model = OrganizationMembership
-    fields = ("organization", "role", "status")
+    fields = ("organization", "role", "named_role", "status")
     extra = 1
     verbose_name = "organization membership"
     verbose_name_plural = "Builder organization access (active owner/editor required)"
@@ -1665,3 +1665,6 @@ for model in [
     DocumentLayoutPage,
 ]:
     admin.site.register(model)
+
+# Register reusable roles after the existing membership adapters.
+from . import roles_admin  # noqa: F401,E402

@@ -75,6 +75,22 @@ Never weaken locking, authorization, idempotency, or approval gates to simplify 
 refactor. A test that needs real transaction boundaries must use transactional
 fixtures; do not remove the production guard against provider calls in transactions.
 
+### Shared implementation ownership
+
+- `realestate_common` owns dependency-light geometry, document extraction, image
+  normalization, layout titles, room measurements, and atomic JSON checkpoints.
+  The existing `platform_api.domain` imports remain compatibility exports.
+- `config.service_settings.service_settings` defines service-role settings;
+  the admin, builder, and buyer settings files apply this common overlay.
+- `platform_api.api_common` owns the reusable no-store response policy.
+- `platform_api.infrastructure.database_transfer` owns canonical record and field
+  fingerprints for both database-transfer verification commands. Relation order
+  is ignored; JSON array order and duplicate counts remain significant.
+- Maintenance commands use `realestate_common.reports.write_json_report` and
+  retain their original JSON encoding, strict-number, and retry choices.
+- Generated frontend bundles belong under `reailEstate_common/frontend/dist`.
+  Legacy bundles, test results, and temporary test files are excluded from Git.
+
 ### Architecture status and remaining work
 
 The September 2026 consolidation is incremental, not a whole-project SOLID
@@ -630,6 +646,35 @@ integration. PostgreSQL checks must use a separate disposable test database.
 Do not declare the whole project SOLID-compliant or regression-free while these
 gates remain red. Resolve each at its owning boundary with a focused reproduction,
 then rerun the complete suite before continuing broad structural moves.
+
+### Cleanup verification: 2026-10-05
+
+- Focused backend suite: **205 passed, 21 failed**. The same 21 failing tests
+  reproduced against an isolated copy of the original revision: builder-media
+  fixtures (18), feature-flag expectations (2), and the crop-policy import boundary
+  (1). The other focused tests, including five new common-helper regressions,
+  passed. This was not a full-suite or PostgreSQL validation.
+- All three Django service startup checks passed. Buyer and builder production
+  bundles built successfully; frontend unit tests: **18 passed**. Lint completed
+  with existing React warnings and no errors. `git diff --check` passed.
+
+### Roles, themes and public beta: 2026-10-05
+
+- New organization role templates and atomic bulk onboarding use the shared builder
+  authorization boundary. Apply migration `0020_reusable_organization_roles` before
+  serving the updated builder/admin controls. Platform roles reuse Django groups.
+- Buyer and builder themes use semantic CSS tokens and persist light/dark/system
+  preference. Admin retains Django's native theme control.
+- The unsigned beta run ranks published catalogue facts in the browser and stores
+  query/results in consented cookies for 90 days; no anonymous server profile or job
+  is created. The browser-level one-run limit survives in-app deletion, but cookie
+  clearing resets it. Full commute/evidence scoring requires sign-in.
+- Focused role/builder/service-boundary backend checks on isolated SQLite: **69 passed**,
+  including CSRF enforcement and assigned-template access protection. Frontend unit
+  tests: **24 passed**. Buyer/builder production builds pass; lint has existing React
+  warnings. Playwright CLI smoke checks use intercepted synthetic APIs to verify
+  guest restore/shortlist persistence and deletion, second-run sign-in, and builder bulk onboarding
+  on desktop and mobile. These are focused checks, not a full-suite release gate.
 
 ## Change checklist
 

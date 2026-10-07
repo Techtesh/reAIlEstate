@@ -10,15 +10,15 @@ from django.contrib.auth import authenticate, login, logout
 from django.core.files.base import ContentFile
 from .artifact_storage import storage as default_storage
 from django.db import IntegrityError, transaction
-from django.db.models import F, Max, Q
-from django.http import FileResponse, Http404, JsonResponse
+from django.db.models import F, Q
+from django.http import FileResponse, Http404
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect
-from rest_framework import mixins, status, viewsets
+from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.parsers import FileUploadParser
 from rest_framework.pagination import CursorPagination
@@ -36,7 +36,6 @@ from .models import (
     ExtractionJob,
     FactCandidate,
     FloorPlan,
-    HomeConfiguration,
     IdempotencyRecord,
     NotificationSubscription,
     Operation,
@@ -658,7 +657,8 @@ class DeveloperProjectCreateView(APIView):
     @transaction.atomic
     def post(self, request, organization_id):
         organization = get_object_or_404(Organization, id=organization_id, status="active")
-        if not request.user.is_staff and not OrganizationMembership.objects.filter(organization=organization, user=request.user, status="active", role__in=["owner", "editor"]).exists():
+        from .builder_access import builder_memberships
+        if not request.user.is_staff and not builder_memberships(request.user).filter(organization=organization).exists():
             raise PermissionDenied()
         return self.create_project(request, organization, request.data)
 

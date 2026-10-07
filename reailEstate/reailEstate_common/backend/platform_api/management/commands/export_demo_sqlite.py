@@ -1,41 +1,22 @@
 """Convert an already sanitized, isolated PostgreSQL snapshot to a new SQLite file."""
 
-import hashlib
 import json
 import re
 import tempfile
-from collections import Counter, defaultdict
 from copy import deepcopy
 from pathlib import Path
 
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core import serializers
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, connections
 
+from platform_api.infrastructure.database_transfer import fingerprints
+
 
 EXCLUDED_MODELS = {"contenttypes.contenttype", "auth.permission"}
-
-
-def fingerprints(model, database):
-    records = serializers.serialize(
-        "json", model._base_manager.using(database).all(),
-        use_natural_foreign_keys=True, use_natural_primary_keys=True,
-    )
-    result = Counter()
-    fields = defaultdict(Counter)
-    for record in json.loads(records):
-        for relation in model._meta.many_to_many:
-            value = record["fields"].get(relation.name)
-            if isinstance(value, list):
-                record["fields"][relation.name] = sorted(value, key=lambda item: json.dumps(item, sort_keys=True))
-        result[hashlib.sha256(json.dumps(record, sort_keys=True, ensure_ascii=True).encode()).hexdigest()] += 1
-        for name, value in record["fields"].items():
-            fields[name][hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=True).encode()).hexdigest()] += 1
-    return result, fields
 
 
 class Command(BaseCommand):

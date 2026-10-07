@@ -1,8 +1,5 @@
 from config.settings import *  # noqa: F403
+from config.service_settings import service_settings
 
-SERVICE_ROLE = "admin"
-SCHEMA_MIGRATION_OWNER = True
-ROOT_URLCONF = "admin_service.urls"
-WSGI_APPLICATION = "admin_service.wsgi.application"
-ASGI_APPLICATION = "admin_service.asgi.application"
-OTEL_SERVICE_NAME = "mmr-real-estate-admin"
+
+globals().update(service_settings("admin"))

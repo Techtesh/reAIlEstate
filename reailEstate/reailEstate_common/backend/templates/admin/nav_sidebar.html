@@ -3,6 +3,12 @@
 <nav class="sticky" id="nav-sidebar" aria-label="{% translate 'Sidebar' %}">
   <input type="search" id="nav-filter" placeholder="{% translate 'Start typing to filter' %}"
          aria-label="{% translate 'Filter navigation items' %}">
+  {% if perms.auth.view_group or perms.platform_api.view_organizationrole %}
+  <div class="module"><table><caption>Roles &amp; onboarding</caption><tbody>
+    {% if perms.auth.view_group %}<tr><th scope="row"><a href="{% url 'admin:auth_group_changelist' %}">Platform permission roles</a></th></tr>{% endif %}
+    {% if perms.platform_api.view_organizationrole %}<tr><th scope="row"><a href="{% url 'admin:platform_api_organizationrole_changelist' %}">Organization roles &amp; members</a></th></tr>{% endif %}
+  </tbody></table></div>
+  {% endif %}
   {% if perms.platform_api.view_project or perms.platform_api.change_project %}
   <div class="module">
     <table>

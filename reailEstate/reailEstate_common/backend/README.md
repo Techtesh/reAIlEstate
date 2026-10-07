@@ -40,10 +40,24 @@ The choice never grants permissions. A correct password without an eligible
 membership produces an explicit access-assignment error on builder sign-in;
 incorrect credentials still produce the generic invalid-credentials error.
 
-There is no builder self-registration or ability to claim organizations, assign
-memberships, change organization ownership, grant staff permissions or publish
-projects. The legacy developer-organization API also restricts organization
+There is no builder self-registration or ability to claim organizations, grant
+staff permissions or publish projects. Active organization owners can create named
+roles and bulk onboard existing accounts within their own organization. The legacy developer-organization API also restricts organization
 creation/update/deletion to platform staff.
+
+Apply migration `0020_reusable_organization_roles` before deploying the new role
+controls. Existing memberships retain their access. A named role bundles one base
+access level (`owner`, `editor`, `viewer`) and overrides the legacy membership role.
+Roles are scoped to an organization, names are case-insensitively unique, and assigned
+roles cannot be deleted or have their organization/base access changed in admin.
+Create a replacement role to change access. Bulk assignment preserves the last active
+owner and rejects the whole batch if any account is unknown or inactive.
+
+Django admin's **Roles & onboarding** links expose organization roles and platform
+permission groups. A platform group bundles permissions and accepts multiple member
+accounts at once; the explicit **Grant admin login** checkbox also sets staff status.
+Delegated admins can only select permissions they hold, and changing members requires
+user-change permission. Organization roles do not grant admin login or platform rights.
 
 The builder API uses existing session cookies and CSRF protection:
 
@@ -51,6 +65,8 @@ The builder API uses existing session cookies and CSRF protection:
 | --- | --- | --- |
 | `/api/v1/auth/builder-login` | GET, POST | Initialize CSRF, then authenticate an assigned builder |
 | `/api/v1/builder/organizations` | GET | Assigned active management organizations |
+| `/api/v1/builder/organizations/{id}/roles` | GET, POST | Owner-only reusable roles and current members |
+| `/api/v1/builder/organizations/{id}/roles/{roleId}/members` | POST | Atomically assign a role to 1–100 existing active usernames |
 | `/api/v1/builder/projects` | GET, POST | List own projects or create in an assigned organization |
 | `/api/v1/builder/projects/{id}` | GET, PATCH | Read/edit own project metadata |
 | `/api/v1/builder/projects/{id}:archive` | POST | Retire a project without deleting evidence |

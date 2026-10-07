@@ -29,14 +29,12 @@ HIDDEN_STATES = frozenset({"removed_by_user", "replaced_by_user", "superseded_pa
 
 
 def _authorize(actor, project=None):
-    from .models import OrganizationMembership
+    from .builder_access import builder_can_manage
     if not actor or not actor.is_active:
         raise PermissionDenied
     if actor.is_staff and actor.has_perm("platform_api.change_floorplan"):
         return
-    if actor.is_staff or project is None or not OrganizationMembership.objects.filter(
-        organization=project.organization, user=actor, status="active", role__in=["owner", "editor"]
-    ).exists():
+    if actor.is_staff or project is None or not builder_can_manage(actor, project):
         raise PermissionDenied
 
 

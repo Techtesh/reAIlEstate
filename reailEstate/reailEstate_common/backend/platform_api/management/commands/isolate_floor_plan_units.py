@@ -9,6 +9,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.test.utils import override_settings
 from django.utils import timezone
 
+from realestate_common.reports import write_json_report
+
 from platform_api.floor_plan_segmentation_service import FlatSeparationFailed, separate_floor_plan_units
 
 
@@ -27,11 +29,7 @@ class Command(BaseCommand):
         parser.add_argument("--supersede-source", action="store_true",
                             help="After every requested method succeeds, mark the full-floor record as superseded.")
 
-    @staticmethod
-    def save(path, report):
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        temporary.replace(path)
+    save = staticmethod(write_json_report)
 
     def handle(self, *args, **options):
         if not settings.DEBUG or str(getattr(settings, "ENVIRONMENT", "")).casefold() not in {"local", "development"}:

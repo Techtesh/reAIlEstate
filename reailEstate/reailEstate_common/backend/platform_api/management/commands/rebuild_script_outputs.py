@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import shutil
 import sqlite3
 import zipfile
 from pathlib import Path
@@ -15,13 +14,11 @@ from django.db.models import Q
 from django.test.utils import override_settings
 from django.utils import timezone
 
+from realestate_common.reports import write_json_report
+
 from platform_api.artifact_storage import storage
 from platform_api.floor_plan_rules import RuleBasedPlanProvider
-from platform_api.models import (
-    AgentWorkflowRun, AuditEvent, EvidenceDocument, ExtractionJob, FactCandidate,
-    FactConflict, FloorPlan, FloorPlanAsset, IngestionRun, Operation, OutboxMessage,
-    Project, ProjectFact, ReviewTask,
-)
+from platform_api.models import AuditEvent, EvidenceDocument, ExtractionJob, FactCandidate, FactConflict, FloorPlan, FloorPlanAsset, IngestionRun, Operation, OutboxMessage, Project, ProjectFact
 from platform_api.workers import process_document
 
 
@@ -144,9 +141,7 @@ class Command(BaseCommand):
             lock.unlink(missing_ok=True)
 
     def _save(self, directory, report):
-        temporary = directory / "rebuild-report.tmp"
-        temporary.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
-        temporary.replace(directory / "rebuild-report.json")
+        write_json_report(directory / "rebuild-report.json", report, default=str)
 
     def _backup(self, directory, report):
         self.stdout.write("Backing up database and referenced source/derived files before any cleanup...")

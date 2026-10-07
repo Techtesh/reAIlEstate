@@ -1,15 +1,14 @@
 """Verify a dumpdata transfer without printing user data, text evidence or credentials."""
 
-import hashlib
 import json
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 from django.apps import apps
 from django.core import serializers
 from django.core.management.base import BaseCommand, CommandError
-from django.db import connection, models
-from django.utils.dateparse import parse_datetime
+from django.db import connection
+from platform_api.infrastructure.database_transfer import record_fingerprints
 
 
 class Command(BaseCommand):
@@ -29,20 +28,10 @@ class Command(BaseCommand):
             actual = json.loads(serializers.serialize("json", model._base_manager.all(),
                                 use_natural_foreign_keys=True, use_natural_primary_keys=True))
             # M2M ordering is not part of relational semantics; JSON-field array ordering is.
-            def fingerprints(records):
-                result = []
-                for record in records:
-                    for column in model._meta.fields:
-                        value = record["fields"].get(column.name)
-                        if value and isinstance(column, models.DateTimeField):
-                            record["fields"][column.name] = parse_datetime(value).isoformat(timespec="microseconds")
-                    for relation in model._meta.many_to_many:
-                        value = record["fields"].get(relation.name)
-                        if isinstance(value, list):
-                            record["fields"][relation.name] = sorted(value, key=lambda item: json.dumps(item, sort_keys=True))
-                    result.append(hashlib.sha256(json.dumps(record, sort_keys=True, ensure_ascii=True).encode()).hexdigest())
-                return Counter(result)
-            matched = fingerprints(items) == fingerprints(actual)
+            matched = (
+                record_fingerprints(model, items, normalize_datetimes=True)[0]
+                == record_fingerprints(model, actual, normalize_datetimes=True)[0]
+            )
             checks.append({"model": label, "sourceCount": len(items), "targetCount": len(actual), "fieldsAndRelationsMatch": matched})
         report = {"databaseVendor": connection.vendor, "matched": all(item["fieldsAndRelationsMatch"] for item in checks), "models": checks}
         options["report"].parent.mkdir(parents=True, exist_ok=True)

@@ -4,7 +4,6 @@ import hashlib
 import json
 import multiprocessing
 import signal
-import time
 from collections import Counter, defaultdict, deque
 from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 from pathlib import Path

@@ -1,6 +1,5 @@
 import hashlib
 import json
-import time
 from collections import Counter, defaultdict
 from datetime import timedelta
 from pathlib import Path
@@ -13,6 +12,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 from filelock import FileLock, Timeout
+
+from realestate_common.reports import write_json_report
 
 from platform_api.artifact_storage import move_document, storage
 from platform_api.floor_plan_vision import get_floor_plan_vision_provider, resolve_vision_selection
@@ -303,17 +304,7 @@ class Command(BaseCommand):
 
     @staticmethod
     def _write_report(report, report_path):
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = report_path.with_suffix(report_path.suffix + ".tmp")
-        temporary.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        for attempt in range(10):
-            try:
-                temporary.replace(report_path)
-                return
-            except PermissionError:
-                if attempt == 9:
-                    raise
-                time.sleep(0.1 * (attempt + 1))
+        write_json_report(report_path, report, ensure_ascii=False, newline=True, replace_attempts=10)
 
 
 class _CleanTestScanner:

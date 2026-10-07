@@ -29,7 +29,7 @@ from .infrastructure.source_documents import SOURCE_TYPES, render_source_pages, 
 from .layout_pricing import project_price_label
 from .layout_evaluation_status import layout_evaluation_states
 from .layout_reanalysis import queue_layout_evaluation
-from .models import AuditEvent, EvidenceDocument, FloorPlan, IdempotencyRecord, LayoutCropDraft, OutboxMessage, Project, QueueWorker
+from .models import EvidenceDocument, FloorPlan, IdempotencyRecord, LayoutCropDraft, OutboxMessage, Project, QueueWorker
 from .queue_monitor import LIVE_SECONDS, project_jobs
 from .project_pictures import first_picture_document
 from .services import audit

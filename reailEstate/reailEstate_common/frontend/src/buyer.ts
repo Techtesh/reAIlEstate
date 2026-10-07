@@ -92,7 +92,7 @@ export type Project = {
   facts?: { code: string; value: unknown; unit: string; sourceClass: string; reviewedAt: string | null; status?: string }[];
 }
 export type Component = { code: string; weight: number; score?: number; status: string; destinations?: { status: string; durationMinutes?: number; mode?: string }[] }
-export type Match = { projectId: string; rank: number; score: number; confidence: number; components: Component[]; reasonCodes: string[]; freshness: { projectFactsAsOf: string } }
+export type Match = { projectId: string; rank: number; score: number; confidence: number | null; components: Component[]; reasonCodes: string[]; freshness: { projectFactsAsOf: string } }
 export type Snapshot = { id: string; status: string; profileVersion: number; algorithmVersion: string; generatedAt: string | null; expiresAt: string | null; items: Match[]; excludedSummary: { reasonCode: string; count: number }[] }
 export type Shortlist = { id: string; name: string; entries: { project: string; note: string }[] }
 export function coordinates(project: { latitude?: string | number | null; longitude?: string | number | null }): [number, number] | null {

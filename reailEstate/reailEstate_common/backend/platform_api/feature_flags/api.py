@@ -17,6 +17,8 @@ from .management import (
 from .serializers import FeatureFlagSerializer
 from .validation import FlagValidationError, active_environment, validate_version
 
+from ..api_common import NoStoreResponseMixin
+
 
 class FlagAPIError(APIException):
     def __init__(self, code, response_status):
@@ -54,7 +56,8 @@ class FeatureFlagPagination(CursorPagination):
     ordering = ("key", "id")
 
 
-class FeatureFlagAdminViewSet(viewsets.ModelViewSet):
+class FeatureFlagAdminViewSet(NoStoreResponseMixin, viewsets.ModelViewSet):
+    cache_control = "no-store"
     queryset = FeatureFlag.objects.all().order_by("key", "id")
     serializer_class = FeatureFlagSerializer
     permission_classes = [FeatureFlagPermission]
@@ -74,10 +77,6 @@ class FeatureFlagAdminViewSet(viewsets.ModelViewSet):
             exc = ValidationError({"code": exc.code})
         return super().handle_exception(exc)
 
-    def finalize_response(self, request, response, *args, **kwargs):
-        response = super().finalize_response(request, response, *args, **kwargs)
-        response["Cache-Control"] = "no-store"
-        return response
 
     def _response(self, instance, response_status=status.HTTP_200_OK):
         response = Response(self.get_serializer(instance).data, status=response_status)

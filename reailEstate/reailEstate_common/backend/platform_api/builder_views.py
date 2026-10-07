@@ -22,6 +22,8 @@ from .project_lifecycle import retire_project
 from .services import audit, normalize_maha_rera_id
 from .views import DeveloperProjectCreateView, SessionLoginView
 
+from .api_common import NoStoreResponseMixin
+
 
 class BuilderConflict(APIException):
     status_code = 409
@@ -167,19 +169,14 @@ class BuilderLoginView(SessionLoginView):
         return True
 
 
-class BuilderView(APIView):
+class BuilderView(NoStoreResponseMixin, APIView):
     permission_classes = [IsAuthenticated]
-
-    def finalize_response(self, request, response, *args, **kwargs):
-        response = super().finalize_response(request, response, *args, **kwargs)
-        response["Cache-Control"] = "private, no-store"
-        return response
 
 
 class BuilderOrganizationsView(BuilderView):
     def get(self, request):
         return Response([
-            {"id": str(member.organization_id), "legalName": member.organization.legal_name, "role": member.role}
+            {"id": str(member.organization_id), "legalName": member.organization.legal_name, "role": member.effective_role}
             for member in builder_memberships(request.user).select_related("organization").order_by("organization__legal_name", "pk")
         ])
 
