@@ -48,7 +48,7 @@ def normalize_maha_rera_id(value):
 
 def validate_requirement_payload(payload, final=False):
     if not isinstance(payload, dict):
-        raise ValidationError({"sections": [{"code": "INVALID_OBJECT"}]})
+        raise ValidationError({"sections": [{"code": "INVALID_OBJECT", "message": "Provide requirement sections as an object."}]})
     errors = {}
     if final:
         for section in REQUIREMENT_SECTIONS:
@@ -78,11 +78,16 @@ def validate_requirement_payload(payload, final=False):
             if precision not in ("exact", "locality", "municipality"):
                 errors.setdefault(f"places.{index}.precision", []).append({"code": "INVALID_PRECISION"})
             frequency = place.get("frequencyPerWeek", 0)
-            if not isinstance(frequency, int) or not 0 <= frequency <= 28:
+            if type(frequency) is not int or not 0 <= frequency <= 28:
                 errors.setdefault(f"places.{index}.frequencyPerWeek", []).append({"code": "OUT_OF_RANGE"})
             tolerance = place.get("maxOneWayMinutes")
-            if tolerance is not None and (not isinstance(tolerance, int) or not 5 <= tolerance <= 300):
+            if tolerance is not None and (type(tolerance) is not int or not 5 <= tolerance <= 300):
                 errors.setdefault(f"places.{index}.maxOneWayMinutes", []).append({"code": "OUT_OF_RANGE"})
+            modes = place.get("modes", [])
+            if not isinstance(modes, list) or any(not isinstance(mode, str) for mode in modes):
+                errors.setdefault(f"places.{index}.modes", []).append({"code": "INVALID_LIST"})
+            if not isinstance(place.get("arrivalWindow", {}), dict):
+                errors.setdefault(f"places.{index}.arrivalWindow", []).append({"code": "INVALID_OBJECT"})
             latitude, longitude = place.get("latitude"), place.get("longitude")
             if (latitude is None) != (longitude is None):
                 errors.setdefault(f"places.{index}", []).append({"code": "INCOMPLETE_COORDINATES"})
@@ -99,31 +104,69 @@ def validate_requirement_payload(payload, final=False):
             ):
                 errors.setdefault(f"places.{index}", []).append({"code": "INVALID_COORDINATES"})
 
-    home = payload.get("home", {})
-    area = home.get("carpetAreaSqFt", {}) if isinstance(home, dict) else {}
+    objects = {}
+    for section in ("home", "budget", "weights", "microMarket"):
+        value = payload.get(section, {})
+        if not isinstance(value, dict):
+            errors.setdefault(section, []).append({"code": "INVALID_OBJECT"})
+            value = {}
+        objects[section] = value
+    home = objects["home"]
+    configurations = home.get("configurations", [])
+    if not isinstance(configurations, list) or any(not isinstance(value, str) for value in configurations):
+        errors.setdefault("home.configurations", []).append({"code": "INVALID_LIST"})
+    bathrooms = home.get("bathroomsMinimum")
+    if bathrooms is not None and (type(bathrooms) is not int or not 0 <= bathrooms <= 10):
+        errors.setdefault("home.bathroomsMinimum", []).append({"code": "OUT_OF_RANGE"})
+    for section, values, key in (("home", home, "bathroomsIsHardConstraint"), ("budget", objects["budget"], "isHardConstraint")):
+        if key in values and not isinstance(values[key], bool):
+            errors.setdefault(f"{section}.{key}", []).append({"code": "INVALID_BOOLEAN"})
+    for section in ("societyAmenities", "nearbyAmenities"):
+        preferences = payload.get(section, [])
+        if not isinstance(preferences, list):
+            errors.setdefault(section, []).append({"code": "INVALID_LIST"})
+            continue
+        for index, preference in enumerate(preferences):
+            if not isinstance(preference, dict):
+                errors.setdefault(f"{section}.{index}", []).append({"code": "INVALID_OBJECT"})
+                continue
+            if not isinstance(preference.get("code"), str):
+                errors.setdefault(f"{section}.{index}.code", []).append({"code": "INVALID_STRING"})
+            distance = preference.get("maximumDistanceMeters")
+            if distance is not None and (type(distance) is not int or not 100 <= distance <= MAX_NEARBY_AMENITY_DISTANCE_METERS):
+                errors.setdefault(f"{section}.{index}.maximumDistanceMeters", []).append({"code": "OUT_OF_RANGE"})
+    area = home.get("carpetAreaSqFt", {})
+    if not isinstance(area, dict):
+        errors.setdefault("home.carpetAreaSqFt", []).append({"code": "INVALID_OBJECT"})
+        area = {}
     minimum, preferred, maximum = area.get("minimum"), area.get("preferred"), area.get("maximum")
     numeric_area = [value for value in (minimum, preferred, maximum) if value is not None]
-    if any(not isinstance(value, (int, float)) or value <= 0 or value > 100000 for value in numeric_area):
+    valid_area = all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                     and 0 < value <= 100000 and math.isfinite(value) for value in numeric_area)
+    if not valid_area:
         errors.setdefault("home.carpetAreaSqFt", []).append({"code": "OUT_OF_RANGE"})
-    if minimum is not None and maximum is not None and minimum > maximum:
+    elif minimum is not None and maximum is not None and minimum > maximum:
         errors.setdefault("home.carpetAreaSqFt", []).append({"code": "INVALID_RANGE"})
-    if preferred is not None and minimum is not None and preferred < minimum:
+    if valid_area and preferred is not None and minimum is not None and preferred < minimum:
         errors.setdefault("home.carpetAreaSqFt.preferred", []).append({"code": "BELOW_MINIMUM"})
+    if valid_area and preferred is not None and maximum is not None and preferred > maximum:
+        errors.setdefault("home.carpetAreaSqFt.preferred", []).append({"code": "ABOVE_MAXIMUM"})
 
-    budget = payload.get("budget", {})
-    if isinstance(budget, dict):
-        values = [budget.get(name) for name in ("purchaseMinimum", "purchaseMaximum", "allInMaximum") if budget.get(name) is not None]
-        if any(not isinstance(value, (int, float)) or value < 0 for value in values):
-            errors.setdefault("budget", []).append({"code": "OUT_OF_RANGE"})
-        if budget.get("currency", "INR") != "INR":
-            errors.setdefault("budget.currency", []).append({"code": "UNSUPPORTED_CURRENCY"})
-        if budget.get("purchaseMinimum") is not None and budget.get("purchaseMaximum") is not None and budget["purchaseMinimum"] > budget["purchaseMaximum"]:
-            errors.setdefault("budget", []).append({"code": "INVALID_RANGE"})
+    budget = objects["budget"]
+    values = [budget.get(name) for name in ("purchaseMinimum", "purchaseMaximum", "allInMaximum") if budget.get(name) is not None]
+    valid_budget = all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                       and 0 < value <= 10**14 and math.isfinite(value) for value in values)
+    if not valid_budget:
+        errors.setdefault("budget", []).append({"code": "OUT_OF_RANGE", "message": "Enter positive, finite budget amounts in INR (up to 100 trillion)."})
+    elif budget.get("purchaseMinimum") is not None and budget.get("purchaseMaximum") is not None and budget["purchaseMinimum"] > budget["purchaseMaximum"]:
+        errors.setdefault("budget", []).append({"code": "INVALID_RANGE"})
+    if budget.get("currency", "INR") != "INR":
+        errors.setdefault("budget.currency", []).append({"code": "UNSUPPORTED_CURRENCY"})
 
-    weights = payload.get("weights", {})
+    weights = objects["weights"]
     if isinstance(weights, dict):
         valid_weights = all(isinstance(value, (int, float)) and not isinstance(value, bool)
-                            and math.isfinite(value) and 0 <= value <= 1 for value in weights.values())
+                            and 0 <= value <= 1 and math.isfinite(value) for value in weights.values())
         if not valid_weights:
             errors.setdefault("weights", []).append({"code": "OUT_OF_RANGE"})
         elif weights:
@@ -134,6 +177,30 @@ def validate_requirement_payload(payload, final=False):
                 errors.setdefault("weights", []).append({"code": "TOTAL_EXCEEDED"})
 
     if errors:
+        messages = {
+            "REQUIRED": "Complete this requirement section.",
+            "INVALID_OBJECT": "Provide an object with the expected requirement fields.",
+            "INVALID_LIST": "Provide a list of the selected values.",
+            "INVALID_STRING": "Provide a text value.",
+            "INVALID_BOOLEAN": "Choose true or false.",
+            "OUT_OF_RANGE": "Enter a finite number within the allowed range.",
+            "INVALID_RANGE": "The maximum must be at least the minimum.",
+            "BELOW_MINIMUM": "The preferred area must be at least the minimum.",
+            "ABOVE_MAXIMUM": "The preferred area must not exceed the maximum.",
+            "UNSUPPORTED_CURRENCY": "Use INR for your budget.",
+            "ZERO_TOTAL": "Give at least one priority a value above zero.",
+            "TOTAL_EXCEEDED": "Priority points cannot exceed 100.",
+            "DUPLICATE": "Combine repeated destinations into one entry.",
+            "TOO_MANY_PLACES": "Choose no more than ten destinations.",
+            "INVALID_PLACE_ID": "Select a valid destination.",
+            "INVALID_PRECISION": "Choose exact, locality or municipality precision.",
+            "INCOMPLETE_COORDINATES": "Set both latitude and longitude.",
+            "COORDINATES_REQUIRED": "Set coordinates for an exact destination.",
+            "INVALID_COORDINATES": "Enter valid latitude and longitude values.",
+        }
+        for details in errors.values():
+            for detail in details:
+                detail.setdefault("message", messages[detail["code"]])
         raise ValidationError(errors)
     return payload
 
@@ -385,6 +452,12 @@ def score_recommendations(payload, *, persist_routes=False):
 def compute_recommendations(requirement_version, snapshot=None):
     if not isinstance(requirement_version, RequirementVersion):
         requirement_version = RequirementVersion.objects.get(pk=requirement_version)
+    if snapshot is not None:
+        snapshot = RecommendationSnapshot.objects.select_for_update().get(pk=snapshot.pk)
+        if snapshot.requirement_version_id != requirement_version.id:
+            raise ValueError("Recommendation snapshot does not belong to this requirement version.")
+        if snapshot.state in {"ready", "partially_ready", "expired"}:
+            return snapshot
     catalog_hash, items, exclusions = score_recommendations(requirement_version.payload, persist_routes=True)
     if snapshot is None:
         snapshot = RecommendationSnapshot.objects.create(
@@ -392,9 +465,6 @@ def compute_recommendations(requirement_version, snapshot=None):
             input_catalog_version=catalog_hash, state="computing",
         )
     else:
-        snapshot = RecommendationSnapshot.objects.select_for_update().get(pk=snapshot.pk)
-        if snapshot.requirement_version_id != requirement_version.id:
-            raise ValueError("Recommendation snapshot does not belong to this requirement version.")
         snapshot.items.all().delete()
         snapshot.algorithm_version = "match-1.0"
         snapshot.input_catalog_version = catalog_hash

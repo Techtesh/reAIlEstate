@@ -41,7 +41,11 @@ export async function api<Result>(path: string, options: RequestInit = {}): Prom
         else if (response.status === 400 && details && typeof details === 'object') {
           const fields = Object.entries(details).flatMap(([field, value]) => {
             if (typeof value === 'string') return [`${field}: ${value}`]
-            if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string').map(item => `${field}: ${item}`)
+            if (Array.isArray(value)) return value.flatMap(item => {
+              if (typeof item === 'string') return [`${field}: ${item}`]
+              if (item && typeof item === 'object' && 'message' in item && typeof item.message === 'string') return [`${field}: ${item.message}`]
+              return []
+            })
             return []
           })
           detail = fields.slice(0, 8).join(' ').slice(0, 1000)

@@ -4,6 +4,7 @@ import { api, ApiError, apiPath, cancelSessionRequests, json, onSessionExpired }
 import { BuilderMediaWorkspace, type BuilderLayout as Layout } from './BuilderMediaWorkspace'
 import { coordinates } from './buyer'
 import { errorMessage, isAbortError } from './errors'
+import { documentAccept, documentMediaType } from './documentFormats'
 import { ThemeControl } from './ThemeControl'
 import { OrganizationRoles } from './OrganizationRoles'
 import './BuilderPortal.css'
@@ -21,7 +22,7 @@ type LocationEntry = { method: 'unchanged' | 'coordinates' | 'maps'; latitude: s
 type ProjectDraft = Pick<Project, 'submittedName' | 'mahaReraId' | 'locality' | 'address' | 'processingAttested'> & { locationEntry: LocationEntry }
 type Evidence = { id: string; originalName: string; status: string; scanStatus: string; byteLength: number; errorCategory?: string }
 type UploadIntent = { documentId: string; uploadAction: string; method: 'PUT'; requiredHeaders: Record<string, string>; maximumSize: number }
-type Upload = { file: File; key: string; intent: UploadIntent | null; phase: 'intent' | 'put' | 'complete' | 'done' }
+type Upload = { file: File; mediaType: string; key: string; intent: UploadIntent | null; phase: 'intent' | 'put' | 'complete' | 'done' }
 const message = (error: unknown) => errorMessage(error, 'The action could not be completed.')
 const pathFor = (id: string) => `/api/v1/builder/projects/${encodeURIComponent(id)}`
 const documentsFor = (id: string) => `/api/v1/developer-projects/${encodeURIComponent(id)}/documents`
@@ -308,9 +309,10 @@ function ProjectDocuments({ projectId, locked }: { projectId: string; locked: bo
   function select(file: File | undefined) {
     setError(''); setNotice(''); setUpload(null)
     if (!file) return
-    if (!['application/pdf', 'image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { setError('Choose a PDF, PNG, JPEG or WEBP file.'); return }
+    const mediaType = documentMediaType(file.name)
+    if (!mediaType) { setError('Choose a PDF, PNG/JPEG image, Word/Office document, RTF, ODT, Markdown, text, CSV or JSON file.'); return }
     if (!file.size) { setError('The selected file is empty.'); return }
-    setUpload({ file, key: crypto.randomUUID(), intent: null, phase: 'intent' })
+    setUpload({ file, mediaType, key: crypto.randomUUID(), intent: null, phase: 'intent' })
   }
   async function send() {
     if (!upload || locked) return
@@ -322,7 +324,7 @@ function ProjectDocuments({ projectId, locked }: { projectId: string; locked: bo
         const digest = await crypto.subtle.digest('SHA-256', bytes)
         signal.throwIfAborted()
         const sha256 = Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('')
-        const intent = await api<UploadIntent>(`${documentsFor(projectId)}:upload-intent`, { method: 'POST', signal, body: json({ filename: current.file.name, declaredMediaType: current.file.type, byteLength: current.file.size, sha256 }) })
+        const intent = await api<UploadIntent>(`${documentsFor(projectId)}:upload-intent`, { method: 'POST', signal, body: json({ filename: current.file.name, declaredMediaType: current.mediaType, byteLength: current.file.size, sha256 }) })
         current = { ...current, intent, phase: 'put' }; setUpload(current)
       }
       if (current.phase === 'put') {
@@ -355,7 +357,7 @@ function ProjectDocuments({ projectId, locked }: { projectId: string; locked: bo
     finally { if (!signal.aborted) setBusy(false) }
   }
   const pending = upload && upload.phase !== 'done'
-  return <section className="builder-panel"><h2>Project documents</h2><p>Upload PDF, PNG, JPEG or WEBP evidence. Files are private until reviewed. Uploading only queues processing.</p>{error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status" className="builder-notice">{notice}</p>}<label>Evidence file<input ref={fileInput} type="file" accept="application/pdf,image/png,image/jpeg,image/webp" disabled={busy || locked || !!(pending && upload.intent)} onChange={event => select(event.target.files?.[0])} /></label>
+  return <section className="builder-panel"><h2>Project documents</h2><p>Upload PDFs, PNG/JPEG images, Word/Office documents, RTF, ODT, Markdown, text, CSV or JSON evidence. Some Office formats require server-side conversion. Files are private until reviewed. Uploading only queues processing.</p>{error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status" className="builder-notice">{notice}</p>}<label>Evidence file<input ref={fileInput} type="file" accept={documentAccept} disabled={busy || locked || !!(pending && upload.intent)} onChange={event => select(event.target.files?.[0])} /></label>
     {pending && <p>{upload.file.name} · {upload.file.size.toLocaleString()} bytes · {upload.phase === 'intent' ? 'Ready to request upload' : upload.phase === 'put' ? 'Ready to transfer file' : 'File transferred; completion pending'}</p>}
     <div className="button-row"><button className="primary" disabled={!pending || busy || locked} onClick={() => void send()}>{busy ? 'Uploading…' : error && pending ? upload.phase === 'intent' ? 'Retry upload request' : 'Retry same upload' : 'Upload evidence'}</button><button className="secondary" disabled={loading || busy} onClick={() => void refresh()}>Refresh documents</button>{pending && upload.intent && <button className="secondary" disabled={busy} onClick={() => { setUpload(null); setError(''); if (fileInput.current) fileInput.current.value = '' }}>Cancel local upload</button>}</div>
     {loading ? <p role="status">Loading documents…</p> : documents.length ? <ul className="builder-documents">{documents.map(document => <li key={document.id}><strong>{document.originalName}</strong><span>Status: {document.status} · Scan: {document.scanStatus} · {document.byteLength.toLocaleString()} bytes</span>{document.errorCategory && <span className="field-error">Processing issue: {document.errorCategory}. Contact the platform administrator if it persists.</span>}</li>)}</ul> : <p>No evidence uploaded yet.</p>}

@@ -391,3 +391,19 @@ def test_buyer_submission_to_score_sheet(client, user):
     assert score_sheet["items"][0]["projectId"] == str(project.id)
     assert score_sheet["items"][0]["components"][0]["status"] == "unavailable"
     assert "submittedName" in client.get(f"/api/v1/projects/{project.id}/").json()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("payload, field", [
+    ({"home": {"carpetAreaSqFt": {"minimum": "large", "maximum": 900}}}, "home.carpetAreaSqFt"),
+    ({"budget": {"purchaseMaximum": 0}}, "budget"),
+    ({"weights": []}, "weights"),
+])
+def test_signed_in_requirement_validation_returns_readable_400(client, payload, field):
+    created = client.post("/api/v1/requirement-profiles/", {}, format="json").json()
+    response = client.patch(f"/api/v1/requirement-profiles/{created['id']}/", payload, format="json", HTTP_IF_MATCH='W/"1"')
+    assert response.status_code == 400
+    assert response.json()["errors"][field][0]["message"]
+    profile = RequirementProfile.objects.get(pk=created["id"])
+    assert profile.active_version.version == 1
+    assert profile.versions.count() == 1

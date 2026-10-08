@@ -483,6 +483,49 @@ test('document upload retries completion with the same key and never starts work
   expect(state.requests.some(item => /process_outbox|worker|model|extract/.test(item.path))).toBeFalsy()
 })
 
+test('Markdown evidence with an empty browser MIME type uploads as text/markdown', async ({ page }) => {
+  const state = await mockBuilder(page)
+  const content = '# Project evidence\nTwo bedrooms.'
+  let intents = 0, uploads = 0
+  await page.route(`**${documentPath}:upload-intent`, async route => {
+    const body = route.request().postDataJSON()
+    expect(body.filename).toBe('notes.md')
+    expect(body.declaredMediaType).toBe('text/markdown')
+    expect(body.sha256).toMatch(/^[a-f0-9]{64}$/)
+    intents++
+    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({
+      documentId, uploadAction: `${documentPath}/${documentId}/content`, method: 'PUT',
+      requiredHeaders: { 'Content-Type': 'text/markdown' }, maximumSize: 50 * 1024 * 1024,
+    }) })
+  })
+  await page.route(`**${documentPath}/${documentId}/content`, async route => {
+    expect(route.request().headers()['content-type']).toBe('text/markdown')
+    expect(route.request().postDataBuffer()?.toString()).toBe(content)
+    uploads++
+    await route.fulfill({ status: 204 })
+  })
+  await openProject(page)
+  await page.getByLabel('Evidence file').setInputFiles({ name: 'notes.md', mimeType: '', buffer: Buffer.from(content) })
+  await page.getByRole('button', { name: 'Upload evidence', exact: true }).click()
+  await expect(page.getByText('Status: queued · Scan: pending', { exact: false })).toBeVisible()
+  expect(intents).toBe(1)
+  expect(uploads).toBe(1)
+  expect(state.completionKeys).toHaveLength(1)
+})
+
+test('unsupported evidence is rejected before requesting an upload', async ({ page }) => {
+  const state = await mockBuilder(page)
+  await openProject(page)
+  const input = page.getByLabel('Evidence file')
+  await expect(input).toHaveAttribute('accept', /\.docx.*\.doc/)
+  await expect(input).not.toHaveAttribute('accept', /webp/)
+  await input.setInputFiles({ name: 'photo.webp', mimeType: 'image/webp', buffer: Buffer.from('unsupported image') })
+  await expect(page.getByRole('alert').filter({ hasText: 'Choose a PDF' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Upload evidence', exact: true })).toBeDisabled()
+  expect(state.intents).toBe(0)
+  expect(state.uploads).toBe(0)
+})
+
 test('layout completion preserves project edits entered while its request was in flight', async ({ page }) => {
   await mockBuilder(page)
   await openProject(page)
