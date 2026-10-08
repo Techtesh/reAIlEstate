@@ -51,7 +51,7 @@ function LocationPicker({ place, onChange, signedIn }: { place: CommutePlace; on
     } finally { if (!controller.signal.aborted) setBusy(false) }
   }
   return <details className="location-picker"><summary>{coordinates(place) ? 'Change map location' : 'Set map location'}</summary>
-    <p className="data-note">Searches and links are sent to Google only when you choose Look up location. Coordinates stay in your private draft.</p>
+    <p className="data-note">Searches and links are sent to Google only when you choose Look up location. Coordinates are included in your match request; guest requests are saved in this browser after consent.</p>
     <label>Location entry method<select value={method} onChange={event => { reset(); setMethod(event.target.value); setQuery('') }}><option value="search">Google Maps search</option><option value="coordinates">Latitude / longitude</option><option value="share">Google Maps link / Plus Code</option></select></label>
     {method === 'coordinates' ? <div className="field-grid"><label>Latitude<input type="number" step="any" min="-90" max="90" value={latitude} onChange={event => setLatitude(event.target.value)} /></label><label>Longitude<input type="number" step="any" min="-180" max="180" value={longitude} onChange={event => setLongitude(event.target.value)} /></label></div>
       : <label>{method === 'share' ? 'Google Maps share link or Plus Code' : 'Search Google Maps'}<input value={query} maxLength={2048} autoComplete="off" onChange={event => { reset(); setQuery(event.target.value) }} placeholder={method === 'share' ? 'Paste a pin link or Plus Code with locality' : 'Place name and locality'} /></label>}
@@ -70,7 +70,7 @@ export function CommuteLocations({ places, onChange, signedIn, disabled = false 
   return <fieldset className="commute-editor" disabled={disabled}>
     <legend className="sr-only">Daily destinations</legend>
     {error && <p className="field-error" role="alert">{error}</p>}
-    <p className="data-note">Destinations with a map location appear only on your shortlist map. Locality-only entries remain unmapped; adding a pin does not calculate travel times.</p>
+    <p className="data-note">Destinations with a map location appear on your shortlist map and may contribute to match commute scoring. Locality-only entries remain unmapped. Unavailable routes are labelled in the report.</p>
     {places.map((place, index) => <fieldset className="destination" key={place.placeId}><legend>Destination {index + 1}</legend>
       <div className="field-grid"><label>{place.precision === 'exact' ? 'Destination name' : 'Destination locality'}<input value={place.label} maxLength={100} autoComplete="off" placeholder="e.g. Work, Powai" onChange={event => update(index, { ...place, label: event.target.value })} /></label>
         <label>Trips per week<input type="number" min="0" max="28" value={place.frequencyPerWeek} onChange={event => update(index, { ...place, frequencyPerWeek: Number(event.target.value) })} /></label>

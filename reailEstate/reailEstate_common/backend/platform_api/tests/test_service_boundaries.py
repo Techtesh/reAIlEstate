@@ -28,6 +28,13 @@ def test_service_url_surfaces_are_perforated(urlconf, available, hidden):
         resolve(hidden, urlconf=urlconf)
 
 
+def test_guest_matching_is_exposed_only_by_buyer_service():
+    assert resolve("/api/v1/guest/recommendations", urlconf="buyer_service.urls")
+    for urlconf in ("admin_service.urls", "builder_service.urls"):
+        with pytest.raises(Resolver404):
+            resolve("/api/v1/guest/recommendations", urlconf=urlconf)
+
+
 def test_only_admin_service_owns_schema_migrations():
     from admin_service import settings as settings_admin
     from builder_service import settings as settings_builder

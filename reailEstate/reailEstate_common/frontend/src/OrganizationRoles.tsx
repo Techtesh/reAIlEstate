@@ -2,10 +2,10 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api, json } from './api'
 import { errorMessage } from './errors'
 
-type Role = { id: string; name: string; description: string; baseRole: 'owner' | 'editor' | 'viewer' }
+type Role = { id: string; name: string; description: string; baseRole: 'owner' | 'admin' | 'editor' | 'viewer' }
 type RolesData = { roles: Role[]; members: { username: string; roleName: string; role: string; status: string }[] }
 
-export function OrganizationRoles({ organizationId }: { organizationId: string }) {
+export function OrganizationRoles({ organizationId, canManageOwners }: { organizationId: string; canManageOwners: boolean }) {
   const [opened, setOpened] = useState(false), [data, setData] = useState<RolesData | null>(null)
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [busy, setBusy] = useState(false), [reload, setReload] = useState(0)
   const root = `/api/v1/builder/organizations/${encodeURIComponent(organizationId)}/roles`
@@ -38,7 +38,7 @@ export function OrganizationRoles({ organizationId }: { organizationId: string }
     {error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status">{notice}</p>}
     {!data ? <p role="status">Loading roles…</p> : <><div className="builder-role-forms">
       <form onSubmit={event => void create(event)}><h2>Create a role</h2><fieldset disabled={busy}><label>Role name<input name="name" maxLength={80} placeholder="Project team" required /></label><label>Description<input name="description" maxLength={255} /></label><label>Access<select name="baseRole" defaultValue="editor"><option value="editor">Editor — manage projects and evidence</option><option value="viewer">Viewer — no builder editing access</option><option value="owner">Owner — also manage roles and members</option></select></label><button className="primary" type="submit">Create role</button></fieldset></form>
-      <form onSubmit={event => void assign(event)}><h2>Onboard members</h2><fieldset disabled={busy || !data.roles.length}><label>Role<select name="roleId" required><option value="">Choose a role</option>{data.roles.map(role => <option key={role.id} value={role.id}>{role.name} ({role.baseRole})</option>)}</select></label><label>Existing usernames<textarea name="usernames" rows={4} required placeholder="One username per line, or separated by commas" /></label><p className="data-note">Up to 100 active accounts. Selecting an existing member updates their organization role. At least one owner must remain.</p><button className="primary" type="submit">Apply role to members</button></fieldset>{!data.roles.length && <p>Create a role first.</p>}</form>
+      <form onSubmit={event => void assign(event)}><h2>Onboard members</h2><fieldset disabled={busy || !data.roles.length}><label>Role<select name="roleId" required><option value="">Choose a role</option>{data.roles.filter(role => canManageOwners || role.baseRole !== 'owner').map(role => <option key={role.id} value={role.id}>{role.name} ({role.baseRole})</option>)}</select></label><label>Existing usernames<textarea name="usernames" rows={4} required placeholder="One username per line, or separated by commas" /></label><p className="data-note">Up to 100 active accounts. Selecting an existing member updates their organization role. Only owners can change owner access. At least one owner must remain.</p><button className="primary" type="submit">Apply role to members</button></fieldset>{!data.roles.length && <p>Create a role first.</p>}</form>
     </div><div className="builder-member-list"><table><caption>Current organization members</caption><thead><tr><th scope="col">Username</th><th scope="col">Role</th><th scope="col">Status</th></tr></thead><tbody>{data.members.map(member => <tr key={member.username}><td>{member.username}</td><td>{member.roleName}</td><td>{member.status}</td></tr>)}</tbody></table></div></>}
   </details>
 }

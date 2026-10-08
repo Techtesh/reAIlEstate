@@ -292,7 +292,7 @@ dialog::backdrop { background: #122b2266; }
 :root[data-theme=dark] .processing-label, :root[data-theme=dark] .station-status.unverified { color: var(--warning-ink); }
 :root[data-theme=dark] .field-errors, :root[data-theme=dark] .conflict { background: var(--danger-surface); color: var(--ink); }
 :root[data-theme=dark] .leaflet-popup-content-wrapper, :root[data-theme=dark] .leaflet-popup-tip, :root[data-theme=dark] .leaflet-control-zoom a { background: var(--surface); color: var(--ink); }
-:root[data-theme=dark] .map-region { --project-pin-bg: #1d2b23; --project-pin-ink: #e2eee8; --commute-pin-bg: #e2eee8; --commute-pin-ink: #101a15; }
+:root[data-theme=dark] .map-region { --project-pin-bg: var(--surface); --project-pin-ink: var(--ink); --commute-pin-bg: var(--ink); --commute-pin-ink: var(--canvas); }
 .beta-note { padding: 14px 36px; background: var(--mint); border-bottom: 1px solid var(--line); font-size: 13px; line-height: 1.7; }
 .beta-note a, .beta-note button { margin-left: 12px; }
 @media (max-width: 600px) { .theme-control svg { display: none; } .beta-note { padding: 14px 16px; } }
@@ -301,3 +301,13 @@ dialog::backdrop { background: #122b2266; }
 :root[data-theme=dark] .global-message, :root[data-theme=dark] .error-banner { background: var(--danger-surface); color: var(--error); }
 :root[data-theme=dark] .weight-budget.warning, :root[data-theme=dark] .weight-budget.warning strong { color: var(--warning-ink); }
 :root[data-theme=dark] .save-project.saved { color: #f491b3; }
+
+/* Keep the guest report ribbon with the shortlist feed beside the map. */
+.map-only-ribbon { display: none; }
+.project-feed > .beta-note { margin: -24px -24px 24px; padding: 14px 22px; }
+.view-map .map-only-ribbon { display: block; }
+.view-map .project-feed > .beta-note { display: none; }
+@media (max-width: 760px) { .project-feed > .beta-note { margin: -18px -18px 18px; padding: 14px 18px; } }
+
+.sort-note { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 11px; }
+.project-possession { margin: 0 0 8px; color: var(--muted); font-size: 11px; }

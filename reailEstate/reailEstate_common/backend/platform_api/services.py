@@ -337,33 +337,17 @@ def _components(project, profile, configurations, commute=None):
     }
 
 
-@transaction.atomic
-def compute_recommendations(requirement_version, snapshot=None):
-    if not isinstance(requirement_version, RequirementVersion):
-        requirement_version = RequirementVersion.objects.get(pk=requirement_version)
-    payload = requirement_version.payload
+def score_recommendations(payload, *, persist_routes=False):
+    """Compute the public match result without creating buyer records."""
     weights = DEFAULT_WEIGHTS | payload.get("weights", {})
-    catalog_hash = hashlib.sha256(json.dumps(list(Project.objects.filter(status="published").values_list("id", "published_fact_set_version")), default=str).encode()).hexdigest()
-    if snapshot is None:
-        snapshot = RecommendationSnapshot.objects.create(
-            requirement_version=requirement_version,
-            algorithm_version="match-1.0",
-            input_catalog_version=catalog_hash,
-            state="computing",
-        )
-    else:
-        snapshot = RecommendationSnapshot.objects.select_for_update().get(pk=snapshot.pk)
-        if snapshot.requirement_version_id != requirement_version.id:
-            raise ValueError("Recommendation snapshot does not belong to this requirement version.")
-        snapshot.items.all().delete()
-        snapshot.algorithm_version = "match-1.0"
-        snapshot.input_catalog_version = catalog_hash
-        snapshot.state = "computing"
-        snapshot.save(update_fields=["algorithm_version", "input_catalog_version", "state", "updated_at"])
+    projects = list(Project.objects.filter(status="published").prefetch_related("metrics", "project_amenities__amenity"))
+    catalog_hash = hashlib.sha256(json.dumps(
+        [(str(project.id), project.published_fact_set_version) for project in projects],
+        default=str,
+    ).encode()).hexdigest()
+    commute = commute_scores(payload, projects, persist=persist_routes)
     scored = []
     exclusions = Counter()
-    projects = list(Project.objects.filter(status="published").prefetch_related("metrics", "project_amenities__amenity"))
-    commute = commute_scores(requirement_version, projects)
     for project in projects:
         configurations = _project_configuration_data(project)
         failure = _hard_constraint_failure(project, payload, configurations)
@@ -376,26 +360,56 @@ def compute_recommendations(requirement_version, snapshot=None):
         denominator = sum(weights[key] for key in available)
         quality = component_values["projectConfidence"]
         score = 100 * sum(weights[key] * value for key, value in available.items()) / denominator * quality if denominator else 0
-        component_dto = []
+        components = []
         for key, value in component_values.items():
             component = {"code": key.upper(), "weight": weights.get(key, 0), "status": "available" if value is not None else "unavailable"}
             if value is not None:
                 component["score"] = value
             if key == "commute" and project_commute:
                 component["destinations"] = project_commute["details"]
-            component_dto.append(component)
+            components.append(component)
         reasons = ["ALL_HARD_CONSTRAINTS_MET"]
         if component_values.get("commute") is not None and component_values["commute"] >= 0.7:
             reasons.append("GOOD_WEIGHTED_COMMUTE")
-        scored.append((score, quality, project, component_dto, reasons))
+        scored.append((score, quality, project, components, reasons))
     scored.sort(key=lambda item: (-item[0], str(item[2].id)))
+    items = [{
+        "projectId": str(project.id), "rank": index, "score": round(score, 2),
+        "confidence": quality, "components": components, "reasonCodes": reasons,
+        "freshness": {"projectFactsAsOf": project.updated_at},
+    } for index, (score, quality, project, components, reasons) in enumerate(scored[:10], start=1)]
+    return catalog_hash, items, [{"reasonCode": key, "count": value} for key, value in sorted(exclusions.items())]
+
+
+@transaction.atomic
+def compute_recommendations(requirement_version, snapshot=None):
+    if not isinstance(requirement_version, RequirementVersion):
+        requirement_version = RequirementVersion.objects.get(pk=requirement_version)
+    catalog_hash, items, exclusions = score_recommendations(requirement_version.payload, persist_routes=True)
+    if snapshot is None:
+        snapshot = RecommendationSnapshot.objects.create(
+            requirement_version=requirement_version, algorithm_version="match-1.0",
+            input_catalog_version=catalog_hash, state="computing",
+        )
+    else:
+        snapshot = RecommendationSnapshot.objects.select_for_update().get(pk=snapshot.pk)
+        if snapshot.requirement_version_id != requirement_version.id:
+            raise ValueError("Recommendation snapshot does not belong to this requirement version.")
+        snapshot.items.all().delete()
+        snapshot.algorithm_version = "match-1.0"
+        snapshot.input_catalog_version = catalog_hash
+        snapshot.state = "computing"
+        snapshot.save(update_fields=["algorithm_version", "input_catalog_version", "state", "updated_at"])
+    projects = {str(project.id): project for project in Project.objects.filter(pk__in=[item["projectId"] for item in items])}
     RecommendationItem.objects.bulk_create([
-        RecommendationItem(snapshot=snapshot, rank=index, score=round(score, 2), confidence=quality, project=project, components=components, reason_codes=reasons)
-        for index, (score, quality, project, components, reasons) in enumerate(scored[:10], start=1)
+        RecommendationItem(snapshot=snapshot, rank=item["rank"], score=item["score"],
+            confidence=item["confidence"], project=projects[item["projectId"]],
+            components=item["components"], reason_codes=item["reasonCodes"])
+        for item in items
     ])
     snapshot.state = "ready"
     snapshot.generated_at = timezone.now()
     snapshot.expires_at = timezone.now() + timedelta(hours=24)
-    snapshot.excluded_summary = [{"reasonCode": key, "count": value} for key, value in sorted(exclusions.items())]
+    snapshot.excluded_summary = exclusions
     snapshot.save(update_fields=["state", "generated_at", "expires_at", "excluded_summary", "updated_at"])
     return snapshot

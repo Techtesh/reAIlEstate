@@ -58,7 +58,7 @@ def get_routing_provider():
     return UnavailableRoutingProvider()
 
 
-def estimate_matrix(origins, destinations, modes, departure_bucket="any", provider=None):
+def estimate_matrix(origins, destinations, modes, departure_bucket="any", provider=None, *, persist=True):
     provider = provider or get_routing_provider()
     provider_code = getattr(provider, "code", provider.__class__.__name__)
     results = []
@@ -92,6 +92,17 @@ def estimate_matrix(origins, destinations, modes, departure_bucket="any", provid
                         "status": "unavailable",
                     })
                     continue
+                if not persist:
+                    results.append({
+                        "originKey": origin_key, "destinationKey": destination_key,
+                        "mode": mode, "status": "available",
+                        "durationSeconds": route.duration_seconds,
+                        "distanceMeters": route.distance_meters,
+                        "retrievedAt": route.retrieved_at,
+                        "expiresAt": route.retrieved_at + timedelta(seconds=settings.ROUTING_CACHE_SECONDS),
+                        "assumptions": route.assumptions, "cacheHit": False,
+                    })
+                    continue
                 estimate, _ = TravelEstimate.objects.update_or_create(
                     origin_key=origin_key,
                     destination_key=destination_key,
@@ -123,10 +134,13 @@ def estimate_matrix(origins, destinations, modes, departure_bucket="any", provid
     }
 
 
-def commute_scores(requirement_version, projects, provider=None):
-    if not isinstance(requirement_version, RequirementVersion):
-        requirement_version = RequirementVersion.objects.get(pk=requirement_version)
-    places = requirement_version.payload.get("places", [])
+def commute_scores(requirement_version, projects, provider=None, *, persist=True):
+    if isinstance(requirement_version, dict):
+        places = requirement_version.get("places", [])
+    else:
+        if not isinstance(requirement_version, RequirementVersion):
+            requirement_version = RequirementVersion.objects.get(pk=requirement_version)
+        places = requirement_version.payload.get("places", [])
     routable_places = [place for place in places if _has_coordinates(place)]
     if not routable_places:
         return {}
@@ -144,7 +158,7 @@ def commute_scores(requirement_version, projects, provider=None):
         details = []
         for place in routable_places:
             modes = place.get("modes") or ["transit"]
-            matrix = estimate_matrix([place], [destination], modes, _arrival_bucket(place), provider)
+            matrix = estimate_matrix([place], [destination], modes, _arrival_bucket(place), provider, persist=persist)
             available = [item for item in matrix["estimates"] if item["status"] == "available"]
             if not available:
                 details.append({"placeId": place.get("placeId"), "status": "unavailable"})

@@ -50,7 +50,7 @@ class OrganizationRole(TimestampedModel):
     name = models.CharField(max_length=80)
     description = models.CharField(max_length=255, blank=True)
     base_role = models.CharField(max_length=32, choices=[
-        ("owner", "Owner"), ("editor", "Editor"), ("viewer", "Viewer"),
+        ("owner", "Owner"), ("admin", "Administrator"), ("editor", "Editor"), ("viewer", "Viewer"),
     ])
 
     class Meta:
@@ -66,6 +66,7 @@ class OrganizationRole(TimestampedModel):
 class OrganizationMembership(TimestampedModel):
     class Role(models.TextChoices):
         OWNER = "owner", "Owner"
+        ADMIN = "admin", "Administrator"
         EDITOR = "editor", "Editor"
         VIEWER = "viewer", "Viewer"
 

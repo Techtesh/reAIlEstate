@@ -167,12 +167,14 @@ configured.
 | B10 | Add commute destinations | Enter locality-only or exact private destinations. Exact coordinates render only on the authenticated shortlist map; locality-only entries are explicitly reported as unmapped. |
 | B11 | Reuse a profile | Open `/profiles`, resume a draft, or create a new draft from a submitted profile. |
 | B12 | Privacy actions | Export or delete account data through the protected account endpoints. Shared requirement/comparison links expose only their scoped payloads. |
+| B13 | Unsigned match report | Submit consent-backed requirements, including optional exact destinations, to the stateless guest endpoint. It returns the same published-catalogue ranking fields as signed-in matching; request, top-ten report, and shortlist IDs are stored in bounded browser cookies for 90 days. A separate long-lived usage marker permits one successfully saved run per browser. Cookie loss resets this browser-only limit; invalid/oversized cookies show recovery errors. |
+| B14 | Choose theme | Buyer, builder, and admin offer System, Light, and Dark using a shared browser preference. System follows the reported browser/OS scheme and falls back to dark only if neither scheme is reported. |
 
 ## 5. Builder workflows
 
 | ID | Workflow | Steps and outcome |
 | --- | --- | --- |
-| D1 | Builder sign-in | Sign in at `/builder/login`. Access requires an active owner/editor membership in an active organization. |
+| D1 | Builder sign-in | Sign in at `/builder/login`. Access requires an active owner/admin/editor membership in an active organization. |
 | D2 | Select organization/project | Choose an authorized organization, then create or open one of its projects. Object-level authorization is checked on every request. |
 | D3 | Edit project metadata | Save name, registration, locality, address, and processing attestation using `expectedUpdatedAt`. Conflicts require reload rather than overwrite. |
 | D4 | Submit a location | Enter coordinates or resolve a Google Maps reference. This creates an unreviewed proposal; it does not publish coordinates. |
@@ -183,12 +185,13 @@ configured.
 | D9 | Evaluate layouts | Queue or requeue extraction for eligible layouts and inspect durable job status. Generated results remain review proposals. |
 | D10 | Submit for review | Attest processing and submit the project. Publication remains an independent reviewer/admin action. |
 | D11 | Archive project | Archive through the version-checked endpoint. Archived or merged projects cannot be edited or processed. |
+| D12 | Onboard a team | Organization owners create and assign owner/admin/editor/viewer packages to 1–100 existing active usernames. Organization admins manage non-owner packages and members. Assignments are atomic, organization-scoped, and preserve an active owner. |
 
 ## 6. Reviewer and administrator workflows
 
 | ID | Workflow | Steps and outcome |
 | --- | --- | --- |
-| A1 | Provision access | Create users and organizations, then assign active owner/editor memberships. Buyer or staff status alone does not grant builder membership. |
+| A1 | Provision access | Create users and organizations, then assign active owner/admin/editor memberships. Buyer or staff status alone does not grant builder membership. |
 | A2 | Review extraction | Inspect immutable source evidence, candidates, conflicts, and extraction outputs before resolving review tasks. |
 | A3 | Review floor plans/layouts | Approve, reject, correct, activate, or deactivate plans. Deactivating a floor plan also deactivates its derived layouts without deleting evidence. |
 | A4 | Review project locations | Open **External sources**, verify the saved reference, and explicitly accept it. Published APIs receive coordinates only after acceptance. Enforced second-review policy prohibits self-approval when enabled. |
@@ -198,6 +201,7 @@ configured.
 | A8 | Reanalyse a project | Queue eligible project documents/layouts for reanalysis without deleting prior evidence. |
 | A9 | Merge projects | Select an active canonical target and reason. Merge state prevents edits and processing on the retired source. |
 | A10 | Operate the platform | Inspect integration health, operational metrics, audit events, queue workers, retry state, and dead letters. Replay requires an explicit reason. |
+| A11 | Reuse access roles | Authorized platform administrators manage permission groups and organization packages across organizations in Django admin, without requiring builder membership. Staff status alone gives no role-management permission. Apply migrations 0020 and 0021 before using all packages. |
 
 ## 7. Worker workflows
 

@@ -9,7 +9,7 @@ import { OrganizationRoles } from './OrganizationRoles'
 import './BuilderPortal.css'
 
 type Account = { id: string | number; username: string; email: string }
-type Organization = { id: string; legalName: string; role: 'owner' | 'editor' }
+type Organization = { id: string; legalName: string; role: 'owner' | 'admin' | 'editor' }
 type Address = { line1: string; line2: string; city: string; pincode: string; locality?: string }
 type Project = {
   id: string; organizationId: string; organizationName: string; submittedName: string
@@ -108,7 +108,7 @@ export function BuilderPortal() {
     <header className="builder-header"><Link to="/" className="builder-brand">MMR Homefinder <span>Builder workspace</span></Link><nav aria-label="Builder navigation"><ThemeControl /><Link to="/browse">Browse homes</Link>{user && <><Link to="/?workspace=choose">Switch workspace</Link><span>{user.username}</span><button className="secondary" onClick={() => void logout()} disabled={busy}>Sign out</button></>}</nav></header>
     <main id="builder-main" className="builder-main">
       {error && <div role="alert" className="builder-notice">{error}{!user && booted.current && <button className="secondary" onClick={() => setAttempt(value => value + 1)}>Retry connection</button>}</div>}
-      {booting ? <p role="status">Connecting to your builder workspace…</p> : !user ? <BuilderLogin key={attempt} onSuccess={signedIn} /> : organizations.length === 0 ? <section className="builder-panel"><h1>Builder access unavailable</h1><p>You need an owner or editor membership in an active organization. A platform administrator must provision your account and membership. Buyer or staff access alone does not grant builder access.</p><p>Sign out to use a different account.</p></section> : <BuilderWorkspace key={user.id} organizations={organizations} />}
+      {booting ? <p role="status">Connecting to your builder workspace…</p> : !user ? <BuilderLogin key={attempt} onSuccess={signedIn} /> : organizations.length === 0 ? <section className="builder-panel"><h1>Builder access unavailable</h1><p>You need an owner, admin, or editor membership in an active organization. A platform administrator must provision your account and membership. Buyer or staff access alone does not grant builder access.</p><p>Sign out to use a different account.</p></section> : <BuilderWorkspace key={user.id} organizations={organizations} />}
     </main>
     <footer className="builder-footer">Owners can onboard existing accounts with organization roles. New accounts are provisioned by the platform administrator. Builders cannot publish their own evidence.</footer>
   </div>
@@ -138,7 +138,7 @@ function BuilderWorkspace({ organizations }: { organizations: Organization[] }) 
   const organization = organizations.find(item => item.id === organizationId)!
   return <>
     <div className="builder-heading"><div><p className="eyebrow">Organization workspace</p><h1>Your projects</h1><p>{organization.legalName} · {organization.role}</p></div><label>Active organization<select value={organizationId} onChange={event => { if (!dirty || window.confirm('Discard unsaved project, layout or crop entries and switch organization? An in-flight action may still finish on the server.')) { setDirty(false); setOrganizationId(event.target.value) } }}>{organizations.map(item => <option value={item.id} key={item.id}>{item.legalName} ({item.role})</option>)}</select></label></div>
-    {organization.role === 'owner' && <OrganizationRoles key={`roles-${organizationId}`} organizationId={organizationId} />}
+    {(organization.role === 'owner' || organization.role === 'admin') && <OrganizationRoles key={`roles-${organizationId}`} organizationId={organizationId} canManageOwners={organization.role === 'owner'} />}
     <OrganizationProjects key={organizationId} organization={organization} dirty={dirty} onDirty={setDirty} />
   </>
 }

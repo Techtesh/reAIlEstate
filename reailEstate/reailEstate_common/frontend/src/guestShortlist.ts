@@ -1,115 +1,97 @@
 import { z } from 'zod'
-import { draftSchema, priceValue, weightKeys, type Draft, type Match, type Project, type Snapshot } from './buyer'
+import { draftSchema, type Snapshot } from './buyer'
 
 export const guestCookieName = 'mmr-beta-shortlist'
-const cookieLimit = 3500
 const usedCookieName = 'mmr-beta-used'
-
-export function guestTrialUsed() {
-  return document.cookie.split('; ').some(item => item.startsWith(`${usedCookieName}=1`) || item.startsWith(`${guestCookieName}=`))
-}
-const componentSchema = z.object({ code: z.string(), weight: z.number().min(0).max(1), score: z.number().min(0).max(1).optional(), status: z.string() })
+const maxChunks = 10
+const chunkSize = 3500
+const reportAge = 90 * 24 * 60 * 60
+const markerAge = 400 * 24 * 60 * 60
+const componentSchema = z.object({ code: z.string(), weight: z.number(), score: z.number().optional(), status: z.string(), destinations: z.array(z.unknown()).optional() })
 const snapshotSchema = z.object({
-  id: z.string().startsWith('guest-'), status: z.literal('ready'), profileVersion: z.literal(1), algorithmVersion: z.literal('beta-catalogue-1.0'),
+  id: z.string().startsWith('guest-'), status: z.literal('ready'), profileVersion: z.number().int().positive(), algorithmVersion: z.literal('match-1.0'),
   generatedAt: z.string(), expiresAt: z.string(),
-  items: z.array(z.object({ projectId: z.string(), rank: z.number().int().positive(), score: z.number().min(0).max(100), confidence: z.null(), components: z.array(componentSchema), reasonCodes: z.array(z.string()), freshness: z.object({ projectFactsAsOf: z.string() }) })).max(10),
+  items: z.array(z.object({ projectId: z.string(), rank: z.number().int().positive(), score: z.number(), confidence: z.number().nullable(), components: z.array(componentSchema), reasonCodes: z.array(z.string()), freshness: z.object({ projectFactsAsOf: z.string() }) })).max(10),
   excludedSummary: z.array(z.object({ reasonCode: z.string(), count: z.number().int().nonnegative() })),
 })
-const trialSchema = z.object({ version: z.literal(1), query: draftSchema, snapshot: snapshotSchema, savedIds: z.array(z.string()).max(10) })
-export type GuestTrial = z.infer<typeof trialSchema>
+const trialSchema = z.object({ version: z.literal(2), query: draftSchema, snapshot: snapshotSchema, savedIds: z.array(z.string()).max(10) })
+export type GuestTrial = { version: 2; query: z.infer<typeof draftSchema>; snapshot: Snapshot; savedIds: string[] }
 
-function exclusion(project: Project, query: Draft) {
-  const home = query.home, layouts = project.configurations
-  if (home.configurations.length && !layouts.some(layout => home.configurations.includes(layout.configurationType))) return 'CONFIGURATION_UNAVAILABLE'
-  if (home.carpetAreaSqFt.minimum && !layouts.some(layout => Number(layout.carpetAreaMax) >= home.carpetAreaSqFt.minimum!)) return 'BELOW_HARD_CARPET_AREA'
-  if (home.bathroomsMinimum && home.bathroomsIsHardConstraint && !layouts.some(layout => (layout.bathrooms ?? 0) >= home.bathroomsMinimum)) return 'INSUFFICIENT_BATHROOMS'
-  const maximum = query.budget.allInMaximum ?? query.budget.purchaseMaximum, price = priceValue(project.priceMin)
-  if (query.budget.isHardConstraint && maximum && price != null && price > maximum) return 'OVER_HARD_BUDGET'
-  if (query.societyAmenities.some(amenity => amenity.importance === 'required' && !amenity.substituteAccepted && !project.amenities.includes(amenity.code))) return 'REQUIRED_AMENITY_UNAVAILABLE'
-  return null
+function cookie(name: string) { return document.cookie.split('; ').find(item => item.startsWith(`${name}=`))?.slice(name.length + 1) }
+function write(name: string, value: string, maxAge: number) {
+  document.cookie = `${name}=${value}; Path=/; Max-Age=${maxAge}; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`
 }
-
-export function rankGuestProjects(query: Draft, catalogue: Project[], id = `guest-${crypto.randomUUID()}`, now = new Date()): Snapshot {
-  draftSchema.parse(query)
-  const excluded = new Map<string, number>(), items: Match[] = []
-  for (const project of catalogue.filter(project => project.status === 'published')) {
-    const failure = exclusion(project, query)
-    if (failure) { excluded.set(failure, (excluded.get(failure) ?? 0) + 1); continue }
-    const maximum = query.budget.allInMaximum ?? query.budget.purchaseMaximum, price = priceValue(project.priceMin)
-    const areas = project.configurations.map(layout => Number(layout.carpetAreaMax)).filter(value => Number.isFinite(value) && value > 0)
-    const preferred = query.home.carpetAreaSqFt.preferred
-    const preferences = query.societyAmenities
-    const amenityTotal = preferences.reduce((sum, amenity) => sum + (amenity.importance === 'required' ? 2 : 1), 0)
-    const values: Partial<Record<typeof weightKeys[number], number>> = {
-      ...(maximum && price != null ? { budget: price <= maximum ? Math.max(.5, 1 - (maximum - price) / maximum * .5) : Math.max(0, 1 - (price - maximum) / maximum) } : {}),
-      ...(preferred && areas.length ? { space: Math.min(1, Math.max(...areas) / preferred) } : {}),
-      ...(amenityTotal ? { societyAmenities: preferences.reduce((sum, amenity) => sum + (project.amenities.includes(amenity.code) ? amenity.importance === 'required' ? 2 : 1 : 0), 0) / amenityTotal } : {}),
-    }
-    const available = weightKeys.filter(key => values[key] != null && query.weights[key] > 0)
-    const denominator = available.reduce((sum, key) => sum + query.weights[key], 0)
-    if (!denominator) { excluded.set('NO_PUBLIC_SCORING_COMPONENTS', (excluded.get('NO_PUBLIC_SCORING_COMPONENTS') ?? 0) + 1); continue }
-    const score = 100 * available.reduce((sum, key) => sum + query.weights[key] * values[key]!, 0) / denominator
-    items.push({ projectId: project.id, rank: 0, score: Math.round(score * 100) / 100, confidence: null,
-      components: weightKeys.map(key => ({ code: key.toUpperCase(), weight: query.weights[key], status: values[key] == null ? 'unavailable' : 'available', ...(values[key] == null ? {} : { score: values[key] }) })),
-      reasonCodes: ['ALL_HARD_CONSTRAINTS_MET'], freshness: { projectFactsAsOf: project.updatedAt } })
-  }
-  items.sort((left, right) => right.score - left.score || left.projectId.localeCompare(right.projectId))
-  return { id, status: 'ready', profileVersion: 1, algorithmVersion: 'beta-catalogue-1.0', generatedAt: now.toISOString(), expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-    items: items.slice(0, 10).map((item, index) => ({ ...item, rank: index + 1 })), excludedSummary: [...excluded].sort(([left], [right]) => left.localeCompare(right)).map(([reasonCode, count]) => ({ reasonCode, count })) }
+function clear(name: string) { write(name, '', 0) }
+function renewMarker() { if (cookie(usedCookieName) === '1') write(usedCookieName, '1', markerAge) }
+export function hasGuestTrialCookie() { return !!cookie(guestCookieName) }
+export function guestTrialUsed() {
+  renewMarker()
+  return cookie(usedCookieName) === '1' || !!cookie(guestCookieName)
 }
-
 export async function encodeGuestTrial(trial: GuestTrial): Promise<string> {
-  const text = JSON.stringify(trialSchema.parse(trial))
-  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))
-  const bytes = new Uint8Array(await new Response(stream).arrayBuffer())
+  const source = JSON.stringify(trialSchema.parse(trial))
+  const bytes = new Uint8Array(await new Response(new Blob([source]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer())
   const encoded = btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''))
-  if (encoded.length > cookieLimit) throw new Error('This query is too large for a browser cookie. Shorten additional notes or destinations, then try again.')
+  if (encoded.length > maxChunks * chunkSize) throw new Error('This report is too large for browser cookies. Shorten optional notes or destinations, then try again.')
   return encoded
 }
-
 export async function decodeGuestTrial(encoded: string): Promise<GuestTrial> {
-  if (encoded.length > cookieLimit) throw new Error('Invalid beta cookie.')
+  if (encoded.length > maxChunks * chunkSize) throw new Error('Saved match data is too large.')
   const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0))
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
-  const reader = stream.getReader(), chunks: Uint8Array[] = []
+  const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).getReader()
+  const chunks: Uint8Array[] = []
   let size = 0
   try {
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
       size += value.byteLength
-      if (size > 50000) throw new Error('Invalid beta cookie.')
+      if (size > 100000) throw new Error('Saved match data is too large.')
       chunks.push(value)
     }
   } finally { await reader.cancel() }
   const data = new Uint8Array(size)
   let offset = 0
   for (const chunk of chunks) { data.set(chunk, offset); offset += chunk.byteLength }
-  return trialSchema.parse(JSON.parse(new TextDecoder().decode(data)))
+  return trialSchema.parse(JSON.parse(new TextDecoder().decode(data))) as GuestTrial
 }
-
-function cookieValue() {
-  return document.cookie.split('; ').find(item => item.startsWith(`${guestCookieName}=`))?.slice(guestCookieName.length + 1)
-}
-
 export async function readGuestTrial(): Promise<GuestTrial | null> {
-  const value = cookieValue()
-  if (!value) return null
-  try { return await decodeGuestTrial(value) } catch { return null }
+  const count = Number(cookie(guestCookieName))
+  if (!cookie(guestCookieName)) return null
+  if (!Number.isInteger(count) || count < 1 || count > maxChunks) throw new Error('Saved match cookies are damaged. Delete browser data and try again.')
+  const encoded = Array.from({ length: count }, (_, index) => cookie(`${guestCookieName}-${index}`))
+  if (encoded.some(value => !value)) throw new Error('Saved match cookies are incomplete. Delete browser data and try again.')
+  try { return await decodeGuestTrial(encoded.join('')) }
+  catch { throw new Error('Saved match cookies are damaged. Delete browser data and try again.') }
 }
-
 export async function saveGuestTrial(trial: GuestTrial, create = false) {
   const encoded = await encodeGuestTrial(trial)
-  const write = () => {
-    if (create && guestTrialUsed()) throw new Error('Your beta shortlist is already saved in this browser. Sign in to run another query.')
-    document.cookie = `${guestCookieName}=${encoded}; Path=/; Max-Age=${90 * 24 * 60 * 60}; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`
-    if (cookieValue() !== encoded) throw new Error('Allow cookies in this browser to save your free beta shortlist.')
-    if (create) document.cookie = `${usedCookieName}=1; Path=/; Max-Age=${90 * 24 * 60 * 60}; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`
+  const chunks = encoded.match(new RegExp(`.{1,${chunkSize}}`, 'g')) ?? []
+  const save = () => {
+    if (create && guestTrialUsed()) throw new Error('Your free report has already been saved in this browser. Sign in to run another match.')
+    for (let index = 0; index < maxChunks; index++) clear(`${guestCookieName}-${index}`)
+    clear(guestCookieName)
+    try {
+      chunks.forEach((chunk, index) => {
+        write(`${guestCookieName}-${index}`, chunk, reportAge)
+        if (cookie(`${guestCookieName}-${index}`) !== chunk) throw new Error('Allow cookies in this browser to save your match report.')
+      })
+      write(guestCookieName, String(chunks.length), reportAge)
+      if (cookie(guestCookieName) !== String(chunks.length)) throw new Error('Allow cookies in this browser to save your match report.')
+      if (create) {
+        write(usedCookieName, '1', markerAge)
+        if (cookie(usedCookieName) !== '1') throw new Error('Allow cookies in this browser to save your free report.')
+      }
+    } catch (error) {
+      clear(guestCookieName)
+      for (let index = 0; index < maxChunks; index++) clear(`${guestCookieName}-${index}`)
+      throw error
+    }
   }
-  if (navigator.locks) await navigator.locks.request('mmr-beta-shortlist', write)
-  else write()
+  if (navigator.locks) await navigator.locks.request('mmr-beta-shortlist', save)
+  else save()
 }
-
 export function deleteGuestTrial() {
-  document.cookie = `${guestCookieName}=; Path=/; Max-Age=0; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`
+  clear(guestCookieName)
+  for (let index = 0; index < maxChunks; index++) clear(`${guestCookieName}-${index}`)
 }

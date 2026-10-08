@@ -162,7 +162,7 @@ class BuilderLoginView(SessionLoginView):
         if not builder_memberships(user).exists():
             raise PermissionDenied(
                 "Your credentials are correct, but builder access is not assigned. "
-                "Ask a platform administrator to add an active owner or editor membership "
+                "Ask a platform administrator to add an active owner, admin, or editor membership "
                 "in an active organization.",
                 code="builder_membership_required",
             )

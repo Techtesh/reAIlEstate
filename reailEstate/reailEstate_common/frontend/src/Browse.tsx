@@ -2,14 +2,15 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { ArrowRight, Building2, Heart, House, List, Map as MapIcon, MapPin, RefreshCw, ShieldCheck, SlidersHorizontal, Table2, X } from 'lucide-react'
 import { api, collection, json } from './api'
-import { componentLabel, configurationArea, coordinates, dateLabel, lowestPrice, projectPrice, projectStatusLabel, reasonLabel, type CommutePlace, type Match, type Project, type Snapshot, type User } from './buyer'
+import { componentLabel, configurationArea, coordinates, dateLabel, projectPrice, projectStatusLabel, reasonLabel, type CommutePlace, type Match, type Project, type Snapshot, type User } from './buyer'
 import { errorMessage } from './errors'
 import { ProjectMap } from './ProjectMap'
 import { ProjectGallery } from './ProjectGallery'
+import { possessionSortKey, sortProjects } from './projectSort'
 import { Empty, SignInPrompt } from './SharedUi'
 
-export type CatalogueProps = { projects: Project[]; user: User | null; loading: boolean; error: string; onRetry: () => void; savedIds: string[]; busy: boolean; toggleShortlist: (project: Project) => Promise<void>; onSignIn: () => void; guestTrial?: boolean }
-type BrowseProps = CatalogueProps & { title: string; eyebrow: string; matches: Match[]; shortlist?: boolean; snapshot?: Snapshot; commutePlaces?: CommutePlace[]; commutePanel?: ReactNode }
+export type CatalogueProps = { projects: Project[]; sortMatches: Match[]; user: User | null; loading: boolean; error: string; onRetry: () => void; savedIds: string[]; busy: boolean; toggleShortlist: (project: Project) => Promise<void>; onSignIn: () => void; guestTrial?: boolean }
+type BrowseProps = CatalogueProps & { title: string; eyebrow: string; matches: Match[]; shortlist?: boolean; snapshot?: Snapshot; commutePlaces?: CommutePlace[]; commutePanel?: ReactNode; ribbon?: ReactNode }
 export function Browse(props: BrowseProps) { return <BrowseSession key={props.user?.id ?? 'guest'} {...props} /> }
 function ProjectPicture({ project }: { project: Project }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
@@ -17,9 +18,11 @@ function ProjectPicture({ project }: { project: Project }) {
     ? <img className="project-picture" src={project.projectPic} alt={project.submittedName} loading="lazy" onError={() => setFailedUrl(project.projectPic ?? null)} />
     : <><Building2 size={56} strokeWidth={.9} /><span>{project.submittedName}</span></>
 }
-function BrowseSession({ title, eyebrow, projects: publishedProjects, matches, user, loading, error, onRetry, savedIds, busy, toggleShortlist, onSignIn, shortlist, snapshot, commutePlaces, commutePanel, guestTrial = false }: BrowseProps) {
+function BrowseSession({ title, eyebrow, projects: publishedProjects, matches, sortMatches, user, loading, error, onRetry, savedIds, busy, toggleShortlist, onSignIn, shortlist, snapshot, commutePlaces, commutePanel, ribbon, guestTrial = false }: BrowseProps) {
   const [params, setParams] = useSearchParams()
-  const browsing = useLocation().pathname === '/browse'
+  const pathname = useLocation().pathname
+  const browsing = pathname === '/browse'
+  const catalogueView = pathname === '/' || browsing
   const includeProcessing = browsing && params.get('includeProcessing') === 'true'
   const [selected, setSelected] = useState('')
   const [detail, setDetail] = useState<Project | null>(null)
@@ -56,12 +59,17 @@ function BrowseSession({ title, eyebrow, projects: publishedProjects, matches, u
   const activeFilterProjects = filterProjects?.key === filterKey ? filterProjects.items : null
   const filterLoading = !activeFilterProjects && (filterPending || (includeProcessing && !filterError))
   const projects = includeProcessing ? activeFilterProjects ?? [] : publishedProjects
-  const filtered = projects.filter(project => !activeFilterProjects || activeFilterProjects.some(item => item.id === project.id)).sort((left, right) => {
-    if (sort === 'price') return (lowestPrice(left) ?? Infinity) - (lowestPrice(right) ?? Infinity)
-    if (sort === 'name') return left.submittedName.localeCompare(right.submittedName, 'en-IN', { numeric: true })
-    return (matches.find(item => item.projectId === left.id)?.rank ?? Infinity) - (matches.find(item => item.projectId === right.id)?.rank ?? Infinity) || left.submittedName.localeCompare(right.submittedName)
-  })
+  const filtered = sortProjects(
+    projects.filter(project => !activeFilterProjects || activeFilterProjects.some(item => item.id === project.id)),
+    sort, matches, sortMatches,
+  )
   const visible = filterLoading || filterError || error ? [] : filtered
+  const sortNote = !catalogueView ? ''
+    : sort === 'complete' ? 'Completion data is not available yet; projects remain in name order.'
+    : sort === 'sold' ? 'Sold percentage is not available yet; projects remain in name order.'
+    : sort === 'score' && !sortMatches.length ? 'Create a match report to sort by your score; projects remain in name order.'
+    : sort === 'possession' && !filtered.some(project => possessionSortKey(project.possessionDate) < Infinity)
+      ? 'No reviewed possession dates are available yet; projects remain in name order.' : ''
   function select(id: string) { setSelected(id); document.getElementById(`project-${id}`)?.scrollIntoView({ block: 'nearest', behavior: 'instant' }) }
   function focusOnMap(id: string) {
     setSelected(id)
@@ -72,12 +80,14 @@ function BrowseSession({ title, eyebrow, projects: publishedProjects, matches, u
     <div className="search-bar"><div className="filter-control"><MapPin size={17} /><label className="sr-only" htmlFor="locality-filter">Locality</label><select id="locality-filter" value={locality} onChange={event => filter('locality', event.target.value)}><option value="">All MMR localities</option>{[...new Set(projects.map(project => project.locality).filter(Boolean)), ...(locality && !projects.some(project => project.locality === locality) ? [locality] : [])].sort().map(value => <option key={value}>{value}</option>)}</select></div><div className="filter-control"><House size={17} /><label className="sr-only" htmlFor="configuration-filter">Configuration</label><select id="configuration-filter" value={configuration} onChange={event => filter('configuration', event.target.value)}><option value="">Any configuration</option>{['1RK', '1BHK', '2BHK', '2.5BHK', '3BHK', '4BHK', '5BHK'].map(value => <option key={value}>{value}</option>)}</select></div><label className="check-label verification-filter"><input type="checkbox" checked={verified} onChange={event => filter('verified', event.target.checked ? 'true' : '')} />MahaRERA verified</label>{(locality || configuration || verified) && <button className="text-button" onClick={() => { const next = new URLSearchParams(params); ['locality', 'configuration', 'verified'].forEach(key => next.delete(key)); setParams(next) }}>Clear filters</button>}<div className="view-controls segmented" aria-label="Results view"><button title="Map and feed" aria-label="Map and feed" aria-pressed={view === 'split'} className="split-control" onClick={() => setView('split')}><SlidersHorizontal size={18} /></button><button title="Map" aria-label="Map view" aria-pressed={view === 'map'} onClick={() => setView('map')}><MapIcon size={18} /></button><button title="Feed" aria-label="Feed view" aria-pressed={view === 'feed'} onClick={() => setView('feed')}><List size={18} /></button>{snapshot && <button title="Score sheet" aria-label="Score sheet" aria-pressed={view === 'scores'} onClick={() => setView('scores')}><Table2 size={18} /></button>}</div></div>
     <div className="browse-heading"><div className="browse-summary"><h1 tabIndex={-1}>{title}</h1><p className="sr-only">{includeProcessing ? 'Published listings and unverified demo pins across MMR' : eyebrow}</p><p role="status">{loading || filterLoading ? 'Loading projects...' : filterPending ? `${visible.length} projects shown; loading more...` : `${visible.length} ${visible.length === 1 ? 'project' : 'projects'}${shortlist ? ' in your shortlist' : ' available'}`}</p></div>
       {browsing && <label className="check-label processing-filter"><input type="checkbox" checked={includeProcessing} onChange={event => filter('includeProcessing', event.target.checked ? 'true' : '')} />Show unverified demo pins</label>}
-      <label className="sort-control">Sort by<select value={sort} onChange={event => filter('sort', event.target.value)}><option value="match">{matches.length ? 'Best match' : 'Project name'}</option><option value="price">Lowest known price</option><option value="name">Project name</option></select></label></div>
+      <label className="sort-control">Sort by<select value={sort} onChange={event => filter('sort', event.target.value)}><option value="match">{matches.length ? 'Best match' : 'Project name'}</option><option value="price">Lowest known price</option>{matches.length > 0 && <option value="name">Project name</option>}{catalogueView && <><option value="possession">Possession (soonest)</option><option value="score">Match score</option><option value="complete">Most complete (coming soon)</option><option value="sold">Most sold% (coming soon)</option></>}</select></label>{sortNote && <p className="sort-note" role="status">{sortNote}</p>}</div>
     {shortlist && user && commutePanel}
     {snapshot && <div className="snapshot-meta"><span>Match for your requirements</span><span>Profile v{snapshot.profileVersion} | {snapshot.algorithmVersion} | {dateLabel(snapshot.generatedAt)}</span>{snapshot.expiresAt && new Date(snapshot.expiresAt) < new Date() && <strong>Snapshot expired. Submit a new draft for fresh matches.</strong>}</div>}
+    {ribbon && <div className="map-only-ribbon">{ribbon}</div>}
     <div className="map-feed-layout">
       {view !== 'feed' && view !== 'scores' && !(compact && view === 'split') && <ProjectMap projects={visible} matches={matches} selected={selected} onSelect={select} onInspect={setDetail} commutePlaces={shortlist && user ? commutePlaces : undefined} shortlistedIds={shortlist ? savedIds : undefined} focusRequest={focusRequest} onFit={() => setFocusRequest(null)} />}
       <section className="project-feed" aria-label="Project feed">
+        {ribbon}
         {!user && shortlist && !guestTrial ? <SignInPrompt onSignIn={onSignIn} /> : loading || filterLoading ? <div className="feed-loading" role="status"><RefreshCw className="spin" />Loading projects...</div> : error || filterError ? <Empty title="Projects could not be loaded" detail={error || filterError} action="Retry" onAction={() => { onRetry(); setFilterRetry(value => value + 1) }} /> : !visible.length ? <Empty title={shortlist ? 'No shortlisted projects in this view' : 'No projects match this view'} detail={snapshot ? 'Your hard constraints were not relaxed. Review the exclusions below or edit your requirements.' : includeProcessing ? 'No published listings or unverified demo pins match these filters.' : 'Only published projects are available here. Try changing your filters or return as more projects are published.'} /> : view === 'scores' ? <ScoreSheet projects={visible} matches={matches} onSelect={setDetail} /> : <div className="project-grid">{visible.map(project => {
           const match = matches.find(item => item.projectId === project.id), saved = savedIds.includes(project.id)
           const areas = project.configurations.flatMap(item => [Number(item.carpetAreaMin), Number(item.carpetAreaMax)]).filter(value => value > 0)
@@ -89,7 +99,7 @@ function BrowseSession({ title, eyebrow, projects: publishedProjects, matches, u
               <h2 className="project-heading"><button className="project-title" onClick={() => setDetail(project)}>{project.submittedName}</button></h2>
               <div className="price-row"><strong>{projectPrice(project)}</strong>{match && <span className="match-score">{Number(match.score).toFixed(0)}<small>% match</small></span>}</div>
               {project.locationStatus === 'provisional' && <p className="location-preview-note">Provisional map location - not reviewed</p>}
-              <p className="project-locality"><MapPin size={14} />{project.locality || 'Locality unknown'}</p>
+              <p className="project-locality"><MapPin size={14} />{project.locality || 'Locality unknown'}</p>{project.possessionDate && <p className="project-possession">Possession: {project.possessionDate}</p>}
               <div className="project-specs"><span>{[...new Set(project.configurations.map(item => item.configurationType))].join(', ') || 'Configuration unknown'}</span><span>{areas.length ? `${Math.min(...areas).toLocaleString('en-IN')} - ${Math.max(...areas).toLocaleString('en-IN')} sq ft carpet` : 'Carpet area unknown'}</span></div>
               <p className="verification"><ShieldCheck size={15} />MahaRERA: {project.verificationStatus || 'Unknown'}</p>
               <p className="freshness">Checked {dateLabel(project.verificationCheckedAt)} | {projectStatusLabel(project)}</p>

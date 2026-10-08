@@ -86,7 +86,7 @@ export type Project = {
   projectPic?: string | null;
   priceMin: string | null; priceMax: string | null;
   id: string; submittedName: string; locality: string; status: string; mahaReraId: string;
-  verificationStatus: string; verificationCheckedAt: string | null; updatedAt: string;
+  verificationStatus: string; verificationCheckedAt: string | null; possessionDate?: string | null; updatedAt: string;
   latitude?: string | null; longitude?: string | null; configurations: Configuration[]; amenities: string[];
   locationStatus?: 'published' | 'reviewed' | 'provisional' | 'unavailable';
   facts?: { code: string; value: unknown; unit: string; sourceClass: string; reviewedAt: string | null; status?: string }[];

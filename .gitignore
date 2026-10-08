@@ -23,3 +23,7 @@ node_modules
 .local-logs/django.out.log
 .local-logs/vite.err.log
 .local-logs/vite.out.log
+reailEstate/frontend/dist/
+reailEstate/frontend/test-results/
+reailEstate/backend/.local/
+.test-tmp/

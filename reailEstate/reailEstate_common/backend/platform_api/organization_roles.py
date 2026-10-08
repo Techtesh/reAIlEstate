@@ -19,11 +19,28 @@ def require_owner(actor, organization):
         raise PermissionDenied("Only an active organization owner can manage roles and members.")
 
 
+def require_role_manager(actor, organization):
+    if not actor.is_active or organization.status != "active" or not organization.memberships.filter(
+        user=actor, status="active", user__is_active=True,
+    ).filter(
+        Q(named_role__isnull=True, role__in=["owner", "admin"])
+        | Q(named_role__organization_id=F("organization_id"), named_role__base_role__in=["owner", "admin"])
+    ).exists():
+        raise PermissionDenied("Only an active organization owner or administrator can manage roles and members.")
+
+
+def is_owner(actor, organization):
+    return active_owners(organization).filter(user=actor).exists()
+
+
 @transaction.atomic
 def assign_role_members(organization, role, users, *, actor=None):
     organization = Organization.objects.select_for_update().get(pk=organization.pk)
     if actor is not None:
-        require_owner(actor, organization)
+        require_role_manager(actor, organization)
+        if not is_owner(actor, organization):
+            if role.base_role == "owner" or active_owners(organization).filter(user__in=users).exists():
+                raise PermissionDenied("Only organization owners can grant or change owner access.")
     if role.organization_id != organization.pk:
         raise ValidationError("Choose a role belonging to this organization.")
     if not users or len(users) > 100 or any(not user.is_active for user in users):

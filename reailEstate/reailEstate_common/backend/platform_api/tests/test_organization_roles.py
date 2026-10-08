@@ -176,3 +176,27 @@ def test_admin_cannot_change_access_of_an_assigned_template(admin_client, django
     assert b"Create a new role" in response.content
     role.refresh_from_db()
     assert role.base_role == "editor"
+
+
+def test_org_admin_manages_non_owner_roles_but_cannot_change_owner(roles_workspace):
+    client, org, owner, editor, first, second = roles_workspace
+    admin_role = OrganizationRole.objects.create(organization=org, name="Org admins", base_role="admin")
+    OrganizationMembership.objects.create(organization=org, user=first, role="admin", named_role=admin_role)
+    client.force_login(first)
+    assert client.post(role_url(org), {"name": "Editors", "baseRole": "editor"}, format="json").status_code == 201
+    assert client.post(role_url(org), {"name": "Owners", "baseRole": "owner"}, format="json").status_code == 403
+    editor_role = org.roles.get(name="Editors")
+    assert client.post(role_url(org) + f"/{editor_role.pk}/members", {"usernames": [second.username]}, format="json").status_code == 200
+    assert client.post(role_url(org) + f"/{editor_role.pk}/members", {"usernames": [owner.username]}, format="json").status_code == 403
+    assert client.post(role_url(org) + f"/{admin_role.pk}/members", {"usernames": [editor.username]}, format="json").status_code == 200
+    assert org.memberships.get(user=owner).effective_role == "owner"
+    other = Organization.objects.create(legal_name="Other private org")
+    assert client.get(role_url(other)).status_code == 403
+
+
+def test_staff_flag_alone_grants_no_organization_role_access(roles_workspace):
+    client, org, owner, editor, first, second = roles_workspace
+    first.is_staff = True
+    first.save(update_fields=["is_staff"])
+    client.force_login(first)
+    assert client.get(role_url(org)).status_code == 403

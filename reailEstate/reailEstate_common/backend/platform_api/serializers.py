@@ -138,6 +138,23 @@ class ProjectListSerializer(serializers.ModelSerializer):
     price_max = serializers.SerializerMethodField()
     configurations = serializers.SerializerMethodField()
     amenities = serializers.SerializerMethodField()
+    possession_date = serializers.SerializerMethodField()
+
+    def get_possession_date(self, obj):
+        if obj.status != "published":
+            return None
+        facts = [fact for fact in obj.facts.all()
+                 if fact.fact_set_version == obj.published_fact_set_version
+                 and fact.status == "published"
+                 and fact.field_code.lower() in {"possession_date", "possession"}]
+        facts.sort(key=lambda fact: fact.source_class.lower() not in {"maharera", "rera", "registry"})
+        for fact in facts:
+            value = fact.typed_value
+            if isinstance(value, dict):
+                value = value.get("value") or value.get("date")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
 
     def to_representation(self, instance):
         # Demo pins are intentionally map-only, unreviewed records. Their
@@ -151,7 +168,7 @@ class ProjectListSerializer(serializers.ModelSerializer):
                 "status": instance.status, "verification_status": "unavailable",
                 "verification_checked_at": None, "latitude": str(instance.latitude),
                 "longitude": str(instance.longitude), "location_status": "provisional",
-                "configurations": [], "amenities": [], "updated_at": instance.updated_at.isoformat(),
+                "configurations": [], "amenities": [], "possession_date": None, "updated_at": instance.updated_at.isoformat(),
             }
         if instance.status == "published":
             return super().to_representation(instance)
@@ -164,11 +181,12 @@ class ProjectListSerializer(serializers.ModelSerializer):
             "location_status": self.get_location_status(instance),
             "configurations": [], "amenities": [],
             "price_min": self.get_price_min(instance), "price_max": self.get_price_max(instance),
+            "possession_date": None,
         }
 
     class Meta:
         model = Project
-        fields = ["id", "submitted_name", "project_pic", "price_min", "price_max", "maha_rera_id", "locality", "status", "verification_status", "verification_checked_at", "latitude", "longitude", "location_status", "configurations", "amenities", "updated_at"]
+        fields = ["id", "submitted_name", "project_pic", "price_min", "price_max", "maha_rera_id", "locality", "status", "verification_status", "verification_checked_at", "latitude", "longitude", "location_status", "configurations", "amenities", "possession_date", "updated_at"]
 
     def _map_location(self, obj):
         from .project_map_locations import project_map_location

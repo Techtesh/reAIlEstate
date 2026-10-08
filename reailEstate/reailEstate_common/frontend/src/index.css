@@ -34,7 +34,7 @@ th { background: var(--wash); font-weight: 700; }
 caption { text-align: left; padding: 16px; color: var(--muted); }
 ::selection { background: var(--selection); color: var(--selection-ink); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
-:root[data-theme=dark] { color-scheme: dark; --ink: #e2eee8; --muted: #a6b9ae; --green: #8cdabb; --mint: #203b30; --line: #3a5045; --wash: #18251f; --error: #ffadb5; --canvas: #101a15; --surface: #1d2b23; --on-green: #10291d; --green-hover: #b4eace; --input-line: #587363; --warning-surface: #3a301c; --warning-ink: #f2cd87; --danger-surface: #3c2529; --focus: #87c4ff; --selection: #397959; --selection-ink: #fff; }
+:root[data-theme=dark] { color-scheme: dark; --ink: #e9eeeb; --muted: #aab5af; --green: #8cdabb; --mint: #202725; --line: #353d39; --wash: #141819; --error: #ffadb5; --canvas: #0e1112; --surface: #1b2020; --on-green: #10291d; --green-hover: #b4eace; --input-line: #56615b; --warning-surface: #3a301c; --warning-ink: #f2cd87; --danger-surface: #3c2529; --focus: #87c4ff; --selection: #397959; --selection-ink: #fff; }
 dialog { color: var(--ink); background: var(--surface); }
 .theme-control { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
 .theme-control select { width: auto; padding: 8px; min-height: 40px; font-size: 12px; }

@@ -241,6 +241,18 @@ async function openProject(page: Page, showLayouts = true) {
 }
 const evidence = { name: 'evidence.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nfixture evidence') }
 
+test('builder theme persists across reloads and follows system choice', async ({ page }) => {
+  await mockBuilder(page, true)
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto('/builder')
+  await page.getByLabel('Color theme').selectOption('dark')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await page.reload()
+  await expect(page.getByLabel('Color theme')).toHaveValue('dark')
+  await page.getByLabel('Color theme').selectOption('auto')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+})
+
 test('dedicated builder login does not bootstrap buyer data or expose admin navigation', async ({ page }) => {
   const state = await mockBuilder(page, false)
   await page.goto('/builder')

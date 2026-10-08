@@ -2,6 +2,7 @@ import hashlib
 import io
 import re
 import secrets
+import uuid
 from datetime import timedelta
 from pathlib import Path
 
@@ -70,7 +71,7 @@ from .serializers import (
     ReviewTaskSerializer,
     ShortlistSerializer,
 )
-from .services import audit, compute_project_metrics, normalize_maha_rera_id, project_frequent_places, validate_requirement_payload
+from .services import audit, compute_project_metrics, normalize_maha_rera_id, project_frequent_places, score_recommendations, validate_requirement_payload
 from .travel import estimate_matrix
 from .workers import (
     detect_media_type,
@@ -416,8 +417,90 @@ class SharedRequirementView(APIView):
         return Response(data)
 
 
+def _validate_guest_sections(sections):
+    """Reject shapes the shared scorer cannot safely interpret."""
+    home, budget = sections["home"], sections["budget"]
+    if not isinstance(home, dict) or not isinstance(budget, dict):
+        raise ValidationError({"sections": "Home and budget must be objects."})
+    configurations = home.get("configurations")
+    if not isinstance(configurations, list) or not 1 <= len(configurations) <= 10 or any(
+        not isinstance(value, str) or not 1 <= len(value) <= 32 for value in configurations
+    ):
+        raise ValidationError({"home.configurations": "Choose one or more home configurations."})
+    if not isinstance(home.get("carpetAreaSqFt"), dict) or type(home.get("bathroomsMinimum")) is not int or not 0 <= home["bathroomsMinimum"] <= 10 or not isinstance(home.get("bathroomsIsHardConstraint"), bool):
+        raise ValidationError({"home": "Invalid home requirements."})
+    if any(value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0 or value > 100000) for value in home["carpetAreaSqFt"].values()):
+        raise ValidationError({"home.carpetAreaSqFt": "Invalid carpet area."})
+    if not isinstance(sections["weights"], dict):
+        raise ValidationError({"weights": "Invalid priority weights."})
+    if not isinstance(budget.get("isHardConstraint"), bool) or not any(budget.get(key) is not None for key in ("purchaseMaximum", "allInMaximum")):
+        raise ValidationError({"budget": "Enter a valid maximum budget."})
+    for key in ("purchaseMinimum", "purchaseMaximum", "allInMaximum"):
+        value = budget.get(key)
+        if value is not None and (type(value) is not int or not 0 < value <= 10**14):
+            raise ValidationError({"budget": "Invalid budget amount."})
+    if not isinstance(sections["places"], list) or not isinstance(sections["societyAmenities"], list) or not isinstance(sections["nearbyAmenities"], list):
+        raise ValidationError({"sections": "Destinations and amenities must be lists."})
+    for place in sections["places"]:
+        if not isinstance(place, dict) or not isinstance(place.get("label"), str) or not 2 <= len(place["label"]) <= 100 or not isinstance(place.get("modes"), list) or not 1 <= len(place["modes"]) <= 4 or any(not isinstance(mode, str) or mode not in {"car", "transit", "walking", "cycling"} for mode in place["modes"]):
+            raise ValidationError({"places": "Invalid destination or travel mode."})
+        if "arrivalWindow" in place and not isinstance(place["arrivalWindow"], dict):
+            raise ValidationError({"places": "Invalid arrival window."})
+    for key in ("societyAmenities", "nearbyAmenities"):
+        if len(sections[key]) > 100:
+            raise ValidationError({key: "Too many amenities."})
+        for amenity in sections[key]:
+            if not isinstance(amenity, dict) or not isinstance(amenity.get("code"), str) or not 1 <= len(amenity["code"]) <= 64 or not isinstance(amenity.get("importance"), str) or amenity["importance"] not in {"required", "preferred"}:
+                raise ValidationError({key: "Invalid amenity preference."})
+            if key == "nearbyAmenities":
+                distance = amenity.get("maximumDistanceMeters")
+                if type(distance) is not int or not 100 <= distance <= 5000:
+                    raise ValidationError({key: "Invalid nearby distance."})
+            elif not isinstance(amenity.get("substituteAccepted"), bool):
+                raise ValidationError({key: "Invalid amenity substitution choice."})
+    if not isinstance(sections["microMarket"], dict) or not isinstance(sections["microMarket"].get("preferredLocalities"), list) or not isinstance(sections["additionalNeeds"], str) or len(sections["additionalNeeds"]) > 2000:
+        raise ValidationError({"sections": "Invalid locality or additional needs."})
+
+
+@method_decorator(csrf_protect, name="dispatch")
+class GuestRecommendationView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        if len(request.body) > 16384 or not isinstance(request.data, dict):
+            raise ValidationError({"sections": "Invalid or oversized request."})
+        if request.data.get("consent") is not True:
+            raise ValidationError({"consent": "Cookie consent is required."})
+        sections = request.data.get("sections")
+        if not isinstance(sections, dict):
+            raise ValidationError({"sections": "Provide requirement sections."})
+        allowed = {"places", "home", "societyAmenities", "nearbyAmenities", "microMarket", "budget", "weights", "additionalNeeds"}
+        if set(sections) != allowed:
+            raise ValidationError({"sections": "Provide only the complete requirement sections."})
+        _validate_guest_sections(sections)
+        validate_requirement_payload(sections, final=True)
+        _, items, exclusions = score_recommendations(sections, persist_routes=False)
+        generated_at = timezone.now()
+        return Response({
+            "id": f"guest-{uuid.uuid4()}", "status": "ready", "profileVersion": 1,
+            "algorithmVersion": "match-1.0", "generatedAt": generated_at,
+            "expiresAt": generated_at + timedelta(hours=24), "items": items,
+            "excludedSummary": exclusions,
+        })
+
+
 class RecommendationRequestViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
+
+    def list(self, request):
+        latest = (RecommendationSnapshot.objects
+                  .filter(requirement_version__profile__owner=request.user,
+                          state__in=["ready", "partially_ready", "expired"])
+                  .select_related("requirement_version")
+                  .order_by(F("generated_at").desc(nulls_last=True), "-created_at")
+                  .first())
+        return Response({"latest": RecommendationSnapshotSerializer(latest).data if latest else None})
 
     def create(self, request):
         key, existing = _idempotent_response(request, "recommendation-request")

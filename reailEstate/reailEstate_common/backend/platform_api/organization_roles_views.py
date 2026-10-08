@@ -1,4 +1,4 @@
-"""Owner-only builder endpoints for reusable access roles."""
+"""Organization owner and administrator endpoints for reusable access roles."""
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -8,14 +8,14 @@ from rest_framework.response import Response
 
 from .builder_views import BuilderView, StrictInput
 from .models import Organization, OrganizationRole
-from .organization_roles import assign_role_members, require_owner
+from .organization_roles import assign_role_members, is_owner, require_role_manager
 from .services import audit
 
 
 class RoleInput(StrictInput):
     name = serializers.CharField(max_length=80)
     description = serializers.CharField(max_length=255, allow_blank=True, default="")
-    baseRole = serializers.ChoiceField(choices=["owner", "editor", "viewer"])
+    baseRole = serializers.ChoiceField(choices=["owner", "admin", "editor", "viewer"])
 
 
 class MemberInput(StrictInput):
@@ -25,7 +25,7 @@ class MemberInput(StrictInput):
 class OrganizationRolesView(BuilderView):
     def organization(self, request, organization_id):
         organization = get_object_or_404(Organization, pk=organization_id)
-        require_owner(request.user, organization)
+        require_role_manager(request.user, organization)
         return organization
 
     def get(self, request, organization_id):
@@ -44,6 +44,9 @@ class OrganizationRolesView(BuilderView):
         data = RoleInput(data=request.data)
         data.is_valid(raise_exception=True)
         values = data.validated_data
+        if values["baseRole"] == "owner" and not is_owner(request.user, organization):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only organization owners can create owner roles.")
         try:
             with transaction.atomic():
                 role = OrganizationRole.objects.create(organization=organization, name=values["name"],

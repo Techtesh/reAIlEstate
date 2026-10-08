@@ -37,7 +37,7 @@ export function WorkspaceChooser({ onClose, onBuyer, onBuilder }: {
       <button className="primary" onClick={onBuyer}>Continue as Buyer</button>
       <p>Browse homes, save requirements and manage your shortlist.</p>
       <button className="secondary" disabled={loading || !!error || organizations.length === 0} onClick={onBuilder}>Continue as Builder</button>
-      {loading ? <p role="status">Checking organization access...</p> : error ? <div role="alert"><p>{error}</p><button className="secondary" onClick={() => setAttempt(value => value + 1)}>Retry access check</button></div> : organizations.length ? <p>Manage projects for {organizations.map(item => item.legalName).join(', ')}.</p> : <p>Builder access needs an active owner or editor membership in an active organization. Ask your platform administrator to assign one.</p>}
+      {loading ? <p role="status">Checking organization access...</p> : error ? <div role="alert"><p>{error}</p><button className="secondary" onClick={() => setAttempt(value => value + 1)}>Retry access check</button></div> : organizations.length ? <p>Manage projects for {organizations.map(item => item.legalName).join(', ')}.</p> : <p>Builder access needs an active owner, admin, or editor membership in an active organization. Ask your platform administrator to assign one.</p>}
     </div>
     <p>Choosing Builder does not grant permissions or publishing rights.</p>
   </dialog>
