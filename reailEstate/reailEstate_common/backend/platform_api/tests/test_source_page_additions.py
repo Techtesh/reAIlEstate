@@ -189,3 +189,47 @@ def test_mark_layout_api_returns_pending_queue(source):
     assert response.status_code == 202
     assert response.data["queueStatus"] == "pending"
     assert OutboxMessage.objects.filter(event_type=PAGE_EVENT).count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("category", ["layouts", "floor-plans"])
+def test_single_apartment_pages_use_layout_evaluator_without_segmentation(source, monkeypatch, category):
+    from unittest.mock import Mock
+    from platform_api import floor_plan_vision, source_page_additions
+    from .test_ai_plan_classification import layout_result
+    project, document, actor, _ = source
+    provider = Mock(code="test", model="test-model", profile_id="test")
+    provider.analyze_layout.return_value = layout_result()
+    provider.analyze_classified_plan.return_value = layout_result()
+    monkeypatch.setattr(floor_plan_vision, "get_floor_plan_vision_provider", lambda _: provider)
+    fanout = Mock(side_effect=AssertionError("Single apartment must not be segmented"))
+    monkeypatch.setattr(source_page_additions, "_queue_automatic_layouts", fanout)
+    add_source_pages(project, document.pk, [1], category, actor)
+    message = OutboxMessage.objects.get()
+    source_page_additions.evaluate_source_page(message.payload)
+    plans = project.floor_plans.exclude(review_state="superseded_page_candidate")
+    assert plans.count() == 1 and plans.get().plan_scope == "flat"
+    assert plans.get().configuration_type == "1BHK"
+    provider.analyze_layout.assert_called_once()
+    assert provider.analyze_classified_plan.call_count == (category == "floor-plans")
+    fanout.assert_not_called()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("kind", ["full_floor", "multiple_layouts"])
+def test_whole_floor_in_layout_tab_routes_to_floor_evaluation(source, monkeypatch, kind):
+    from unittest.mock import Mock
+    from platform_api import floor_plan_vision, source_page_additions
+    from .test_ai_plan_classification import layout_result
+    project, document, actor, _ = source
+    provider = Mock(code="test", model="test-model", profile_id="test")
+    provider.analyze_layout.return_value = layout_result(kind, [])
+    monkeypatch.setattr(floor_plan_vision, "get_floor_plan_vision_provider", lambda _: provider)
+    fanout = Mock(return_value={})
+    monkeypatch.setattr(source_page_additions, "_queue_automatic_layouts", fanout)
+    add_source_pages(project, document.pk, [1], "layouts", actor)
+    source_page_additions.evaluate_source_page(OutboxMessage.objects.get().payload)
+    plan = project.floor_plans.exclude(review_state="superseded_page_candidate").get()
+    assert plan.plan_scope == "floor" and not plan.dimensions and not plan.configuration_type
+    assert fanout.call_args.args[1] == [plan]
+    provider.analyze_classified_plan.assert_not_called()

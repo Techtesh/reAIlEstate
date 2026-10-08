@@ -11,7 +11,7 @@ from platform_api.layout_configurations import project_layout_configurations
 from platform_api.layout_pricing import annotate_project_prices, project_price_range, save_layout_price
 from platform_api.models import AuditEvent, Building, FloorPlan, HomeConfiguration, Project, ProjectMerge, ReviewTask
 from platform_api.serializers import ProjectListSerializer
-from platform_api.services import _budget_score, _hard_constraint_failure
+from platform_api.layout_matching import score_layouts
 
 from .test_floor_plan_layout_jobs import source
 
@@ -257,12 +257,14 @@ def test_unreviewed_prices_are_not_public_when_preview_disabled(layout, client):
 def test_budget_scoring_uses_layout_prices_without_legacy_fallback(layout):
     plan, _ = layout
     profile = {"budget": {"purchaseMaximum": 10000000, "isHardConstraint": True}}
-    assert _hard_constraint_failure(plan.project, profile, []) == "OVER_HARD_BUDGET"
-    assert _budget_score(profile, plan.project) is not None
+    assert score_layouts(profile, [plan], strict=True) == ([], "OVER_HARD_BUDGET")
+    candidates, failure = score_layouts(profile, [plan], strict=False)
+    assert failure is None and candidates[0]["values"]["budget"] is not None
     plan.price = None
     plan.save()
-    assert _hard_constraint_failure(plan.project, profile, []) is None
-    assert _budget_score(profile, plan.project) is None
+    assert score_layouts(profile, [plan], strict=True) == ([], "LAYOUT_REQUIRED_DATA_UNAVAILABLE")
+    candidates, failure = score_layouts(profile, [plan], strict=False)
+    assert failure is None and candidates[0]["values"]["budget"] is None
 
 
 @pytest.mark.parametrize("mode", ["ai", "script"])

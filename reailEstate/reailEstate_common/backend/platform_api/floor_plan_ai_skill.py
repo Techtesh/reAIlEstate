@@ -21,7 +21,7 @@ class FloorPlanFlatSeparationAISkill:
         selection = resolve_ai_vision_selection(vision_profile_id)
         provider = get_floor_plan_vision_provider(selection)
         try:
-            regions, metadata = provider.analyze_unit_regions(image_bytes, media_type, expected_count)
+            regions, metadata = provider.analyze_full_floor(image_bytes, media_type, expected_count)
             return regions, metadata | {"skill": FloorPlanFlatSeparationAISkill.name,
                                         "visionSelection": selection}
         finally:

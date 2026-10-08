@@ -1078,6 +1078,9 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                 "admin:platform_api_project_media_dashboard", args=[obj.pk],
                 current_app=self.admin_site.name,
             )
+            filters = self.get_preserved_filters(request)
+            if filters:
+                context["project_media_dashboard_url"] += "?" + filters
             context["project_merge_url"] = reverse(
                 "admin:platform_api_project_merge", args=[obj.pk], current_app=self.admin_site.name,
             )
@@ -1119,6 +1122,9 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
             "admin:platform_api_project_media_dashboard", args=[obj.pk],
             current_app=self.admin_site.name,
         )
+        filters = getattr(obj, "admin_preserved_filters", "")
+        if filters:
+            url += "?" + filters
         return format_html('<a class="button" href="{}">Open media dashboard</a>', url)
 
     @staticmethod
@@ -1314,8 +1320,16 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                 try:
                     plan = FloorPlan.objects.get(pk=request.POST.get("floor_plan_id"), project_id__in=project_family_ids(project))
                     job = queue_floor_plan_layouts(plan, request.user, retry=True)
-                except (FloorPlan.DoesNotExist, ValueError, TypeError):
-                    messages.error(request, "Choose an active full-floor source with a configured AI profile.")
+                except (FloorPlan.DoesNotExist, TypeError):
+                    messages.error(request, "Choose a valid full-floor source from this project.")
+                except ValueError as exc:
+                    detail = {
+                        "STALE_VISION_SELECTION": "The existing extraction is pinned to AI settings that have changed. Restore those settings before retrying; the job was not requeued.",
+                        "SOURCE_ASSET_NOT_READY": "The floor-plan image must be ready and its source document must pass the clean-source check.",
+                        "FULL_FLOOR_SOURCE_REQUIRED": "Choose a full-floor source, not an individual layout crop.",
+                        "Feature is disabled.": "Automatic floor-plan segmentation is disabled. Check the media.auto_segment feature flag.",
+                    }.get(str(exc), "Could not queue this floor plan. Check source readiness and the configured AI profile.")
+                    messages.error(request, detail)
                 else:
                     messages.success(request, "Individual-layout extraction queued (or existing task retained). Run queued evaluations; the original floor plan is preserved.")
                 return self._evaluation_redirect(request, request.path + "?section=floor-plans")
@@ -1523,17 +1537,13 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                 continue
             seen_hashes.add(asset.sha256)
             carousel_assets.append(asset)
-        project_ids = list(Project.objects.exclude(address__has_key="mergedIntoProjectId").exclude(
-            merge_out__state="applied"
-        ).order_by(
-            "submitted_name", "id"
-        ).values_list("id", flat=True))
-        position = project_ids.index(project.id)
-        def dashboard_url(project_id):
-            return reverse(
-                "admin:platform_api_project_media_dashboard", args=[project_id],
-                current_app=self.admin_site.name,
-            ) + f"?section={section}"
+        navigation = self.record_navigation(request, project, "admin:platform_api_project_media_dashboard")
+        if navigation:
+            for direction in ("previous", "next"):
+                if navigation[direction]:
+                    separator = "&" if "?" in navigation[direction] else "?"
+                    navigation[direction] += separator + urlencode({"section": section})
+        filters = self.get_preserved_filters(request)
         draft_crops = list(LayoutCropDraft.objects.filter(
             owner=request.user, project=project,
         ).defer("image").select_related("source_plan__document", "document"))
@@ -1567,12 +1577,8 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
             "add_source_pages_url": reverse("admin:platform_api_project_add_source_pages", args=[project.pk]),
             "project_change_url": reverse(
                 "admin:platform_api_project_change", args=[project.pk], current_app=self.admin_site.name,
-            ),
-            "project_navigation": {
-                "previous": dashboard_url(project_ids[position - 1]) if position else None,
-                "next": dashboard_url(project_ids[position + 1]) if position + 1 < len(project_ids) else None,
-                "position": position + 1, "total": len(project_ids),
-            },
+            ) + ("?" + filters if filters else ""),
+            "project_navigation": navigation,
             "counts": {"amenities": amenities.count(), "floorPlans": len(floor_plans), "layouts": len(layouts),
                        "projectImages": project_image_count},
             "project_picture_form": ProjectMediaPictureForm(instance=project) if section == "project-images" else None,

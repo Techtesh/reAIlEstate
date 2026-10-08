@@ -44,7 +44,7 @@
     <a class="button" href="{{ project_change_url }}">&larr; Back to project</a>
     {% if can_report %}<a class="button" href="{% url 'admin:platform_api_project_external_sources' original.pk %}">External sources</a>{% endif %}
     {% if project_navigation.previous %}<a class="button" href="{{ project_navigation.previous }}">&larr; Previous project</a>{% else %}<span aria-disabled="true">&larr; Previous project</span>{% endif %}
-    <strong>{{ project_navigation.position }} of {{ project_navigation.total }}</strong>
+    {% if project_navigation %}<strong>{{ project_navigation.position }} of {{ project_navigation.total }}</strong>{% endif %}
     {% if project_navigation.next %}<a class="button" href="{{ project_navigation.next }}">Next project &rarr;</a>{% else %}<span aria-disabled="true">Next project &rarr;</span>{% endif %}
     {% if can_report %}{% include "admin/platform_api/cart_icon.html" with count=draft_crop_count only %}{% endif %}
   </nav>

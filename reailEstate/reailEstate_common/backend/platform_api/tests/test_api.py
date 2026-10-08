@@ -4,6 +4,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.utils import timezone
 from rest_framework.test import APIClient
+from .test_layout_pricing import layout, source
 
 from platform_api.models import Consent, RequirementProfile
 
@@ -213,7 +214,7 @@ def test_buyer_catalogue_map_only_exposes_published_projects(client, anonymous):
 
 
 @pytest.mark.django_db
-def test_public_filters_ignore_unpublished_configurations():
+def test_public_filters_ignore_legacy_configurations():
     from platform_api.models import Building, HomeConfiguration, Organization, Project
 
     project = Project.objects.create(organization=Organization.objects.create(legal_name="Public filter fixture"), submitted_name="Published", status="published", published_fact_set_version=1)
@@ -223,7 +224,7 @@ def test_public_filters_ignore_unpublished_configurations():
     client = APIClient()
     for query in ("configuration=4BHK", "carpetAreaMinimum=1500", "allInPriceMaximum=11000000"):
         assert client.get(f"/api/v1/projects/?{query}").json()["results"] == []
-    assert len(client.get("/api/v1/projects/?configuration=2BHK").json()["results"]) == 1
+    assert client.get("/api/v1/projects/?configuration=2BHK").json()["results"] == []
 
 
 @pytest.mark.django_db
@@ -368,14 +369,14 @@ def test_buyer_amenities_and_collections_use_wire_contract(client):
 
 
 @pytest.mark.django_db
-def test_buyer_submission_to_score_sheet(client, user):
-    from platform_api.models import Building, HomeConfiguration, Organization, Project, RecommendationSnapshot
+def test_buyer_submission_to_score_sheet(client, user, layout):
+    from platform_api.models import RecommendationSnapshot
     from platform_api.services import compute_recommendations
 
-    organization = Organization.objects.create(legal_name="Buyer flow fixture")
-    project = Project.objects.create(organization=organization, submitted_name="Buyer flow project", maha_rera_id="P123456784", status="published", published_fact_set_version=1)
-    building = Building.objects.create(project=project, name="A")
-    HomeConfiguration.objects.create(building=building, configuration_type="2BHK", carpet_area_min=700, carpet_area_max=850, price_min=15000000, price_max=18000000, bathrooms=2, fact_set_version=1)
+    plan, _ = layout
+    project = plan.project
+    plan.configuration_type, plan.carpet_area_sqft, plan.bathroom_count = "2BHK", 850, 2
+    plan.save()
     payload = {"places": [], "home": {"configurations": ["2BHK"], "carpetAreaSqFt": {"minimum": 650, "preferred": 800}, "bathroomsMinimum": 2, "bathroomsIsHardConstraint": True}, "budget": {"currency": "INR", "purchaseMaximum": 20000000, "allInMaximum": 22000000, "isHardConstraint": True}, "societyAmenities": [], "nearbyAmenities": [], "microMarket": {"preferredLocalities": []}, "weights": {"commute": .30, "budget": .25, "space": .20, "societyAmenities": .10, "nearbyAmenities": .05, "microMarket": .05, "projectConfidence": .05}, "additionalNeeds": ""}
     Consent.objects.create(user=user, purpose="saved_profile", policy_version="1.0", granted_at=timezone.now())
     created = client.post("/api/v1/requirement-profiles/", {}, format="json").json()

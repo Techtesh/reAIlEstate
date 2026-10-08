@@ -192,7 +192,7 @@ def evaluate_layout_crop(payload):
             _validate_layout(plan, payload)
         provider = get_floor_plan_vision_provider(payload.get("visionSelection"))
         agent = FloorPlanAgent(provider)
-        result = provider.analyze_classified_plan(data, asset.media_type, agent._vision_schema())
+        result = provider.analyze_layout(data, asset.media_type, agent._vision_schema())
         candidates = agent._reconcile(agent._validate(agent._vision_candidates(asset.page_number, result, asset)))
         flat_candidates = [candidate for candidate in candidates if candidate.plan_scope == "flat"]
         if len(flat_candidates) != 1:

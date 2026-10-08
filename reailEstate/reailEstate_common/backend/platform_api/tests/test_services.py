@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 from platform_api.integrations import validate_provider_url
 from platform_api.services import (
     _project_configuration_data,
-    _space_score,
+    ScoringResult,
     completion_for,
     compute_recommendations,
     normalize_maha_rera_id,
@@ -123,7 +123,7 @@ def test_incomplete_recommendation_snapshot_can_be_computed(state):
     profile = RequirementProfile.objects.create(owner=User.objects.create_user(username="retry-owner"))
     version = RequirementVersion.objects.create(profile=profile, version=1, payload={}, status="submitted")
     snapshot = RecommendationSnapshot.objects.create(requirement_version=version, state=state, input_catalog_version="pending")
-    with patch("platform_api.services.score_recommendations", return_value=("new-catalogue", [], [])) as scorer:
+    with patch("platform_api.services.score_recommendations", return_value=ScoringResult("new-catalogue", [], [], {"layoutHardMatches": False, "featureFlagVersion": None})) as scorer:
         result = compute_recommendations(version, snapshot=snapshot)
     scorer.assert_called_once_with({}, persist_routes=True)
     assert result.state == "ready"
@@ -131,7 +131,7 @@ def test_incomplete_recommendation_snapshot_can_be_computed(state):
     assert result.generated_at is not None
 
 
-def test_scoring_uses_public_layout_configurations():
+def test_metrics_use_public_layout_configurations():
     layouts = [{
         "configuration_type": "2BHK",
         "carpet_area_max": Decimal("750"),
@@ -142,10 +142,6 @@ def test_scoring_uses_public_layout_configurations():
 
     assert configurations[0].configuration_type == "2BHK"
     assert configurations[0].carpet_area_max == Decimal("750")
-    assert _space_score({"home": {"carpetAreaSqFt": {"preferred": 800}}}, configurations) == .9375
-    assert _space_score({"home": {"carpetAreaSqFt": {"preferred": 800}}}, [
-        type(configurations[0])("2BHK", None, None),
-    ]) is None
 
 
 def test_completion_uses_canonical_sections():

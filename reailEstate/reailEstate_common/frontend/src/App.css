@@ -140,6 +140,10 @@
 .processing-label { color: #8b2635; font-size: 12px; font-weight: 700; margin: 0 0 10px; }
 .match-reasons { display: flex; flex-direction: column; gap: 5px; border-top: 1px solid var(--line); padding: 10px 0; font-size: 10px; }
 .match-reasons span::before { content: '\2022'; color: var(--green); margin-right: 5px; }
+.matched-layouts { border-top: 1px solid var(--line); padding: 10px 0; font-size: 11px; font-weight: 400; overflow-wrap: anywhere; }
+.matched-layouts ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.matched-layouts li { display: grid; gap: 3px; }
+.matched-layouts small { color: var(--muted); font-size: 10px; }
 .card-actions { border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 5px; }
 .card-actions .check-label, .card-actions button { font-size: 10px; }
 .view-map .map-feed-layout, .view-feed .map-feed-layout, .view-scores .map-feed-layout { grid-template-columns: 1fr; }

@@ -93,6 +93,95 @@ def test_nonmatching_scope_does_not_broaden_navigation(client, records):
     assert detail(client, "floorplan", plans[0], "q=nonexistent").context["image_navigation"] is None
 
 
+@pytest.mark.parametrize("organization_status", ["inactive", "suspended"])
+@pytest.mark.parametrize("section", ["layouts", "floor-plans", "amenities", "project-images"])
+def test_media_project_navigation_matches_list_and_skips_hidden_organizations(client, records, organization_status, section):
+    owner, current, _, _ = records
+    current.submitted_name = "Adani The Views"
+    current.save(update_fields=["submitted_name"])
+    previous = Project.objects.create(organization=current.organization, submitted_name="Ace Parkside")
+    hidden = Project.objects.create(
+        organization=Organization.objects.create(legal_name="DemoPins", status=organization_status),
+        submitted_name="ADIJON",
+    )
+    following = Project.objects.create(organization=current.organization, submitted_name="Adityaraj Avenue")
+    Project.objects.create(organization=current.organization, submitted_name="Abandoned merged source",
+                           address={"mergedIntoProjectId": str(current.pk)})
+    client.force_login(owner)
+    listing = client.get(reverse("admin:platform_api_project_changelist"))
+    listed_ids = list(listing.context["cl"].queryset.values_list("pk", flat=True))
+    assert listed_ids == [previous.pk, current.pk, following.pk]
+    url = reverse("admin:platform_api_project_media_dashboard", args=[current.pk])
+    response = client.get(url, {"section": section})
+    assert response.status_code == 200
+    navigation = response.context["project_navigation"]
+    assert navigation["position"] == listed_ids.index(current.pk) + 1 == 2
+    assert navigation["total"] == listing.context["cl"].result_count == 3
+    assert str(hidden.pk) not in str(navigation)
+    assert str(previous.pk) in navigation["previous"]
+    assert str(following.pk) in navigation["next"]
+    assert parse_qs(urlsplit(navigation["next"]).query)["section"] == [section]
+    next_response = client.get(navigation["next"])
+    assert next_response.status_code == 200
+    assert next_response.context["original"].pk == following.pk
+    assert next_response.context["project_navigation"]["position"] == 3
+    assert next_response.context["project_navigation"]["next"] is None
+    previous_response = client.get(navigation["previous"])
+    assert previous_response.status_code == 200
+    assert previous_response.context["project_navigation"]["previous"] is None
+    assert client.get(reverse("admin:platform_api_project_media_dashboard", args=[hidden.pk])).status_code == 404
+
+
+def test_media_project_navigation_preserves_project_search_filter_order_and_entry_links(client, records):
+    from django.contrib import admin
+    owner, current, _, _ = records
+    current.submitted_name = "Adani The Views"
+    current.locality = "Ghatkopar"
+    current.save(update_fields=["submitted_name", "locality"])
+    for name in ["Ace Parkside", "Adityaraj Avenue"]:
+        Project.objects.create(organization=current.organization, submitted_name=name, locality="Ghatkopar")
+    Project.objects.create(organization=current.organization, submitted_name="Adani Elsewhere", locality="Vikhroli")
+    client.force_login(owner)
+    list_url = reverse("admin:platform_api_project_changelist")
+    listing = client.get(list_url)
+    column = listing.context["cl"].list_display.index("submitted_name")
+    filters = urlencode({"q": "A", "locality__exact": "Ghatkopar", "o": f"-{column}", "page_size": "10"})
+    listing = client.get(list_url + "?" + filters)
+    assert listing.status_code == 200
+    listed_ids = list(listing.context["cl"].queryset.values_list("pk", flat=True))
+    assert len(listed_ids) == 3
+    url = reverse("admin:platform_api_project_media_dashboard", args=[current.pk])
+    response = client.get(url, {"section": "layouts", "_changelist_filters": filters})
+    navigation = response.context["project_navigation"]
+    assert navigation["position"] == listed_ids.index(current.pk) + 1
+    assert navigation["total"] == listing.context["cl"].result_count
+    assert parse_qs(urlsplit(navigation["next"]).query)["_changelist_filters"] == [filters]
+    assert str(listed_ids[2]) in navigation["next"]
+    assert client.get(navigation["next"]).context["project_navigation"]["total"] == 3
+    back = client.get(response.context["project_change_url"])
+    assert back.context["image_navigation"]["position"] == navigation["position"]
+    assert back.context["image_navigation"]["total"] == navigation["total"]
+    dashboard_entry = back.context["project_media_dashboard_url"]
+    assert parse_qs(urlsplit(dashboard_entry).query)["_changelist_filters"] == [filters]
+    model_admin = admin.site._registry[Project]
+    listed = next(project for project in listing.context["cl"].queryset if project.pk == current.pk)
+    assert "_changelist_filters=" in str(model_admin.media_dashboard_link(listed))
+    listed.boundary_review_count = 1
+    assert "_changelist_filters=" in str(model_admin.boundary_review_link(listed))
+
+
+@pytest.mark.parametrize("filters", ["q=nonexistent", "invalid_lookup__exact=true"])
+def test_media_dashboard_never_broadens_nonmatching_or_invalid_project_scope(client, records, filters):
+    owner, project, _, _ = records
+    client.force_login(owner)
+    url = reverse("admin:platform_api_project_media_dashboard", args=[project.pk])
+    response = client.get(url, {"_changelist_filters": filters})
+    assert response.status_code == 200
+    assert response.context["project_navigation"] is None
+    assert b">Next project &rarr;</a>" not in response.content
+    assert b">Previous project</a>" not in response.content
+
+
 def test_staff_without_model_permission_cannot_navigate(client, records, django_user_model):
     _, _, plans, _ = records
     staff = django_user_model.objects.create_user(username="no-plan-access", is_staff=True)

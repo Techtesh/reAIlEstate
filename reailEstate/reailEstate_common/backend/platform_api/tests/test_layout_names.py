@@ -492,7 +492,7 @@ def test_crop_evaluation_keeps_alias_even_when_saved_during_model_call(source, m
             save_layout_name(plan.project, plan.pk, "During extraction", actor)
         return {"pageType": "unit_layout", "visualEvidence": "One dwelling"}
 
-    provider.analyze_classified_plan.side_effect = analyze
+    provider.analyze_layout.side_effect = analyze
     monkeypatch.setattr(layout_reanalysis, "get_floor_plan_vision_provider", lambda _: provider)
     monkeypatch.setattr(FloorPlanAgent, "_vision_candidates", lambda *_args: [candidate])
     monkeypatch.setattr(FloorPlanAgent, "_provider_metadata", lambda _self: {"extractionMode": "ai"})

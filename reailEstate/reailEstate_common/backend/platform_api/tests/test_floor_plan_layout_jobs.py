@@ -36,6 +36,7 @@ import hashlib
 import io
 from datetime import timedelta
 from unittest.mock import Mock
+from uuid import uuid4
 
 import pytest
 from PIL import Image
@@ -142,14 +143,15 @@ def provider(monkeypatch):
         UnitRegion("Unit 1", 0.05, 0.1, 0.4, 0.8, 0.9, "Entrance 1", ["1ST FLOOR"]),
         UnitRegion("Unit 2", 0.55, 0.1, 0.4, 0.8, 0.9, "Entrance 2", ["1ST FLOOR"]),
     ]
-    metadata = {"pageType": "multi_unit_floor_plan", "unitCount": 2, "visualEvidence": "Two entrances"}
-    mock = Mock(spec=["analyze_unit_regions", "close"])
+    metadata = {"pageType": "multi_unit_floor_plan", "unitCount": 2, "liftCount": 2,
+                "staircaseCount": None, "visualEvidence": "Two entrances"}
+    mock = Mock(spec=["analyze_full_floor", "close"])
 
     def analyze(*_args, **_kwargs):
         assert not connection.in_atomic_block, "Model call must be outside database transactions"
         return regions, metadata
 
-    mock.analyze_unit_regions.side_effect = analyze
+    mock.analyze_full_floor.side_effect = analyze
     factory = Mock(return_value=mock)
     monkeypatch.setattr(jobs, "get_floor_plan_vision_provider", factory)
     return mock, factory, regions, metadata
@@ -157,6 +159,101 @@ def provider(monkeypatch):
 
 def operation_for(message):
     return Operation.objects.get(pk=message.payload["operationId"])
+
+
+def test_legacy_ai_separation_queues_every_generated_layout_with_same_profile(source, provider, monkeypatch):
+    from platform_api import floor_plan_segmentation_service as service
+    plan, actor = source
+    _, _, regions, metadata = provider
+    selection = resolve_ai_vision_selection("pinned")
+    monkeypatch.setattr(service.FloorPlanFlatSeparationAISkill, "invoke",
+                        Mock(return_value=(regions, metadata | {"visionSelection": selection})))
+    result = service.separate_floor_plan_units(plan.pk, mode="ai", actor=actor)
+    outcome = result["methods"]["ai"]
+    assert len(outcome["cropJobIds"]) == len(outcome["planIds"]) == 2
+    messages = OutboxMessage.objects.filter(pk__in=outcome["cropJobIds"])
+    assert all(message.payload["visionSelection"] == selection for message in messages)
+    assert FloorPlan.objects.filter(pk__in=outcome["planIds"], review_state="pending_crop_evaluation").count() == 2
+
+
+def test_crop_queue_failure_rolls_back_generated_layouts_and_files(source, provider, monkeypatch):
+    from platform_api import layout_reanalysis
+    plan, actor = source
+    _, _, regions, metadata = provider
+    original_assets = set(FloorPlanAsset.objects.values_list("pk", flat=True))
+    saved_keys = []
+    original_save = storage.save
+    def save(*args, **kwargs):
+        key = original_save(*args, **kwargs)
+        saved_keys.append(key)
+        return key
+    monkeypatch.setattr(storage, "save", save)
+    real_queue = layout_reanalysis.queue_layout_evaluation
+    calls = 0
+    def enqueue(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("Queue unavailable")
+        return real_queue(*args, **kwargs)
+    monkeypatch.setattr(layout_reanalysis, "queue_layout_evaluation", enqueue)
+    with pytest.raises(RuntimeError, match="Queue unavailable"):
+        replace_unit_segments(plan, regions, "ai", metadata | {"visionSelection": resolve_ai_vision_selection("pinned")}, actor)
+    assert set(FloorPlanAsset.objects.values_list("pk", flat=True)) == original_assets
+    assert not OutboxMessage.objects.exists()
+    assert len(saved_keys) == 2 and all(not storage.exists(key) for key in saved_keys)
+
+
+def test_floor_then_layout_evaluation_extracts_each_crop_not_full_page(source, provider, monkeypatch):
+    from platform_api import layout_reanalysis
+    from .test_ai_plan_classification import layout_result
+    plan, actor = source
+    message = jobs.queue_floor_plan_layouts(plan, actor)
+    operation = jobs.evaluate_floor_plan_layouts(message.payload)
+    layout_provider = Mock(code="ollama", model="original-model", profile_id="pinned")
+    layout_provider.analyze_layout.return_value = layout_result()
+    monkeypatch.setattr(layout_reanalysis, "get_floor_plan_vision_provider", lambda _: layout_provider)
+    for crop_job in OutboxMessage.objects.filter(pk__in=operation.result["cropJobIds"]):
+        layout = layout_reanalysis.evaluate_layout_crop(crop_job.payload)
+        assert layout.plan_scope == "flat" and layout.configuration_type == "1BHK"
+        assert layout.review_state == "gen_with_ai_needs_review"
+    assert layout_provider.analyze_layout.call_count == 2
+    assert all(len(call.args[0]) != plan.asset.byte_length for call in layout_provider.analyze_layout.call_args_list)
+    layout_provider.analyze_classified_plan.assert_not_called()
+
+
+@pytest.mark.parametrize("category", ["layouts", "floor-plans"])
+def test_document_ingestion_routes_layouts_directly_and_queues_full_floors(source, settings, monkeypatch, category):
+    from platform_api.floor_plan_agent import FloorPlanAgent
+    from .test_ai_plan_classification import layout_result
+    plan, actor = source
+    settings.FLOOR_PLAN_EXTRACTION_MODE = "ai"
+    asset = plan.asset
+    asset.source_bounds = {"category": category}
+    asset.save(update_fields=["source_bounds"])
+    provider = Mock(code="ollama", model="original-model", profile_id="pinned")
+    provider._selection = resolve_ai_vision_selection("pinned")
+    provider.analyze_layout.return_value = layout_result()
+    provider.analyze_classified_plan.return_value = layout_result() | {
+        "pageType": "floor_plan", "visualEvidence": "Shared floor corridor and unit entrances",
+    }
+    agent = FloorPlanAgent(provider)
+    monkeypatch.setattr(agent, "_detect", lambda *_: [])
+    monkeypatch.setattr(agent, "_crop_and_store", lambda *_: [asset])
+    workflow = agent.run(plan.workflow_run.ingestion_run)
+    assert workflow.status == "completed"
+    extracted = workflow.floor_plans.get()
+    if category == "layouts":
+        assert extracted.plan_scope == "flat"
+        provider.analyze_layout.assert_called_once()
+        provider.analyze_classified_plan.assert_not_called()
+        assert not OutboxMessage.objects.exists()
+    else:
+        assert extracted.plan_scope == "floor"
+        queued = OutboxMessage.objects.get(event_type=jobs.UNITS_EVENT)
+        assert queued.payload["sourcePlanId"] == str(extracted.pk)
+        assert queued.payload["visionSelection"] == provider._selection
+        provider.analyze_layout.assert_not_called()
 
 
 @pytest.mark.parametrize("method", ["ai", "script"])
@@ -285,7 +382,16 @@ def test_default_change_does_not_change_parent_or_crop_pins_and_replay_is_noop(s
     assert crop_jobs.count() == 2
     assert all(job.payload["visionSelection"] == pin for job in crop_jobs)
     assert all(operation_for(job).owner_id == actor.pk for job in crop_jobs)
-    assert FloorPlan.objects.filter(pk=plan.pk).values().get() == before
+    after = FloorPlan.objects.filter(pk=plan.pk).values().get()
+    evaluation = after.pop("features")["floorEvaluation"]
+    before.pop("features")
+    after.pop("updated_at")
+    before.pop("updated_at")
+    assert after == before
+    assert evaluation == operation.result["floorEvaluation"]
+    assert evaluation["flatsPerFloor"] == evaluation["liftCount"] == 2
+    assert evaluation["staircaseCount"] is None
+    assert evaluation["assetSha256"] == plan.asset.sha256
     assert not OutboxMessage.objects.filter(event_type="document.processing.requested").exists()
     factory.assert_called_once_with(pin)
     mock.close.assert_called_once()
@@ -294,7 +400,7 @@ def test_default_change_does_not_change_parent_or_crop_pins_and_replay_is_noop(s
     assert process_outbox_message(message.pk) == "already_processed"
     assert InboxMessage.objects.filter(message_id=message.pk).count() == 1
     assert OutboxMessage.objects.count() == 3
-    mock.analyze_unit_regions.assert_called_once()
+    mock.analyze_full_floor.assert_called_once()
 
 
 @pytest.mark.parametrize("during_model", [False, True])
@@ -315,7 +421,7 @@ def test_cancellation_and_hidden_records_win_before_model_or_persistence(source,
             assert not connection.in_atomic_block
             stop()
             return regions, metadata
-        mock.analyze_unit_regions.side_effect = analyze
+        mock.analyze_full_floor.side_effect = analyze
     else:
         stop()
     assert jobs.evaluate_floor_plan_layouts(message.payload).state == "cancelled"
@@ -339,7 +445,7 @@ def test_checksum_change_is_rejected_before_model_and_before_persistence(source,
         def analyze(*_args):
             change_checksum()
             return regions, metadata
-        mock.analyze_unit_regions.side_effect = analyze
+        mock.analyze_full_floor.side_effect = analyze
     else:
         change_checksum()
     with pytest.raises(ValueError, match="STALE_FLOOR_PLAN_SOURCE"):
@@ -384,7 +490,7 @@ def test_committed_operation_replays_after_missing_outbox_ack_without_new_crops(
     assert process_outbox_message(message.pk) == "processed"
     assert operation_for(message).result["planIds"] == plan_ids
     assert OutboxMessage.objects.count() == 3
-    mock.analyze_unit_regions.assert_called_once()
+    mock.analyze_full_floor.assert_called_once()
 
 
 def test_source_id_and_checksum_form_dedup_identity(source):
@@ -412,7 +518,7 @@ def test_model_failure_does_not_overwrite_concurrent_cancellation(source, provid
         Operation.objects.filter(pk=message.payload["operationId"]).update(state="cancelled")
         raise RuntimeError("cancelled while awaiting provider")
 
-    mock.analyze_unit_regions.side_effect = cancel_and_fail
+    mock.analyze_full_floor.side_effect = cancel_and_fail
     with pytest.raises(RuntimeError):
         jobs.evaluate_floor_plan_layouts(message.payload)
     assert operation_for(message).state == "cancelled"
@@ -424,7 +530,7 @@ def test_failed_pending_job_deduplicates_and_dead_letter_retry_is_explicit(sourc
     plan, actor = source
     mock, _, regions, metadata = provider
     message = jobs.queue_floor_plan_layouts(plan, actor)
-    mock.analyze_unit_regions.side_effect = RuntimeError("provider offline")
+    mock.analyze_full_floor.side_effect = RuntimeError("provider offline")
     with pytest.raises(RuntimeError):
         jobs.evaluate_floor_plan_layouts(message.payload)
     mock.close.assert_called_once()
@@ -440,10 +546,56 @@ def test_failed_pending_job_deduplicates_and_dead_letter_retry_is_explicit(sourc
     assert retried.attempts == 0 and retried.last_error_code == ""
     assert retried.payload["visionSelection"] == message.payload["visionSelection"]
     assert operation_for(message).state == "pending"
-    mock.analyze_unit_regions.side_effect = None
-    mock.analyze_unit_regions.return_value = regions, metadata
+    mock.analyze_full_floor.side_effect = None
+    mock.analyze_full_floor.return_value = regions, metadata
     assert process_outbox_message(message.pk) == "processed"
     assert operation_for(message).state == "completed"
+
+
+@pytest.mark.parametrize("state", ["failed", "pending", "running", "completed", "cancelled"])
+def test_queue_uses_latest_matching_job_not_stale_history(source, settings, state):
+    plan, actor = source
+    old = jobs.queue_floor_plan_layouts(plan, actor)
+    Operation.objects.filter(pk=old.payload["operationId"]).update(state="failed")
+    OutboxMessage.objects.filter(pk=old.pk).update(dead_lettered_at=timezone.now(), last_error_code="OLD_FAILURE")
+    settings.FLOOR_PLAN_VISION_PROFILES["pinned"]["model"] = "updated-model"
+    operation = Operation.objects.create(owner=actor, kind=jobs.OPERATION_KIND, state=state,
+        result=operation_for(old).result)
+    payload = old.payload | {"operationId": str(operation.pk), "visionSelection": resolve_ai_vision_selection()}
+    latest = OutboxMessage.objects.create(event_type=jobs.UNITS_EVENT, payload=payload, correlation_id=uuid4(),
+        occurred_at=old.occurred_at + timedelta(seconds=1),
+        dead_lettered_at=timezone.now() if state in {"failed", "cancelled"} else None,
+        published_at=timezone.now() if state == "completed" else None)
+    before = OutboxMessage.objects.values().get(pk=old.pk)
+    selected = jobs.queue_floor_plan_layouts(plan, actor, retry=True)
+    assert selected.pk == latest.pk and selected.payload == payload
+    assert operation_for(selected).state == ("pending" if state == "failed" else state)
+    assert bool(selected.dead_lettered_at) == (state == "cancelled")
+    assert OutboxMessage.objects.values().get(pk=old.pk) == before
+    assert OutboxMessage.objects.count() == 2
+
+
+@pytest.mark.parametrize("error,expected", [
+    ("STALE_VISION_SELECTION", "pinned to AI settings that have changed"),
+    ("SOURCE_ASSET_NOT_READY", "source document must pass the clean-source check"),
+    ("FULL_FLOOR_SOURCE_REQUIRED", "not an individual layout crop"),
+    ("Feature is disabled.", "media.auto_segment feature flag"),
+    ("unexpected private provider detail", "Check source readiness and the configured AI profile"),
+])
+def test_dashboard_floor_queue_reports_admission_reason(source, client, monkeypatch, error, expected):
+    from django.urls import reverse
+    plan, actor = source
+    enqueue = Mock(side_effect=ValueError(error))
+    monkeypatch.setattr("platform_api.admin.queue_floor_plan_layouts", enqueue)
+    client.force_login(actor)
+    response = client.post(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]),
+        {"action": "queue_floor_layouts", "floor_plan_id": str(plan.pk)}, follow=True)
+    assert response.status_code == 200
+    assert expected.encode() in response.content
+    assert b"Choose an active full-floor source" not in response.content
+    assert b"unexpected private provider detail" not in response.content
+    enqueue.assert_called_once_with(plan, actor, retry=True)
+    assert not OutboxMessage.objects.exists()
 
 
 def test_cancelled_dead_letter_is_not_rearmed_even_after_restore(source):
@@ -492,8 +644,8 @@ def test_invalid_model_regions_never_replace_existing_source(source, provider, i
         metadata = {**metadata, "pageType": "non_plan"}
     else:
         metadata = {**metadata, "unitCount": 3}
-    mock.analyze_unit_regions.side_effect = None
-    mock.analyze_unit_regions.return_value = regions, metadata
+    mock.analyze_full_floor.side_effect = None
+    mock.analyze_full_floor.return_value = regions, metadata
     message = jobs.queue_floor_plan_layouts(plan, actor)
     with pytest.raises(ValueError):
         jobs.evaluate_floor_plan_layouts(message.payload)

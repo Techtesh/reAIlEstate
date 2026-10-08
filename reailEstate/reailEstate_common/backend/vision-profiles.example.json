@@ -9,8 +9,8 @@
   "foundry-cloud": {
     "label": "Microsoft Foundry vision",
     "provider": "azure_foundry",
-    "model": "REPLACE_WITH_VISION_DEPLOYMENT_NAME",
-    "base_url": "https://YOUR-RESOURCE.openai.azure.com/openai/v1/",
+    "model": "hjetwani-vision-wus2",
+    "base_url": "https://hjetwani-vision-wus2.openai.azure.com/openai/v1",
     "response_format": "json_schema",
     "enabled": false
   },

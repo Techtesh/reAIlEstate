@@ -36,6 +36,8 @@ _DEFINITIONS = (
     FeatureDefinition("operations.legacy_destructive", "Opt in to legacy destructive operations.", False),
     FeatureDefinition("showDemoPinsOnBrowse", "Show unverified DemoPins projects in Browse.", True,
                       targetable=False),
+    FeatureDefinition("recommendations.layout_hard_matches", "Enforce numeric hard requirements on the same validated layout.",
+                      False, targetable=False),
 )
 
 REGISTRY: Mapping[str, FeatureDefinition] = MappingProxyType({item.key: item for item in _DEFINITIONS})

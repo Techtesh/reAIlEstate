@@ -155,13 +155,22 @@ def replace_unit_segments(source_plan, regions, method, metadata=None, actor=Non
                 ReviewTask.objects.create(project=source.project, task_type="floor_plan", state="open", priority=2,
                                           resolution={"floorPlanId": str(plan.id)})
                 plans.append(plan)
+            crop_jobs = []
+            if (metadata or {}).get("visionSelection"):
+                from .layout_reanalysis import queue_layout_evaluation
+                for plan in plans:
+                    plan.review_state = "pending_crop_evaluation"
+                    plan.save(update_fields=["review_state", "updated_at"])
+                    message, _ = queue_layout_evaluation(plan, actor=actor, vision_selection=metadata["visionSelection"])
+                    crop_jobs.append(str(message.pk))
             workflow.status = "completed"
             workflow.current_step = "completed"
             workflow.completed_at = timezone.now()
             workflow.confidence = sum(item.confidence for item in regions) / len(regions) if regions else 0
             workflow.result = {"sourcePlanId": str(source_plan.id), "sourceAssetId": str(source.id),
                                "segmentationMethod": method, "unitCount": len(plans),
-                               "planIds": [str(item.id) for item in plans], "metadata": metadata or {}}
+                               "planIds": [str(item.id) for item in plans], "metadata": metadata or {},
+                               "cropJobIds": crop_jobs}
             workflow.save()
             AuditEvent.objects.create(
                 actor=actor, action="floor_plan.units_segmented", entity_type="FloorPlan", entity_id=source_plan.id,

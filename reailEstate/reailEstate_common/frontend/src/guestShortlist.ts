@@ -8,12 +8,17 @@ const chunkSize = 3500
 const reportAge = 90 * 24 * 60 * 60
 const markerAge = 400 * 24 * 60 * 60
 const componentSchema = z.object({ code: z.string(), weight: z.number(), score: z.number().optional(), status: z.string(), destinations: z.array(z.unknown()).optional() })
-const snapshotSchema = z.object({
-  id: z.string().startsWith('guest-'), status: z.literal('ready'), profileVersion: z.number().int().positive(), algorithmVersion: z.literal('match-1.0'),
-  generatedAt: z.string(), expiresAt: z.string(),
-  items: z.array(z.object({ projectId: z.string(), rank: z.number().int().positive(), score: z.number(), confidence: z.number().nullable(), components: z.array(componentSchema), reasonCodes: z.array(z.string()), freshness: z.object({ projectFactsAsOf: z.string() }) })).max(10),
-  excludedSummary: z.array(z.object({ reasonCode: z.string(), count: z.number().int().nonnegative() })),
+const layoutMatchSchema = z.object({
+  bestLayoutId: z.string(), matchedLayoutCount: z.number().int().positive(),
+  layouts: z.array(z.object({ id: z.string(), name: z.string(), configurationType: z.string(), carpetAreaSqFt: z.string().nullable(), bathrooms: z.number().int().nullable(), price: z.string().nullable(), score: z.number(), unverifiedConstraints: z.array(z.string()), violatedConstraints: z.array(z.string()) })).min(1).max(3),
 })
+const snapshotSchema = z.object({
+  id: z.string().startsWith('guest-'), status: z.literal('ready'), profileVersion: z.number().int().positive(), algorithmVersion: z.enum(['match-1.0', 'match-2.0']),
+  generatedAt: z.string(), expiresAt: z.string(),
+  items: z.array(z.object({ projectId: z.string(), rank: z.number().int().positive(), score: z.number(), confidence: z.number().nullable(), components: z.array(componentSchema), reasonCodes: z.array(z.string()), freshness: z.object({ projectFactsAsOf: z.string() }), layoutMatch: layoutMatchSchema.optional() })).max(10),
+  excludedSummary: z.array(z.object({ reasonCode: z.string(), count: z.number().int().nonnegative() })),
+  matchingContext: z.object({ layoutHardMatches: z.boolean(), featureFlagVersion: z.number().int().nullable() }).optional(),
+}).refine(value => value.algorithmVersion !== 'match-2.0' || (!!value.matchingContext && value.items.every(item => !!item.layoutMatch)), { message: 'Layout matching metadata is required for match-2.0 reports' })
 const trialSchema = z.object({ version: z.literal(2), query: draftSchema, snapshot: snapshotSchema, savedIds: z.array(z.string()).max(10) })
 export type GuestTrial = { version: 2; query: z.infer<typeof draftSchema>; snapshot: Snapshot; savedIds: string[] }
 

@@ -5,9 +5,10 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -16,17 +17,17 @@ from .models import (
     FrequentPlace,
     HomeConfiguration,
     Project,
-    ProjectAmenity,
     ProjectMetric,
     RecommendationItem,
     RecommendationSnapshot,
     RequirementVersion,
 )
 from .travel import commute_scores
+from .project_scoring import MAX_NEARBY_AMENITY_DISTANCE_METERS
 
 MAHA_RERA_PATTERN = re.compile(r"^[A-Z][0-9A-Z]{8,19}$")
 REQUIREMENT_SECTIONS = ("places", "home", "societyAmenities", "nearbyAmenities", "microMarket", "budget", "weights")
-MAX_NEARBY_AMENITY_DISTANCE_METERS = 5_000
+ALGORITHM_VERSION = "match-2.0"
 
 DEFAULT_WEIGHTS = {
     "commute": 0.30,
@@ -245,14 +246,6 @@ def audit(request, action, instance=None, reason_code="", metadata=None):
         metadata=metadata or {},
     )
 
-
-def _decimal(value):
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
-        return None
-
-
 @dataclass(frozen=True)
 class ScoringConfiguration:
     configuration_type: str
@@ -277,85 +270,6 @@ def _project_configuration_data(project):
         building__project=project,
         fact_set_version__lte=project.published_fact_set_version,
     ))
-
-
-def _hard_constraint_failure(project, profile, configurations):
-    from .layout_pricing import project_price_range
-
-    home = profile.get("home", {})
-    budget = profile.get("budget", {})
-    requested_types = set(home.get("configurations", []))
-    if requested_types and not any(item.configuration_type in requested_types for item in configurations):
-        return "CONFIGURATION_UNAVAILABLE"
-    area_min = _decimal(home.get("carpetAreaSqFt", {}).get("minimum"))
-    if area_min is not None and not any(
-        item.carpet_area_max is not None and item.carpet_area_max >= area_min for item in configurations
-    ):
-        return "BELOW_HARD_CARPET_AREA"
-    bathrooms = home.get("bathroomsMinimum")
-    if bathrooms and home.get("bathroomsIsHardConstraint", True) and not any(
-        item.bathrooms is not None and item.bathrooms >= bathrooms for item in configurations
-    ):
-        return "INSUFFICIENT_BATHROOMS"
-    budget_max = _decimal(budget.get("allInMaximum") or budget.get("purchaseMaximum"))
-    price, _ = project_price_range(project)
-    if budget.get("isHardConstraint") and budget_max is not None and price is not None and price > budget_max:
-        return "OVER_HARD_BUDGET"
-    required = {item.get("code") for item in profile.get("societyAmenities", []) if item.get("importance") == "required" and not item.get("substituteAccepted")}
-    available = set(ProjectAmenity.objects.filter(project=project, availability_state="available").values_list("amenity__taxonomy_code", flat=True))
-    if required - available:
-        return "REQUIRED_AMENITY_UNAVAILABLE"
-    return None
-
-
-def _space_score(profile, configurations):
-    preferred = _decimal(profile.get("home", {}).get("carpetAreaSqFt", {}).get("preferred"))
-    areas = [item.carpet_area_max for item in configurations if item.carpet_area_max is not None]
-    if preferred is None or not areas:
-        return None
-    best = max(areas)
-    return float(min(Decimal("1"), best / preferred))
-
-
-def _budget_score(profile, project):
-    from .layout_pricing import project_price_range
-
-    maximum = _decimal(profile.get("budget", {}).get("allInMaximum") or profile.get("budget", {}).get("purchaseMaximum"))
-    price, _ = project_price_range(project)
-    if maximum is None or price is None:
-        return None
-    if price <= maximum:
-        return float(max(Decimal("0.5"), Decimal("1") - (maximum - price) / maximum * Decimal("0.5")))
-    return float(max(Decimal("0"), Decimal("1") - (price - maximum) / maximum))
-
-
-def _amenity_score(project, preferences, nearby=False):
-    if not preferences:
-        return None
-    amenities = ProjectAmenity.objects.filter(project=project).select_related("amenity")
-    matched = 0.0
-    total = 0.0
-    for preference in preferences:
-        weight = 2.0 if preference.get("importance") == "required" else 1.0
-        total += weight
-        candidate = next((item for item in amenities if item.amenity.taxonomy_code == preference.get("code")), None)
-        if candidate and candidate.availability_state == "available":
-            if nearby:
-                max_distance = min(preference.get("maximumDistanceMeters") or MAX_NEARBY_AMENITY_DISTANCE_METERS, MAX_NEARBY_AMENITY_DISTANCE_METERS)
-                if candidate.distance_meters is not None and candidate.distance_meters <= max_distance:
-                    matched += weight
-            else:
-                matched += weight
-        elif (candidate and preference.get("substituteAccepted") and candidate.availability_state == "nearby_equivalent"
-                and candidate.distance_meters is not None and candidate.distance_meters <= MAX_NEARBY_AMENITY_DISTANCE_METERS):
-            matched += weight * 0.65
-    return matched / total if total else None
-
-
-def _metric_score(project, code):
-    metric = ProjectMetric.objects.filter(project=project, metric_code=code, valid_until__gte=timezone.now()).order_by("-calculated_at").first()
-    return max(0.0, min(1.0, metric.numeric_value)) if metric else None
-
 
 def compute_project_metrics(project):
     from .floor_plan_visibility import visible_plan_facts
@@ -392,60 +306,85 @@ def compute_project_metrics(project):
         )
 
 
-def _components(project, profile, configurations, commute=None):
-    return {
-        "commute": commute,
-        "budget": _budget_score(profile, project),
-        "space": _space_score(profile, configurations),
-        "societyAmenities": _amenity_score(project, profile.get("societyAmenities", [])),
-        "nearbyAmenities": _amenity_score(project, profile.get("nearbyAmenities", []), nearby=True),
-        "microMarket": _metric_score(project, "micro_market_quality"),
-        "projectConfidence": _metric_score(project, "evidence_confidence") or 0.5,
-    }
+@dataclass(frozen=True)
+class ScoringResult:
+    catalog_version: str
+    items: list
+    exclusions: list
+    matching_context: dict
 
 
 def score_recommendations(payload, *, persist_routes=False):
-    """Compute the public match result without creating buyer records."""
+    """Score validated homes and their projects without creating buyer records."""
+    from .feature_flags import snapshot as feature_snapshot
+    from .layout_configurations import matching_layouts
+    from .layout_matching import layout_summary, score_layouts
+    from .project_scoring import score_project
+
+    decision = feature_snapshot().decision("recommendations.layout_hard_matches")
+    context = {"layoutHardMatches": decision.enabled, "featureFlagVersion": decision.version}
     weights = DEFAULT_WEIGHTS | payload.get("weights", {})
-    projects = list(Project.objects.filter(status="published").prefetch_related("metrics", "project_amenities__amenity"))
-    catalog_hash = hashlib.sha256(json.dumps(
-        [(str(project.id), project.published_fact_set_version) for project in projects],
-        default=str,
-    ).encode()).hexdigest()
-    commute = commute_scores(payload, projects, persist=persist_routes)
-    scored = []
-    exclusions = Counter()
+    projects = list(Project.objects.filter(status="published").exclude(
+        merge_out__state="applied",
+    ).exclude(address__has_key="mergedIntoProjectId").order_by("id").prefetch_related("metrics", "project_amenities__amenity"))
+    layouts = list(matching_layouts().filter(pricing_project_id__in=[project.pk for project in projects]).annotate(
+        matching_project_id=F("pricing_project_id"),
+    ).order_by("id"))
+    grouped = {}
+    for layout in layouts:
+        grouped.setdefault(layout.matching_project_id, []).append(layout)
+    catalog_hash = hashlib.sha256(json.dumps({
+        "projects": [(str(project.id), project.published_fact_set_version, project.updated_at) for project in projects],
+        "layouts": [(str(layout.pk), str(layout.matching_project_id), layout.updated_at,
+                     layout.configuration_type, layout.carpet_area_sqft, layout.bathroom_count, layout.price) for layout in layouts],
+        "matchingContext": context,
+    }, default=str, sort_keys=True).encode()).hexdigest()
+    exclusions, matching = Counter(), []
     for project in projects:
-        configurations = _project_configuration_data(project)
-        failure = _hard_constraint_failure(project, payload, configurations)
+        candidates, failure = score_layouts(payload, grouped.get(project.pk, []), strict=decision.enabled)
+        if not failure:
+            project_values, failure = score_project(project, payload)
         if failure:
             exclusions[failure] += 1
-            continue
+        else:
+            matching.append((project, candidates, project_values))
+    commute = commute_scores(payload, [item[0] for item in matching], persist=persist_routes)
+    scored = []
+    for project, candidates, project_values in matching:
         project_commute = commute.get(str(project.id))
-        component_values = _components(project, payload, configurations, project_commute["score"] if project_commute else None)
-        available = {key: value for key, value in component_values.items() if value is not None and weights.get(key, 0) > 0}
-        denominator = sum(weights[key] for key in available)
-        quality = component_values["projectConfidence"]
-        score = 100 * sum(weights[key] * value for key, value in available.items()) / denominator * quality if denominator else 0
+        project_values["commute"] = project_commute["score"] if project_commute else None
+        ranked_layouts = []
+        quality = project_values["projectConfidence"]
+        for candidate in candidates:
+            values = project_values | candidate["values"]
+            available = {key: value for key, value in values.items() if value is not None and weights.get(key, 0) > 0}
+            denominator = sum(weights[key] for key in available)
+            score = 100 * sum(weights[key] * value for key, value in available.items()) / denominator * quality if denominator else 0
+            ranked_layouts.append((score, candidate, values))
+        ranked_layouts.sort(key=lambda item: (-item[0], str(item[1]["layout"].pk)))
+        score, best, values = ranked_layouts[0]
         components = []
-        for key, value in component_values.items():
+        for key in DEFAULT_WEIGHTS:
+            value = values[key]
             component = {"code": key.upper(), "weight": weights.get(key, 0), "status": "available" if value is not None else "unavailable"}
             if value is not None:
                 component["score"] = value
             if key == "commute" and project_commute:
                 component["destinations"] = project_commute["details"]
             components.append(component)
-        reasons = ["ALL_HARD_CONSTRAINTS_MET"]
-        if component_values.get("commute") is not None and component_values["commute"] >= 0.7:
+        reasons = ["ALL_HARD_CONSTRAINTS_MET" if decision.enabled else "LAYOUT_HARD_CONSTRAINTS_NOT_ENFORCED"]
+        if values["commute"] is not None and values["commute"] >= 0.7:
             reasons.append("GOOD_WEIGHTED_COMMUTE")
-        scored.append((score, quality, project, components, reasons))
+        layout_match = {"bestLayoutId": str(best["layout"].pk), "matchedLayoutCount": len(ranked_layouts),
+                        "layouts": [layout_summary(candidate, value) for value, candidate, _ in ranked_layouts[:3]]}
+        scored.append((score, quality, project, components, reasons, layout_match))
     scored.sort(key=lambda item: (-item[0], str(item[2].id)))
     items = [{
         "projectId": str(project.id), "rank": index, "score": round(score, 2),
         "confidence": quality, "components": components, "reasonCodes": reasons,
-        "freshness": {"projectFactsAsOf": project.updated_at},
-    } for index, (score, quality, project, components, reasons) in enumerate(scored[:10], start=1)]
-    return catalog_hash, items, [{"reasonCode": key, "count": value} for key, value in sorted(exclusions.items())]
+        "freshness": {"projectFactsAsOf": project.updated_at}, "layoutMatch": layout_match,
+    } for index, (score, quality, project, components, reasons, layout_match) in enumerate(scored[:10], start=1)]
+    return ScoringResult(catalog_hash, items, [{"reasonCode": key, "count": value} for key, value in sorted(exclusions.items())], context)
 
 
 @transaction.atomic
@@ -458,28 +397,30 @@ def compute_recommendations(requirement_version, snapshot=None):
             raise ValueError("Recommendation snapshot does not belong to this requirement version.")
         if snapshot.state in {"ready", "partially_ready", "expired"}:
             return snapshot
-    catalog_hash, items, exclusions = score_recommendations(requirement_version.payload, persist_routes=True)
+    result = score_recommendations(requirement_version.payload, persist_routes=True)
+    items = result.items
     if snapshot is None:
         snapshot = RecommendationSnapshot.objects.create(
-            requirement_version=requirement_version, algorithm_version="match-1.0",
-            input_catalog_version=catalog_hash, state="computing",
+            requirement_version=requirement_version, algorithm_version=ALGORITHM_VERSION,
+            input_catalog_version=result.catalog_version, state="computing",
         )
     else:
         snapshot.items.all().delete()
-        snapshot.algorithm_version = "match-1.0"
-        snapshot.input_catalog_version = catalog_hash
+        snapshot.algorithm_version = ALGORITHM_VERSION
+        snapshot.input_catalog_version = result.catalog_version
         snapshot.state = "computing"
         snapshot.save(update_fields=["algorithm_version", "input_catalog_version", "state", "updated_at"])
     projects = {str(project.id): project for project in Project.objects.filter(pk__in=[item["projectId"] for item in items])}
     RecommendationItem.objects.bulk_create([
         RecommendationItem(snapshot=snapshot, rank=item["rank"], score=item["score"],
             confidence=item["confidence"], project=projects[item["projectId"]],
-            components=item["components"], reason_codes=item["reasonCodes"])
+            components=item["components"], reason_codes=item["reasonCodes"], layout_match=item["layoutMatch"])
         for item in items
     ])
     snapshot.state = "ready"
     snapshot.generated_at = timezone.now()
     snapshot.expires_at = timezone.now() + timedelta(hours=24)
-    snapshot.excluded_summary = exclusions
-    snapshot.save(update_fields=["state", "generated_at", "expires_at", "excluded_summary", "updated_at"])
+    snapshot.excluded_summary = result.exclusions
+    snapshot.matching_context = result.matching_context
+    snapshot.save(update_fields=["state", "generated_at", "expires_at", "excluded_summary", "matching_context", "updated_at"])
     return snapshot

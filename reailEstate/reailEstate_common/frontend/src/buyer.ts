@@ -92,8 +92,9 @@ export type Project = {
   facts?: { code: string; value: unknown; unit: string; sourceClass: string; reviewedAt: string | null; status?: string }[];
 }
 export type Component = { code: string; weight: number; score?: number; status: string; destinations?: { status: string; durationMinutes?: number; mode?: string }[] }
-export type Match = { projectId: string; rank: number; score: number; confidence: number | null; components: Component[]; reasonCodes: string[]; freshness: { projectFactsAsOf: string } }
-export type Snapshot = { id: string; status: string; profileVersion: number; algorithmVersion: string; generatedAt: string | null; expiresAt: string | null; items: Match[]; excludedSummary: { reasonCode: string; count: number }[] }
+export type MatchedLayout = { id: string; name: string; configurationType: string; carpetAreaSqFt: string | null; bathrooms: number | null; price: string | null; score: number; unverifiedConstraints: string[]; violatedConstraints: string[] }
+export type Match = { projectId: string; rank: number; score: number; confidence: number | null; components: Component[]; reasonCodes: string[]; freshness: { projectFactsAsOf: string }; layoutMatch?: { bestLayoutId?: string; matchedLayoutCount?: number; layouts?: MatchedLayout[] } }
+export type Snapshot = { id: string; status: string; profileVersion: number; algorithmVersion: string; generatedAt: string | null; expiresAt: string | null; items: Match[]; excludedSummary: { reasonCode: string; count: number }[]; matchingContext?: { layoutHardMatches?: boolean; featureFlagVersion?: number | null } }
 export type Shortlist = { id: string; name: string; entries: { project: string; note: string }[] }
 export function coordinates(project: { latitude?: string | number | null; longitude?: string | number | null }): [number, number] | null {
   if (project.latitude == null || project.longitude == null || String(project.latitude).trim() === '' || String(project.longitude).trim() === '') return null
@@ -124,6 +125,6 @@ export const inr = (value: number | null | undefined) => value == null ? 'contac
 export const dateLabel = (value: string | null | undefined) => value ? new Date(value).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) : 'Unknown'
 export function componentLabel(code: string) { return Object.entries(weightLabels).find(([key]) => key.toUpperCase() === code)?.[1] ?? code.replaceAll('_', ' ').toLowerCase() }
 export function reasonLabel(code: string) {
-  const reasons: Record<string, string> = { ALL_HARD_CONSTRAINTS_MET: 'Passed the available hard-constraint checks', GOOD_WEIGHTED_COMMUTE: 'Good weighted commute fit', CONFIGURATION_UNAVAILABLE: 'Requested configuration unavailable', BELOW_HARD_CARPET_AREA: 'Below minimum carpet area', INSUFFICIENT_BATHROOMS: 'Below minimum bathroom count', OVER_HARD_BUDGET: 'Above your hard budget', REQUIRED_AMENITY_UNAVAILABLE: 'Required society amenity unavailable' }
+  const reasons: Record<string, string> = { ALL_HARD_CONSTRAINTS_MET: 'Passed the available hard-constraint checks', LAYOUT_HARD_CONSTRAINTS_NOT_ENFORCED: 'Advisory matching: numeric hard limits are not enforced', NO_VALIDATED_LAYOUT: 'No approved home layout available', LAYOUT_REQUIRED_DATA_UNAVAILABLE: 'Required layout data is missing', GOOD_WEIGHTED_COMMUTE: 'Good weighted commute fit', CONFIGURATION_UNAVAILABLE: 'Requested configuration unavailable', BELOW_HARD_CARPET_AREA: 'Below minimum carpet area', INSUFFICIENT_BATHROOMS: 'Below minimum bathroom count', OVER_HARD_BUDGET: 'Above your hard budget', REQUIRED_AMENITY_UNAVAILABLE: 'Required society amenity unavailable' }
   return reasons[code] ?? code.replaceAll('_', ' ').toLowerCase()
 }

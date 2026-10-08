@@ -48,8 +48,9 @@ def test_registry_is_small_frozen_and_compatibility_defaults_are_explicit():
         "media.crop_drafts", "media.crop_attach", "media.crop_update", "media.layout_names",
         "media.layout_removal", "media.source_pages", "media.auto_segment", "media.extraction_queue",
         "operations.extraction_execute", "operations.legacy_destructive",
+        "showDemoPinsOnBrowse", "recommendations.layout_hard_matches",
     }
-    assert all(item.default_enabled for key, item in REGISTRY.items() if key != "operations.legacy_destructive")
+    assert all(item.default_enabled for key, item in REGISTRY.items() if key not in {"operations.legacy_destructive", "recommendations.layout_hard_matches"})
     assert REGISTRY["operations.legacy_destructive"].default_enabled is False
     assert REGISTRY["operations.extraction_execute"].targetable is False
     with pytest.raises(FrozenInstanceError):
@@ -306,9 +307,9 @@ def test_seed_is_preview_first_idempotent_exact_environment_and_audited(settings
     assert "Preview only" in output.getvalue()
     assert FeatureFlag.objects.count() == 3 and not AuditEvent.objects.exists()
     call_command("sync_feature_flags", apply=True, stdout=io.StringIO())
-    assert FeatureFlag.objects.count() == 12
-    assert AuditEvent.objects.count() == 9
-    assert AuditEvent.objects.filter(actor__isnull=True, reason_code="registry_sync").count() == 9
+    assert FeatureFlag.objects.count() == len(REGISTRY) + 2
+    assert AuditEvent.objects.count() == len(REGISTRY) - 1
+    assert AuditEvent.objects.filter(actor__isnull=True, reason_code="registry_sync").count() == len(REGISTRY) - 1
     assert not FeatureFlag.objects.get(key="operations.legacy_destructive", environment="development").enabled
     existing.refresh_from_db()
     other.refresh_from_db()
@@ -316,4 +317,4 @@ def test_seed_is_preview_first_idempotent_exact_environment_and_audited(settings
     assert existing.version == 8 and not existing.enabled and existing.targeting_rules == {"user_ids": []}
     assert other.version == 9 and not other.enabled and unknown.enabled
     assert sync_defaults(apply=True) == []
-    assert AuditEvent.objects.count() == 9
+    assert AuditEvent.objects.count() == len(REGISTRY) - 1

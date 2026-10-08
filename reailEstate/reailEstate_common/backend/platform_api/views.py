@@ -11,7 +11,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.core.files.base import ContentFile
 from .artifact_storage import storage as default_storage
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q
+from django.db.models import Exists, F, OuterRef, Q
 from django.http import FileResponse, Http404
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
@@ -71,7 +71,7 @@ from .serializers import (
     ReviewTaskSerializer,
     ShortlistSerializer,
 )
-from .services import audit, compute_project_metrics, normalize_maha_rera_id, project_frequent_places, score_recommendations, validate_requirement_payload
+from .services import ALGORITHM_VERSION, audit, compute_project_metrics, normalize_maha_rera_id, project_frequent_places, score_recommendations, validate_requirement_payload
 from .travel import estimate_matrix
 from .workers import (
     detect_media_type,
@@ -338,7 +338,7 @@ class RequirementSubmitView(APIView):
         profile.save(update_fields=["status", "updated_at"])
         snapshot = RecommendationSnapshot.objects.create(
             requirement_version=version,
-            algorithm_version="match-1.0",
+            algorithm_version=ALGORITHM_VERSION,
             input_catalog_version="pending",
             state="requested",
         )
@@ -480,13 +480,13 @@ class GuestRecommendationView(APIView):
             raise ValidationError({"sections": "Provide only the complete requirement sections."})
         _validate_guest_sections(sections)
         validate_requirement_payload(sections, final=True)
-        _, items, exclusions = score_recommendations(sections, persist_routes=False)
+        result = score_recommendations(sections, persist_routes=False)
         generated_at = timezone.now()
         return Response({
             "id": f"guest-{uuid.uuid4()}", "status": "ready", "profileVersion": 1,
-            "algorithmVersion": "match-1.0", "generatedAt": generated_at,
-            "expiresAt": generated_at + timedelta(hours=24), "items": items,
-            "excludedSummary": exclusions,
+            "algorithmVersion": ALGORITHM_VERSION, "generatedAt": generated_at,
+            "expiresAt": generated_at + timedelta(hours=24), "items": result.items,
+            "excludedSummary": result.exclusions, "matchingContext": result.matching_context,
         })
 
 
@@ -512,7 +512,7 @@ class RecommendationRequestViewSet(viewsets.ViewSet):
         version = get_object_or_404(profile.versions, version=version_number, status="submitted")
         snapshot = RecommendationSnapshot.objects.create(
             requirement_version=version,
-            algorithm_version="match-1.0",
+            algorithm_version=ALGORITHM_VERSION,
             input_catalog_version="pending",
             state="requested",
         )
@@ -558,22 +558,24 @@ class ProjectViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(status="published")
         if params.get("locality"):
             queryset = queryset.filter(locality__iexact=params["locality"])
-        if params.get("configuration"):
-            queryset = queryset.filter(buildings__configurations__configuration_type=params["configuration"],
-                                       buildings__configurations__fact_set_version__lte=F("published_fact_set_version"))
-        if params.get("carpetAreaMinimum"):
-            queryset = queryset.filter(buildings__configurations__carpet_area_max__gte=params["carpetAreaMinimum"],
-                                       buildings__configurations__fact_set_version__lte=F("published_fact_set_version"))
-        if params.get("allInPriceMaximum"):
+        if any(params.get(key) for key in ("configuration", "carpetAreaMinimum", "allInPriceMaximum")):
             from decimal import Decimal, InvalidOperation
+            from .layout_configurations import _configuration_name, matching_layouts
 
-            try:
-                maximum = Decimal(params["allInPriceMaximum"])
-            except InvalidOperation:
-                raise ValidationError({"allInPriceMaximum": "Enter a positive amount in INR."}) from None
-            if not maximum.is_finite() or maximum <= 0:
-                raise ValidationError({"allInPriceMaximum": "Enter a positive amount in INR."})
-            queryset = queryset.filter(layout_price_min__lte=maximum)
+            layouts = matching_layouts().filter(pricing_project_id=OuterRef("pk"))
+            if params.get("configuration"):
+                layouts = layouts.filter(configuration_key=_configuration_name(params["configuration"]))
+            for key, lookup in (("carpetAreaMinimum", "carpet_area_sqft__gte"), ("allInPriceMaximum", "price__lte")):
+                if not params.get(key):
+                    continue
+                try:
+                    value = Decimal(params[key])
+                except InvalidOperation:
+                    raise ValidationError({key: "Enter a positive, finite number."}) from None
+                if not value.is_finite() or value <= 0:
+                    raise ValidationError({key: "Enter a positive, finite number."})
+                layouts = layouts.filter(**{lookup: value})
+            queryset = queryset.filter(Exists(layouts))
         if params.get("mahaReraStatus"):
             queryset = queryset.filter(verification_status=params["mahaReraStatus"])
         if params.get("amenity"):

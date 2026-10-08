@@ -17,7 +17,6 @@ from .artifact_storage import storage
 from .feature_flags import FeatureDisabled, require_enabled
 from .floor_plan_vision import get_floor_plan_vision_provider, resolve_ai_vision_selection
 from .ingestion_runtime import work_lock
-from .layout_reanalysis import queue_layout_evaluation
 from .models import AuditEvent, EvidenceDocument, FloorPlan, FloorPlanAsset, Operation, OutboxMessage, Project
 from .policies.crops import crop_destination
 from .unit_segmentation import replace_unit_segments, require_segment_replacement_allowed, validate_regions
@@ -103,7 +102,7 @@ def queue_floor_plan_layouts(plan, actor, vision_profile_id=None, vision_selecti
     existing = OutboxMessage.objects.select_for_update().filter(
         event_type=UNITS_EVENT, payload__sourcePlanId=str(plan.pk),
         payload__assetSha256=plan.asset.sha256,
-    ).order_by("occurred_at", "pk").first()
+    ).order_by("-occurred_at", "-pk").first()
     if existing:
         operation = Operation.objects.select_for_update().get(pk=existing.payload["operationId"])
         if (retry and existing.dead_lettered_at and not existing.published_at
@@ -202,10 +201,10 @@ def evaluate_floor_plan_layouts(payload):
                 _authorize(operation.owner, plan.project)
             require_segment_replacement_allowed(plan, ["ai"], operation.owner)
             provider = get_floor_plan_vision_provider(selection)
-            regions, metadata = provider.analyze_unit_regions(data, asset.media_type)
+            regions, metadata = provider.analyze_full_floor(data, asset.media_type)
             # The provider returns UnitRegion instances, not raw response dicts.
             regions = validate_regions([asdict(region) for region in regions])
-            if (not regions or metadata.get("pageType") != "multi_unit_floor_plan"
+            if (not regions or metadata.get("pageType") not in {"multi_unit_floor_plan", "single_unit_layout", "layout_sheet"}
                     or metadata.get("unitCount") != len(regions)):
                 raise ValueError("NO_INDIVIDUAL_LAYOUTS_DETECTED")
             with transaction.atomic():
@@ -217,23 +216,27 @@ def evaluate_floor_plan_layouts(payload):
                     return operation
                 _validate_source(plan, payload)
                 _authorize(operation.owner, plan.project)
+                floor_evaluation = {
+                    "pageType": metadata["pageType"],
+                    "flatsPerFloor": len(regions) if metadata["pageType"] == "multi_unit_floor_plan" else None,
+                    "liftCount": metadata.get("liftCount"), "staircaseCount": metadata.get("staircaseCount"),
+                    "visualEvidence": metadata.get("visualEvidence", ""),
+                    "assetId": str(asset.pk), "assetSha256": asset.sha256,
+                }
+                plan.features = plan.features | {"floorEvaluation": floor_evaluation}
+                plan.save(update_fields=["features", "updated_at"])
                 plans, workflow = replace_unit_segments(
                     plan, regions, "ai", metadata={**metadata, "visionSelection": selection,
                                                   "operationId": str(operation.pk)},
                     actor=operation.owner,
                 )
                 saved_keys = [crop.asset.object_key for crop in plans]
-                crop_jobs = []
-                for crop in plans:
-                    crop.review_state = "pending_crop_evaluation"
-                    crop.save(update_fields=["review_state", "updated_at"])
-                    message, _ = queue_layout_evaluation(crop, actor=operation.owner, vision_selection=selection)
-                    crop_jobs.append(str(message.pk))
                 operation.state = "completed"
                 operation.error_code = ""
                 operation.result = operation.result | {
                     "workflowRunId": str(workflow.pk), "planIds": [str(crop.pk) for crop in plans],
-                    "cropJobIds": crop_jobs, "unitCount": len(plans), "sourceRetained": True,
+                    "cropJobIds": workflow.result["cropJobIds"], "unitCount": len(plans), "sourceRetained": True,
+                    "floorEvaluation": floor_evaluation,
                     "completedAt": timezone.now().isoformat(),
                 }
                 operation.save(update_fields=["state", "error_code", "result", "updated_at"])

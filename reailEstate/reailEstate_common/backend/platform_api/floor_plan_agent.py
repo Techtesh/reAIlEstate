@@ -54,7 +54,7 @@ class FloorPlanCandidate:
 class FloorPlanAgent:
     """Bounded workflow: detect, extract, validate, reconcile, and request review."""
 
-    version = "floor-plan-agent-1.5"
+    version = "floor-plan-agent-1.6"
 
     def __init__(self, vision_provider=None):
         self._owns_vision_provider = vision_provider is None
@@ -82,6 +82,14 @@ class FloorPlanAgent:
             with transaction.atomic():
                 floor_plans = self._persist(workflow, reconciled)
                 self._step(workflow, 6, "review_gate", self._review_gate, workflow, floor_plans)
+                selection = getattr(self.vision_provider, "_selection", None)
+                if isinstance(selection, dict) and any(plan.plan_scope == "floor" for plan in floor_plans):
+                    from .source_page_additions import _queue_automatic_layouts
+                    for asset in assets:
+                        _queue_automatic_layouts(
+                            asset, [plan for plan in floor_plans if plan.asset_id == asset.pk],
+                            ingestion_run.document.uploaded_by, selection,
+                        )
             workflow.status = "completed"
             workflow.current_step = "completed"
             workflow.completed_at = timezone.now()
@@ -243,12 +251,14 @@ class FloorPlanAgent:
         for index, asset in enumerate(assets, 1):
             event("floor_plan_request", pageNumber=asset.page_number, imageIndex=index, imageTotal=len(assets))
             with default_storage.open(asset.object_key, "rb") as screenshot:
+                image_bytes = screenshot.read()
                 analyze = getattr(self.vision_provider, "analyze_classified_plan", self.vision_provider.analyze)
-                result = analyze(
-                    screenshot.read(),
-                    asset.media_type,
-                    self._vision_schema(),
-                )
+                if asset.source_bounds.get("category") == "layouts" or asset.asset_type == "unit_crop":
+                    analyze = getattr(self.vision_provider, "analyze_layout", analyze)
+                result = analyze(image_bytes, asset.media_type, self._vision_schema())
+                if (result.get("pageType") == "flat_layout" and hasattr(self.vision_provider, "analyze_layout")
+                        and analyze != self.vision_provider.analyze_layout):
+                    result = self.vision_provider.analyze_layout(image_bytes, asset.media_type, self._vision_schema())
             if "pageType" in result:
                 asset.source_bounds = asset.source_bounds | {"aiClassification": {
                     "pageType": result["pageType"], "visualEvidence": result["visualEvidence"],
@@ -541,6 +551,11 @@ class FloorPlanAgent:
             raise ValueError("INVALID_VISION_RESPONSE") from exc
         if serialized_size > 1_000_000:
             raise ValueError("VISION_RESPONSE_TOO_LARGE")
+        if result.get("pageType") in {"full_floor", "multiple_layouts"}:
+            return [FloorPlanCandidate(
+                page_number, f"Floor plan page {page_number}", "", None, [], 0,
+                result.get("visualEvidence", ""), asset=asset, plan_scope="floor",
+            )]
         candidates = []
         for item in result.get("floorPlans", [])[:20]:
             if not isinstance(item, dict):

@@ -269,7 +269,12 @@ def evaluate_source_page(payload):
                 evaluate_amenity_page(asset, operation, provider, data)
                 return
             agent = FloorPlanAgent(provider)
-            result = provider.analyze_classified_plan(data, asset.media_type, agent._vision_schema())
+            if payload["category"] == "layouts":
+                result = provider.analyze_layout(data, asset.media_type, agent._vision_schema())
+            else:
+                result = provider.analyze_classified_plan(data, asset.media_type, agent._vision_schema())
+                if result.get("pageType") == "flat_layout":
+                    result = provider.analyze_layout(data, asset.media_type, agent._vision_schema())
             candidates = agent._reconcile(agent._validate(agent._vision_candidates(asset.page_number, result, asset)))
             with transaction.atomic():
                 operation.refresh_from_db()
@@ -280,7 +285,8 @@ def evaluate_source_page(payload):
                 workflow = asset.workflow_run
                 plans = agent._persist(workflow, candidates)
                 agent._review_gate(workflow, plans)
-                skipped = _queue_automatic_layouts(asset, plans, operation.owner, payload["visionSelection"])
+                skipped = (_queue_automatic_layouts(asset, plans, operation.owner, payload["visionSelection"])
+                           if any(plan.plan_scope == "floor" for plan in plans) else {})
                 FloorPlan.objects.filter(id=payload["floorPlanId"]).update(review_state="superseded_page_candidate")
                 workflow.status = "completed"
                 workflow.completed_at = timezone.now()

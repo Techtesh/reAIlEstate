@@ -591,12 +591,13 @@ class ProjectMetric(TimestampedModel):
 
 class RecommendationSnapshot(TimestampedModel):
     requirement_version = models.ForeignKey(RequirementVersion, on_delete=models.PROTECT, related_name="recommendation_snapshots")
-    algorithm_version = models.CharField(max_length=32, default="match-1.0")
+    algorithm_version = models.CharField(max_length=32, default="match-2.0")
     input_catalog_version = models.CharField(max_length=64)
     state = models.CharField(max_length=32, default="requested")
     generated_at = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)
     excluded_summary = models.JSONField(default=list)
+    matching_context = models.JSONField(default=dict)
 
 
 class RecommendationItem(UUIDModel):
@@ -607,6 +608,7 @@ class RecommendationItem(UUIDModel):
     confidence = models.FloatField(validators=[MinValueValidator(0), MaxValueValidator(1)])
     components = models.JSONField(default=list)
     reason_codes = models.JSONField(default=list)
+    layout_match = models.JSONField(default=dict)
 
     class Meta:
         ordering = ["rank"]

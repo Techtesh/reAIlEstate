@@ -2,6 +2,7 @@ import base64
 import json
 import sys
 from copy import deepcopy
+from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import ANY, MagicMock, Mock, patch
 
@@ -73,6 +74,7 @@ def sdk(monkeypatch):
     monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=openai))
     monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(Client=httpx))
     monkeypatch.setitem(sys.modules, "azure.identity", SimpleNamespace(DefaultAzureCredential=identity))
+    monkeypatch.setattr(vision, "model_request_slot", lambda _: nullcontext())
     return SimpleNamespace(
         openai=openai, httpx=httpx, identity=identity, client=client,
         transport=transport, credential=credential, response=response,
@@ -351,9 +353,9 @@ def test_flat_separation_skill_closes_owned_provider(profiles, monkeypatch, fail
     from platform_api import floor_plan_ai_skill as skill
 
     provider = Mock()
-    provider.analyze_unit_regions.return_value = ([], {"unitCount": 0})
+    provider.analyze_full_floor.return_value = ([], {"unitCount": 0})
     if fails:
-        provider.analyze_unit_regions.side_effect = ProviderUnavailable("Unavailable")
+        provider.analyze_full_floor.side_effect = ProviderUnavailable("Unavailable")
     monkeypatch.setattr(skill, "get_floor_plan_vision_provider", Mock(return_value=provider))
     if fails:
         with pytest.raises(ProviderUnavailable):

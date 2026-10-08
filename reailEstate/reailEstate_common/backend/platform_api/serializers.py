@@ -474,7 +474,7 @@ class RecommendationItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RecommendationItem
-        fields = ["project_id", "rank", "score", "confidence", "components", "reason_codes", "freshness"]
+        fields = ["project_id", "rank", "score", "confidence", "components", "reason_codes", "freshness", "layout_match"]
 
     def get_freshness(self, obj):
         return {"projectFactsAsOf": obj.project.updated_at}
@@ -493,7 +493,7 @@ class RecommendationSnapshotSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = RecommendationSnapshot
-        fields = ["id", "status", "profile_version", "algorithm_version", "generated_at", "expires_at", "items", "excluded_summary"]
+        fields = ["id", "status", "profile_version", "algorithm_version", "generated_at", "expires_at", "items", "excluded_summary", "matching_context"]
 
 
 class ShortlistProjectSerializer(serializers.ModelSerializer):

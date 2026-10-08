@@ -134,6 +134,9 @@ class ProjectLayoutHealthAdminMixin:
         # Requires the annotated queryset, rather than an accidental N+1 fallback.
         url = reverse("admin:platform_api_project_media_dashboard", args=[obj.layout_health_project_id],
                       current_app=self.admin_site.name) + "?section=layouts&issues=boundaries"
+        filters = getattr(obj, "admin_preserved_filters", "")
+        if filters:
+            url += "&" + filters
         if obj.boundary_review_count:
             return format_html('<a href="{}" style="font-weight:700;color:var(--error-fg)">⚠ {} layouts</a>', url, obj.boundary_review_count)
         return "—"

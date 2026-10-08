@@ -76,6 +76,8 @@ def separate_floor_plan_units(floor_plan_id, mode="script", expected_count=None,
     if plan.review_state in {"removed_by_user", "replaced_by_user", "superseded_page_candidate"}:
         raise ValueError("FLOOR_PLAN_SOURCE_HIDDEN")
     require_enabled("media.auto_segment", actor=actor, project=destination)
+    if mode in {"ai", "both"}:
+        require_enabled("media.extraction_queue", actor=actor, project=destination)
     floor_labels = floor_applicability(_page_text(plan))
     methods = ["script", "ai"] if mode == "both" else [mode]
     require_segment_replacement_allowed(plan, methods, actor, supersede_source=supersede_source)
@@ -98,6 +100,7 @@ def separate_floor_plan_units(floor_plan_id, mode="script", expected_count=None,
             result["methods"][method] = {
                 "status": "completed", "unitCount": len(plans), "workflowRunId": str(workflow.id),
                 "planIds": [str(item.id) for item in plans],
+                "cropJobIds": workflow.result["cropJobIds"],
                 "assets": [{"assetId": str(item.asset_id),
                             "uri": f"/api/v1/media/floor-plan-assets/{item.asset_id}"} for item in plans],
                 "metadata": metadata,

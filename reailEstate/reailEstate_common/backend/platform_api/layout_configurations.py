@@ -1,9 +1,12 @@
 import re
 
+from django.db.models import Value
+from django.db.models.functions import Replace, Trim, Upper
+
 from .layout_pricing import pricing_layouts
 
 
-CONFIGURATION = re.compile(r"^(?:[1-6](?:\.5)?\s*BHK|studio)$", re.IGNORECASE)
+CONFIGURATION = re.compile(r"^(?:[1-6](?:\.5)?\s*BHK|1\s*RK|studio)$", re.IGNORECASE)
 
 
 def _configuration_name(value):
@@ -13,6 +16,12 @@ def _configuration_name(value):
     if CONFIGURATION.fullmatch(name):
         return name.upper().replace(" ", "")
     return name[:128]
+
+
+def matching_layouts():
+    return pricing_layouts(can_review=False).alias(
+        configuration_key=Upper(Replace(Trim("configuration_type"), Value(" "), Value(""))),
+    )
 
 
 def project_layout_configurations(project, *, can_review=False):
