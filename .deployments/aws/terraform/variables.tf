@@ -198,21 +198,10 @@ variable "floor_plan_extraction_mode" {
   }
 }
 
-variable "floor_plan_vision_profiles_json" {
-  description = "Non-secret JSON profile registry for AI extraction endpoints and model deployments."
+variable "floor_plan_vision_profiles_file" {
+  description = "Path to an operator-provisioned vision-profiles.json inside the application container."
   type        = string
-  default     = "{}"
-
-  validation {
-    condition     = can(jsondecode(var.floor_plan_vision_profiles_json))
-    error_message = "floor_plan_vision_profiles_json must contain valid JSON."
-  }
-}
-
-variable "floor_plan_default_vision_profile" {
-  description = "Default profile ID when AI extraction is enabled."
-  type        = string
-  default     = ""
+  default     = "/workspace/vision-profiles.json"
 }
 
 variable "clamav_enabled" {

@@ -315,6 +315,36 @@ def test_manual_extraction_rejects_stale_invalid_and_pending_work(client, record
     assert plan.dimensions == []
 
 
+def test_manual_corrections_resolve_only_changed_axis_warnings_and_keep_original_evidence(client, records):
+    from .test_room_dimensions import native_room
+    from platform_api.domain.room_dimensions import normalize_room_measurements
+    owner, _, plan = ready_extraction_plan(records)
+    plan.dimensions, metadata = normalize_room_measurements([native_room("Living", 1, 10,
+        unitSource="inferred", lengthEstimated=True, widthEstimated=True)])
+    plan.raw_extraction = {**metadata, "qualityWarning": "Existing boundary warning"}
+    original_readings = metadata["dimensionEvidence"][0]["measurements"]
+    plan.save()
+    client.force_login(owner)
+    url = reverse("admin:platform_api_floorplan_edit_extraction", args=[plan.pk])
+    data = extraction_post(plan)
+    data.update({"rooms-INITIAL_FORMS": "1", "rooms-0-source_index": "0"})
+    assert client.post(url, data).status_code == 302
+    plan.refresh_from_db()
+    assert "AI-estimated length" not in plan.raw_extraction["dimensionWarning"]
+    assert "AI-estimated width" in plan.raw_extraction["dimensionWarning"]
+    assert "AI-inferred unit" in plan.raw_extraction["dimensionWarning"]
+    assert plan.raw_extraction["dimensionEvidence"][0]["measurements"] == original_readings
+    assert plan.raw_extraction["qualityWarning"] == "Existing boundary warning"
+    assert plan.review_state == "needs_boundary_review"
+    data = extraction_post(plan)
+    data.update({"rooms-INITIAL_FORMS": "2", "rooms-0-source_index": "0", "rooms-0-length_ft": "12.5",
+        "rooms-0-width_ft": "11", "rooms-1-source_index": "1"})
+    assert client.post(url, data).status_code == 302
+    plan.refresh_from_db()
+    assert plan.raw_extraction["dimensionWarning"] == ""
+    assert plan.raw_extraction["dimensionEvidence"][0]["measurements"] == original_readings
+
+
 def test_manual_extraction_requires_permissions_and_csrf(client, records, django_user_model):
     from django.test import Client
 

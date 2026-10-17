@@ -15,7 +15,7 @@ type MediaItem = {
   configuration?: string; area?: string | number | null; dimensions?: RoomMeasurement[]
   roomRectangleSumSqFt?: number | null; roomCount?: number | null; bathrooms?: number | null; balconies?: number | null
   orientation?: string; confidence?: number | string | null; extractorVersion?: string; sourceKind?: string
-  qualityWarning?: string; features?: Record<string, unknown>; evaluation?: Evaluation | null
+  qualityWarning?: string; dimensionWarning?: string; features?: Record<string, unknown>; evaluation?: Evaluation | null
 }
 type Media = {
   projectId: string; projectName: string; projectPrice: string | number | null; canEdit: boolean
@@ -540,6 +540,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
       <p role="status"><strong>{selected.evaluation?.label ?? 'Refresh media to load the evaluation status.'}</strong></p>
       {selected.evaluation?.error && <p className="field-error">Evaluation error: {selected.evaluation.error}{selected.evaluation.error === 'MANUAL_CROP_NOT_SINGLE_LAYOUT' && '. This crop appears to contain multiple homes. Update its boundary to one layout before re-evaluating.'}</p>}
       {selected.qualityWarning && <p className="field-error">Boundary review: {selected.qualityWarning}</p>}
+      {selected.dimensionWarning && <p className="field-error" role="alert">Room size review: {selected.dimensionWarning}</p>}
       {selected.evaluation?.state === 'queued' && selected.evaluation.retryAt && new Date(selected.evaluation.retryAt).getTime() > Date.now() && <p>Scheduled for: {new Date(selected.evaluation.retryAt).toLocaleString()}</p>}
       {selected.dimensions?.length ? <div className="builder-media-table"><table><caption>Room measurements for {selected.label}</caption><thead><tr><th scope="col">Room</th><th scope="col">Length</th><th scope="col">Width</th><th scope="col">Area</th></tr></thead><tbody>
         {selected.dimensions.map((room, index) => <tr key={index}><th scope="row">{room.room || room.name || 'Room'}</th><td>{measurement(room.lengthFt, 'ft')}</td><td>{measurement(room.widthFt, 'ft')}</td><td>{measurement(room.areaSqFt, 'sq ft')}</td></tr>)}
@@ -572,7 +573,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     {confirmation && <div ref={confirmationPanel} tabIndex={-1} className="builder-confirm" role="group" aria-label="Confirm media action">
       <h3>{confirmationTitle}</h3>
       <p>{queues ? 'This explicitly queues AI evaluation and may incur model costs. Results still require independent review; this does not publish or approve anything.' : confirmation.kind === 'discard' ? 'This removes only the selected crop drafts, not their source documents.' : 'This changes project media, not the original evidence. Independent review is still required; this does not approve or publish anything.'}</p>
-      {queues && <p>Evaluation profile: {media?.profiles.find(item => item.id === profile)?.label ?? 'Server default'}</p>}
+      {queues && <p>Evaluation profile: {media?.profiles.find(item => item.id === profile)?.label ?? 'Automatic — configured fallback order'}</p>}
       <div className="button-row"><button className="primary" disabled={mutationBlocked} onClick={confirmAction}>{confirmation.kind === 'discard' ? 'Confirm discard' : queues ? 'Confirm and queue evaluation' : 'Confirm media change'}</button><button className="secondary" disabled={busy} onClick={() => setConfirmation(null)}>Cancel media action</button></div>
     </div>}
     {tab === 'project-images' && media && <section aria-label="Project picture settings">
@@ -592,7 +593,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
       <section className="builder-media-drafts" aria-label="Crop drafts"><h3>Crop drafts</h3><p>Attach new media or commit existing crop updates, or discard drafts. Categories are retained: amenity crops remain amenities, not layouts. Draft previews do not run AI.</p>
         <div className="builder-media-thumbnails">{media.drafts.map(draft => <div className="builder-media-draft" key={draft.id}><PrivateImage key={`${draft.imageUrl}-${previewVersion}`} url={draft.imageUrl || `${root}/drafts/${encodeURIComponent(draft.id)}`} label={draft.label} openInNewTab /><label><input type="checkbox" disabled={mutationBlocked || !!confirmation} checked={selectedDrafts.includes(draft.id)} onChange={event => setSelectedDrafts(current => event.target.checked ? [...current, draft.id] : current.filter(id => id !== draft.id))} />{draft.label}</label></div>)}</div>
         {!media.drafts.length && <p>No crop drafts.</p>}
-        <label>Evaluation profile<select value={profile} disabled={mutationBlocked || !!confirmation} onChange={event => setProfile(event.target.value)}><option value="">Server default</option>{media.profiles.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+        <label>Evaluation profile<select value={profile} disabled={mutationBlocked || !!confirmation} onChange={event => setProfile(event.target.value)}><option value="">Automatic — configured fallback order</option>{media.profiles.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
         <div className="button-row"><button className="primary" disabled={mutationBlocked || !selectedDrafts.length || !!confirmation} onClick={() => setConfirmation({ kind: 'attach', draftIds: [...selectedDrafts] })}>Attach selected drafts</button><button className="secondary" disabled={mutationBlocked || !selectedDrafts.length || !!confirmation} onClick={() => setConfirmation({ kind: 'discard', draftIds: [...selectedDrafts] })}>Discard selected drafts</button></div>
       </section>
       <section aria-label="Plan management"><h3>Plan management</h3><p>Checked means enabled. Uncheck a plan to disable it, then use its trash icon to delete it from the active collection. Deactivating a floor plan also deactivates its derived layouts; activating it does not reactivate them. Original evidence is retained.</p>

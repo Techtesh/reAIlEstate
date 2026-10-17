@@ -1,4 +1,5 @@
 from decimal import Decimal
+from copy import deepcopy
 from uuid import uuid4
 
 from django import forms
@@ -14,7 +15,7 @@ from .ingestion_runtime import WorkAlreadyClaimed, work_lock
 from .jobs.events import EXTRACTION_EVENTS
 from .layout_crop_update import editable_layout
 from .models import AuditEvent, EvidenceDocument, FloorPlan, OutboxMessage, ReviewTask
-from .domain.room_dimensions import calculate_room_areas
+from .domain.room_dimensions import calculate_room_areas, dimension_warning
 
 
 EXTRACTION_FIELDS = (
@@ -82,6 +83,39 @@ def extraction_values(plan):
             for name in (*EXTRACTION_FIELDS, "dimensions") for value in [getattr(plan, name)]}
 
 
+def corrected_dimension_metadata(plan, rooms):
+    raw = deepcopy(plan.raw_extraction)
+    if not raw.get("dimensionEvidence"):
+        return raw
+    evidence = {item["roomIndex"]: item for item in raw["dimensionEvidence"] if item.get("roomIndex") is not None}
+    next_index = 0
+    for form in rooms:
+        data = form.cleaned_data
+        if not data:
+            continue
+        index = data.get("source_index")
+        item = evidence.get(index)
+        if data.get("DELETE"):
+            if item:
+                item.update(resolved=True, roomIndex=None)
+            continue
+        if item:
+            previous = plan.dimensions[index]
+            changed_axes = [axis for axis in ("length", "width")
+                            if previous.get(axis + "Ft") != (float(data[axis + "_ft"]) if data.get(axis + "_ft") is not None else None)]
+            resolved = set(item.get("resolvedWarnings", []))
+            corrected_axes = set(item.get("correctedAxes", [])) | set(changed_axes)
+            for axis in changed_axes:
+                resolved.update((f"AI-estimated {axis}", f"unknown or unusable {axis}/unit"))
+            if corrected_axes == {"length", "width"}:
+                resolved.update(("AI-inferred unit", "conflicting unit evidence"))
+            item.setdefault("sourceRoom", item["room"])
+            item.update(room=data["room"], roomIndex=next_index, resolvedWarnings=sorted(resolved), correctedAxes=sorted(corrected_axes))
+        next_index += 1
+    raw["dimensionWarning"] = dimension_warning(raw["dimensionEvidence"])
+    return raw
+
+
 def save_extraction(plan_id, actor, data, rooms):
     snapshot, destination = editable_layout(plan_id, actor)
     with work_lock("document", snapshot.document_id), transaction.atomic():
@@ -98,13 +132,15 @@ def save_extraction(plan_id, actor, data, rooms):
         before = extraction_values(current)
         for name in EXTRACTION_FIELDS:
             setattr(current, name, data[name])
-        current.dimensions = corrected_dimensions(current, rooms)
+        dimensions = corrected_dimensions(current, rooms)
+        current.raw_extraction = corrected_dimension_metadata(current, rooms)
+        current.dimensions = dimensions
         after = extraction_values(current)
         changed_fields = [name for name in after if before[name] != after[name]]
         if not changed_fields:
             return current, False
         current.review_state = "needs_boundary_review" if current.raw_extraction.get("qualityWarning") else "needs_review"
-        current.save(update_fields=[*EXTRACTION_FIELDS, "dimensions", "review_state", "updated_at"])
+        current.save(update_fields=[*EXTRACTION_FIELDS, "dimensions", "raw_extraction", "review_state", "updated_at"])
         task = ReviewTask.objects.create(project=destination, task_type="floor_plan", priority=1, resolution={
             "floorPlanId": str(current.pk), "source": "manual_extraction", "submittedBy": actor.pk,
             "reviewState": "unreviewed", "reason": data["reason"], "before": before, "after": after,

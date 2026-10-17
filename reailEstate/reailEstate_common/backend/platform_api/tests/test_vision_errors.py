@@ -43,3 +43,12 @@ def test_timeout_is_retryable():
     class APITimeoutError(Exception):
         pass
     assert safe_request_error(APITimeoutError()).retryable is True
+
+
+def test_queue_preserves_safe_timeout_code():
+    from platform_api.layout_reanalysis import layout_evaluation_error
+
+    class APITimeoutError(Exception):
+        pass
+
+    assert layout_evaluation_error(safe_request_error(APITimeoutError("private body"))) == "VISION_TIMEOUT"

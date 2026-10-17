@@ -9,6 +9,7 @@
 .media-tools .evaluation-retry-dialog h2 { font-size: 20px; line-height: 1.3; }
 .media-tools .evaluation-retry-dialog p, .media-tools .evaluation-retry-dialog li { overflow-wrap: anywhere; }
 .media-tools .evaluation-retry-dialog .media-actions { justify-content: flex-end; margin-bottom: 0; }
+.media-tools .evaluation-retry-dialog [hidden] { display: none !important; }
 .media-tools .plan-heading { display: flex; flex-wrap: wrap; align-items: start; gap: 8px; }
 .media-tools .plan-heading h2 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .media-tools details.alias-editor { margin: 0; }

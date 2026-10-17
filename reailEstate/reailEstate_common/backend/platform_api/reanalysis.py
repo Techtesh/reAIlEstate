@@ -17,6 +17,43 @@ RETRY_WARNING_ACTIONS = {
 }
 
 
+def fresh_evaluation_plans(project):
+    """Current failed layout/floor attempts only, including deleted DLQ entries."""
+    from .floor_plan_visibility import visible_floor_plans
+    plans = {str(plan.pk): plan for plan in visible_floor_plans(
+        FloorPlan.objects.filter(project=project, plan_scope__in=["flat", "floor"])).select_related("asset")}
+    operations = Operation.objects.filter(
+        models.Q(result__floorPlanId__in=list(plans)) | models.Q(result__sourcePlanId__in=list(plans)),
+        kind__in=["floor_plan_crop_evaluation", "floor_plan_units_evaluation"],
+    ).order_by("-created_at", "-pk")
+    seen, failed = set(), []
+    for operation in operations:
+        key = operation.result.get("floorPlanId") or operation.result.get("sourcePlanId")
+        if key in seen:
+            continue
+        seen.add(key)
+        plan = plans.get(key)
+        expected_kind = "floor_plan_units_evaluation" if plan and plan.plan_scope == "floor" else "floor_plan_crop_evaluation"
+        if (plan and operation.state == "failed" and operation.kind == expected_kind and plan.asset_id
+                and operation.result.get("assetId") == str(plan.asset_id)
+                and operation.result.get("assetSha256") == plan.asset.sha256):
+            failed.append(plan)
+    return failed
+
+
+def queue_fresh_project_evaluations(project, actor):
+    from .floor_plan_layout_jobs import queue_floor_plan_layouts
+    from .layout_evaluation_status import queue_single_layout
+    queued = []
+    for plan in fresh_evaluation_plans(project):
+        if plan.plan_scope == "floor":
+            job = queue_floor_plan_layouts(plan, actor, fresh=True)
+            queued.append(str(job.pk))
+        else:
+            queued.append(queue_single_layout(project, plan.pk, actor, fresh=True)["messageId"])
+    return queued
+
+
 def evaluation_retry_warning(project, actor, submitted):
     import hashlib
     import json
@@ -111,8 +148,13 @@ def evaluation_retry_warning(project, actor, submitted):
                 return None
         except signing.BadSignature:
             pass
-    return {"project": project.submitted_name, "failures": failures[:20], "total": len(failures),
-            "confirmationToken": signing.dumps(confirmation, salt="evaluation-retry", compress=True)}
+    warning = {"project": project.submitted_name, "failures": failures[:20], "total": len(failures),
+               "confirmationToken": signing.dumps(confirmation, salt="evaluation-retry", compress=True)}
+    if (action in {"run_layout_evaluation", "queue_floor_layouts"}
+            or (action == "run_project_evaluations" and fresh_evaluation_plans(project))):
+        fresh_confirmation = {**confirmation, "request": {**data, "fresh_evaluation": ["true"]}}
+        warning["freshConfirmationToken"] = signing.dumps(fresh_confirmation, salt="evaluation-retry", compress=True)
+    return warning
 
 
 @transaction.atomic

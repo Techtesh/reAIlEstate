@@ -26,8 +26,7 @@ clamav_endpoint = "tcp://clamav:3310"
 # Keep script mode until model availability, quota, identity access, and data
 # residency have been validated in the target tenant.
 floor_plan_extraction_mode          = "script"
-floor_plan_vision_profiles_json      = "{}"
-floor_plan_default_vision_profile    = ""
+floor_plan_vision_profiles_file = "/workspace/vision-profiles.json"
 azure_openai_resource_id             = ""
 
 tags = {

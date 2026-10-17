@@ -42,11 +42,11 @@ def test_mode_switch_preserves_existing_selections(configuration, settings):
     script_selection = vision.resolve_vision_selection()
     settings.FLOOR_PLAN_EXTRACTION_MODE = "ai"
     ai_selection = vision.resolve_vision_selection()
-    assert ai_selection["provider"] == "ollama"
-    assert vision.list_floor_plan_vision_profiles()["defaultProfileId"] == "local"
+    assert ai_selection["provider"] == "automatic"
+    assert vision.list_floor_plan_vision_profiles()["defaultProfileId"] is None
     assert isinstance(vision.get_floor_plan_vision_provider(script_selection), RuleBasedPlanProvider)
     settings.FLOOR_PLAN_EXTRACTION_MODE = "script"
-    assert vision.get_floor_plan_vision_provider(ai_selection).model == "vision-model"
+    assert vision.get_floor_plan_vision_provider(ai_selection)._profiles["local"]["model"] == "vision-model"
     assert vision.get_floor_plan_vision_provider().code == "rules"
 
 

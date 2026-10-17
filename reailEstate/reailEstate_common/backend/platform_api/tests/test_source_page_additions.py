@@ -197,9 +197,13 @@ def test_single_apartment_pages_use_layout_evaluator_without_segmentation(source
     from unittest.mock import Mock
     from platform_api import floor_plan_vision, source_page_additions
     from .test_ai_plan_classification import layout_result
+    from .test_room_dimensions import native_room
     project, document, actor, _ = source
     provider = Mock(code="test", model="test-model", profile_id="test")
-    provider.analyze_layout.return_value = layout_result()
+    result = layout_result()
+    result["floorPlans"][0]["dimensions"] = [native_room("Living", 7, 3.87, "m"),
+        native_room("Kitchen", 9, 6, unitSource="inferred", widthEstimated=True)]
+    provider.analyze_layout.return_value = result
     provider.analyze_classified_plan.return_value = layout_result()
     monkeypatch.setattr(floor_plan_vision, "get_floor_plan_vision_provider", lambda _: provider)
     fanout = Mock(side_effect=AssertionError("Single apartment must not be segmented"))
@@ -210,6 +214,10 @@ def test_single_apartment_pages_use_layout_evaluator_without_segmentation(source
     plans = project.floor_plans.exclude(review_state="superseded_page_candidate")
     assert plans.count() == 1 and plans.get().plan_scope == "flat"
     assert plans.get().configuration_type == "1BHK"
+    assert plans.get().dimensions[0]["lengthFt"] == pytest.approx(7 / 0.3048)
+    assert "Kitchen: AI-inferred unit, AI-estimated width" in plans.get().raw_extraction["dimensionWarning"]
+    assert plans.get().raw_extraction["dimensionEvidence"][0]["measurements"][0]["length"] == "7"
+    assert plans.get().review_state == "gen_with_ai_needs_review"
     provider.analyze_layout.assert_called_once()
     assert provider.analyze_classified_plan.call_count == (category == "floor-plans")
     fanout.assert_not_called()

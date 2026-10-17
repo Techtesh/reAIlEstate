@@ -63,7 +63,7 @@ def layout_evaluation_states(plans):
     return states
 
 
-def queue_single_layout(project, plan_id, actor, *, retry=False, force=False):
+def queue_single_layout(project, plan_id, actor, *, retry=False, force=False, fresh=False):
     """Authorize within the dashboard family and return queue status, never work.
 
     Staff access is global, but both project access and floor-plan change
@@ -79,7 +79,7 @@ def queue_single_layout(project, plan_id, actor, *, retry=False, force=False):
     if project.status in {"retired", "merged"} or plan.project.status == "retired":
         raise ValueError("PROJECT_NOT_ACTIVE")
     from .layout_reanalysis import queue_layout_evaluation
-    job, operation = queue_layout_evaluation(plan, actor=actor, retry=retry, force=force)
+    job, operation = queue_layout_evaluation(plan, actor=actor, retry=retry, force=force, fresh=fresh)
     status = "queued" if operation.state in {"pending", "queued"} else operation.state
     return {
         "status": status, "messageId": str(job.pk), "operationId": str(operation.pk),

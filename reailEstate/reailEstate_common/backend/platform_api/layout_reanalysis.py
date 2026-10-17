@@ -10,8 +10,9 @@ from django.utils import timezone
 from .artifact_storage import storage
 from .floor_plan_agent import FloorPlanAgent
 from .floor_plan_visibility import HIDDEN_REVIEW_STATES
-from .floor_plan_vision import get_floor_plan_vision_provider, resolve_vision_selection
+from .floor_plan_vision import get_floor_plan_vision_provider, resolve_ai_vision_selection, resolve_vision_selection
 from .integrations import ProviderUnavailable
+from .vision_errors import VisionRequestError
 from .models import AuditEvent, FloorPlan, FloorPlanAsset, Operation, OutboxMessage, ReviewTask
 
 
@@ -26,6 +27,8 @@ def layout_evaluation_error(exc):
     """Only allow known domain messages into persisted errors, not provider text."""
     if isinstance(exc, ValueError) and str(exc) in TERMINAL_CROP_ERRORS:
         return str(exc)
+    if isinstance(exc, VisionRequestError):
+        return exc.code
     if isinstance(exc, ProviderUnavailable):
         return "PROVIDER_UNAVAILABLE"
     return type(exc).__name__[:64]
@@ -71,20 +74,22 @@ def _validate_layout(plan, payload=None):
         raise ValueError("STALE_LAYOUT_ASSET")
 
 
-def queue_layout_evaluation(plan, actor=None, vision_profile_id=None, vision_selection=None, *, retry=False, force=False):
+def queue_layout_evaluation(plan, actor=None, vision_profile_id=None, vision_selection=None, *, retry=False, force=False, fresh=False):
     """Return (message, operation), idempotent for plan/asset/checksum.
 
     No image I/O, model work or document ownership. Pending/running (including
     backoff) and completed jobs are reused. retry=True re-arms failed jobs using
     their original pin; force=True creates a new job after completion only.
-    Neither flag restarts cancelled jobs. Safe inside a crop-update transaction.
+    fresh=True creates a new AI attempt using current settings after a terminal
+    failure or completion, preserving history. No flag restarts cancelled jobs.
+    Safe inside a crop-update transaction.
     SQLite lock retries restart only our own transaction, never a caller's.
     """
     nested = connection.in_atomic_block
     for attempt in range(4):
         try:
             with transaction.atomic():
-                return _queue_layout_evaluation(plan.pk, actor, vision_profile_id, vision_selection, retry, force)
+                return _queue_layout_evaluation(plan.pk, actor, vision_profile_id, vision_selection, retry, force, fresh)
         except OperationalError as exc:
             if (nested or connection.vendor != "sqlite" or attempt == 3
                     or str(exc) not in {"database is locked", "database table is locked"}):
@@ -92,7 +97,7 @@ def queue_layout_evaluation(plan, actor=None, vision_profile_id=None, vision_sel
             time.sleep(0.05 * (attempt + 1))
 
 
-def _queue_layout_evaluation(plan_id, actor, vision_profile_id, vision_selection, retry, force):
+def _queue_layout_evaluation(plan_id, actor, vision_profile_id, vision_selection, retry, force, fresh):
     plan = _locked_layout(plan_id)
     _validate_layout(plan)
     identity = {"floorPlanId": str(plan.pk), "assetId": str(plan.asset_id), "assetSha256": plan.asset.sha256}
@@ -115,7 +120,7 @@ def _queue_layout_evaluation(plan_id, actor, vision_profile_id, vision_selection
             job.save(update_fields=["dead_lettered_at", "last_error_code"])
     if existing:
         message, operation = existing
-        if retry and operation.state == "failed" and not message.published_at:
+        if retry and not fresh and operation.state == "failed" and not message.published_at:
             message.dead_lettered_at = None
             message.available_after = None
             message.last_error_code = ""
@@ -131,9 +136,14 @@ def _queue_layout_evaluation(plan_id, actor, vision_profile_id, vision_selection
                 entity_id=plan.pk, correlation_id=message.correlation_id,
                 metadata={"messageId": str(message.pk), "operationId": str(operation.pk)},
             )
-        if not (force and operation.state == "completed"):
+        new_attempt = (fresh and (operation.state == "completed" or (
+            operation.state == "failed" and (message.dead_lettered_at or message.published_at))))
+        if not new_attempt and not (force and operation.state == "completed"):
             return message, operation
-    selection = vision_selection if vision_selection is not None else resolve_vision_selection(vision_profile_id)
+    if fresh:
+        selection = resolve_ai_vision_selection(vision_profile_id)
+    else:
+        selection = vision_selection if vision_selection is not None else resolve_vision_selection(vision_profile_id)
     operation = Operation.objects.create(
         owner=actor, kind="floor_plan_crop_evaluation", state="pending",
         result=identity,
@@ -216,6 +226,7 @@ def evaluate_layout_crop(payload):
             plan.dimensions = candidate.dimensions
             plan.features = candidate.features or {}
             plan.raw_extraction = plan.raw_extraction | {
+                **(candidate.dimension_metadata or {}),
                 "cropEvaluation": {"pageType": result["pageType"], "visualEvidence": result["visualEvidence"],
                                    "assetId": payload["assetId"], "assetSha256": payload["assetSha256"],
                                    **agent._provider_metadata()},
@@ -235,6 +246,7 @@ def evaluate_layout_crop(payload):
             operation.result = {key: value for key, value in operation.result.items()
                                 if key not in {"failureCategory", "retryable"}}
             operation.result = operation.result | {"reviewState": plan.review_state, "completedAt": timezone.now().isoformat()}
+            operation.result.update(agent._provider_metadata())
             operation.save(update_fields=["state", "error_code", "result", "updated_at"])
         return plan
     except Exception as exc:

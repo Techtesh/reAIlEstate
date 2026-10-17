@@ -14,8 +14,8 @@ $python = Get-RealEstatePython -ApplicationRoot $PSScriptRoot
 Initialize-RealEstateRuntime -ApplicationRoot $PSScriptRoot -VisionProfilesFile $VisionProfilesFile
 
 Write-Host 'Starting shared extraction, media-evaluation, and recommendation worker'
-if (-not [string]::IsNullOrWhiteSpace($env:FLOOR_PLAN_DEFAULT_VISION_PROFILE)) {
-    Write-Host "AI vision profile: $env:FLOOR_PLAN_DEFAULT_VISION_PROFILE"
+if (-not [string]::IsNullOrWhiteSpace($env:FLOOR_PLAN_VISION_PROFILES_FILE)) {
+    Write-Host "AI vision configuration: $env:FLOOR_PLAN_VISION_PROFILES_FILE"
 }
 & $python (Join-Path $PSScriptRoot 'adminService\manage.py') run_extraction_dispatcher `
     '--settings=admin_service.settings' "--poll-seconds=$PollSeconds"

@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from .artifact_storage import storage
 from .feature_flags import FeatureDisabled, require_enabled
-from .floor_plan_vision import get_floor_plan_vision_provider, resolve_ai_vision_selection
+from .floor_plan_vision import get_floor_plan_vision_provider, resolve_ai_vision_selection, provider_metadata
 from .ingestion_runtime import work_lock
 from .models import AuditEvent, EvidenceDocument, FloorPlan, FloorPlanAsset, Operation, OutboxMessage, Project
 from .policies.crops import crop_destination
@@ -41,14 +41,11 @@ def _selection(vision_profile_id=None, vision_selection=None):
     """Accept only a server profile snapshot, never endpoints or credentials."""
     if vision_selection is None:
         return resolve_ai_vision_selection(vision_profile_id)
-    if not isinstance(vision_selection, dict) or not vision_selection.get("profileId"):
+    if not isinstance(vision_selection, dict) or set(vision_selection) != {"profileId", "provider", "model", "configurationHash"}:
         raise ValueError("INVALID_VISION_SELECTION")
     if vision_profile_id is not None and vision_profile_id != vision_selection["profileId"]:
         raise ValueError("INVALID_VISION_SELECTION")
-    selected = resolve_ai_vision_selection(vision_selection["profileId"])
-    if selected != vision_selection:
-        raise ValueError("STALE_VISION_SELECTION")
-    return selected
+    return dict(vision_selection)
 
 
 def _locked_source(plan_id, document_id):
@@ -86,13 +83,17 @@ def _validate_source(plan, payload=None):
 
 
 @transaction.atomic
-def queue_floor_plan_layouts(plan, actor, vision_profile_id=None, vision_selection=None, *, retry=False):
+def queue_floor_plan_layouts(plan, actor, vision_profile_id=None, vision_selection=None, *, retry=False, fresh=False):
     """Return the new/existing OutboxMessage for this source ID and checksum.
 
     ``vision_selection`` must be an already server-resolved AI snapshot. It is
-    validated, not replaced with today's default. Existing jobs keep their pin.
+    validated, not replaced with today's default. Existing jobs keep their pin
+    while that profile is still configured; an unavailable pin creates a fresh
+    attempt with the current profile.
     ``retry=True`` re-arms a failed dead letter in place; completed and cancelled
-    operations are never restarted. No image reads, providers or work locks.
+    operations are never restarted. ``fresh=True`` creates a new attempt using
+    current AI settings after terminal failure/completion, preserving history.
+    Pending/running/backoff and cancelled work is reused. No image/model I/O.
     """
     _authorize(actor, plan.project)
     plan = _locked_source(plan.pk, plan.document_id)
@@ -105,26 +106,33 @@ def queue_floor_plan_layouts(plan, actor, vision_profile_id=None, vision_selecti
     ).order_by("-occurred_at", "-pk").first()
     if existing:
         operation = Operation.objects.select_for_update().get(pk=existing.payload["operationId"])
-        if (retry and existing.dead_lettered_at and not existing.published_at
+        if (retry and not fresh and existing.dead_lettered_at and not existing.published_at
                 and operation.state == "failed"):
             # Explicit retry must still honor the original profile, even if the
             # caller selected another profile or the server default has changed.
-            _selection(vision_selection=existing.payload["visionSelection"])
-            existing.dead_lettered_at = None
-            existing.available_after = None
-            existing.last_error_code = ""
-            existing.attempts = 0
-            existing.save(update_fields=["dead_lettered_at", "available_after", "last_error_code", "attempts"])
-            operation.state = "pending"
-            operation.error_code = ""
-            operation.save(update_fields=["state", "error_code", "updated_at"])
-            AuditEvent.objects.create(
-                actor=actor, action="floor_plan.units_evaluation_retried", entity_type="FloorPlan",
-                entity_id=plan.pk, correlation_id=existing.correlation_id,
-                metadata={"operationId": str(operation.pk), "messageId": str(existing.pk)},
-            )
-        return existing
-    selection = _selection(vision_profile_id, vision_selection)
+            try:
+                _selection(vision_selection=existing.payload["visionSelection"])
+            except ValueError:
+                fresh = True
+            else:
+                existing.dead_lettered_at = None
+                existing.available_after = None
+                existing.last_error_code = ""
+                existing.attempts = 0
+                existing.save(update_fields=["dead_lettered_at", "available_after", "last_error_code", "attempts"])
+                operation.state = "pending"
+                operation.error_code = ""
+                operation.save(update_fields=["state", "error_code", "updated_at"])
+                AuditEvent.objects.create(
+                    actor=actor, action="floor_plan.units_evaluation_retried", entity_type="FloorPlan",
+                    entity_id=plan.pk, correlation_id=existing.correlation_id,
+                    metadata={"operationId": str(operation.pk), "messageId": str(existing.pk)},
+                )
+        new_attempt = (fresh and (operation.state == "completed" or (
+            operation.state == "failed" and (existing.dead_lettered_at or existing.published_at))))
+        if not new_attempt:
+            return existing
+    selection = _selection(vision_profile_id, None if fresh else vision_selection)
     result = {"sourcePlanId": str(plan.pk), "floorPlanId": str(plan.pk),
               "assetId": str(plan.asset_id), "assetSha256": plan.asset.sha256}
     operation = Operation.objects.create(owner=actor, kind=OPERATION_KIND, state="pending", result=result)
@@ -217,6 +225,7 @@ def evaluate_floor_plan_layouts(payload):
                 _validate_source(plan, payload)
                 _authorize(operation.owner, plan.project)
                 floor_evaluation = {
+                    **provider_metadata(provider),
                     "pageType": metadata["pageType"],
                     "flatsPerFloor": len(regions) if metadata["pageType"] == "multi_unit_floor_plan" else None,
                     "liftCount": metadata.get("liftCount"), "staircaseCount": metadata.get("staircaseCount"),
@@ -234,6 +243,7 @@ def evaluate_floor_plan_layouts(payload):
                 operation.state = "completed"
                 operation.error_code = ""
                 operation.result = operation.result | {
+                    **provider_metadata(provider),
                     "workflowRunId": str(workflow.pk), "planIds": [str(crop.pk) for crop in plans],
                     "cropJobIds": workflow.result["cropJobIds"], "unitCount": len(plans), "sourceRetained": True,
                     "floorEvaluation": floor_evaluation,
@@ -246,8 +256,9 @@ def evaluate_floor_plan_layouts(payload):
             # outer transaction fails later (e.g. crop enqueue), clean those
             # new files too, but never delete any committed/referenced asset.
             if operation is not None:
+                from .layout_reanalysis import layout_evaluation_error
                 Operation.objects.filter(pk=operation.pk).exclude(state__in=["completed", "cancelled"]).update(
-                    state="failed", error_code=exc.code if isinstance(exc, FeatureDisabled) else type(exc).__name__[:64],
+                    state="failed", error_code=exc.code if isinstance(exc, FeatureDisabled) else layout_evaluation_error(exc),
                     updated_at=timezone.now(),
                 )
             for key in saved_keys:

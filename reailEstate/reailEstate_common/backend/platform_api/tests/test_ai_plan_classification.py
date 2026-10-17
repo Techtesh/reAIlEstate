@@ -63,6 +63,23 @@ def test_individual_layout_uses_its_own_schema_and_stays_flat():
     assert len(candidates) == 1 and candidates[0].plan_scope == "flat"
 
 
+def test_native_measurement_schema_requires_unit_evidence_and_rejects_feet_only_response():
+    from jsonschema import validate, ValidationError
+    from .test_room_dimensions import native_room
+    schema = FloorPlanAgent._vision_schema()
+    result = layout_result()
+    result["floorPlans"][0]["dimensions"] = [native_room("Living", 7, 3.87, "m")]
+    validate({"floorPlans": result["floorPlans"]}, schema)
+    result["floorPlans"][0]["dimensions"] = [{"room": "Living", "lengthFt": 7, "widthFt": 3.87}]
+    with pytest.raises(ValidationError):
+        validate({"floorPlans": result["floorPlans"]}, schema)
+    room = native_room("Living", 7, 3.87, "m")
+    del room["measurements"][0]["unitSource"]
+    result["floorPlans"][0]["dimensions"] = [room]
+    with pytest.raises(ValidationError):
+        validate({"floorPlans": result["floorPlans"]}, schema)
+
+
 @pytest.mark.parametrize("method", ["analyze_layout", "analyze_classified_plan"])
 def test_all_layout_prompts_include_unlabeled_foyers_passages_and_feet_inches(method):
     provider = object.__new__(OpenAIFloorPlanVisionProvider)
@@ -74,7 +91,10 @@ def test_all_layout_prompts_include_unlabeled_foyers_passages_and_feet_inches(me
     assert "feet + inches/12" in prompt
     assert "never treat inches as a decimal suffix" in prompt
     assert "Prefer printed feet/inches" in prompt
-    assert "never infer sizes" in prompt
+    assert "Capture BOTH metric and imperial pairs" in prompt
+    assert "never assume decimals mean feet" in prompt
+    assert "lengthEstimated/widthEstimated true" in prompt
+    assert "Never disguise estimates as printed measurements" in prompt
 
 
 @pytest.mark.parametrize("kind", ["full_floor", "multiple_layouts", "non_plan", "uncertain"])

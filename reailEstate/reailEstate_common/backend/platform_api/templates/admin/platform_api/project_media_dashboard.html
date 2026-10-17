@@ -3,7 +3,7 @@
 
 {% block extrahead %}
 {{ block.super }}
-<script src="{% static 'platform_api/project_media_dashboard.js' %}?v=20260920-active-state" defer></script>
+<script src="{% static 'platform_api/project_media_dashboard.js' %}?v=20261009-fresh-evaluation" defer></script>
 {% endblock %}
 
 {% block breadcrumbs %}
@@ -17,7 +17,7 @@
 
 {% block extrastyle %}
 {{ block.super }}
-<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}?v=20260920-draft-cart-actions">
+<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}?v=20261009-fresh-evaluation">
 {% endblock %}
 
 {% block content %}
@@ -27,10 +27,12 @@
     <p id="evaluation-retry-description"><strong data-retry-project></strong> has previous evaluation failures. Continuing may fail again and use additional model requests.</p>
     <ul data-retry-failures></ul>
     <p data-retry-overflow hidden></p>
+    <p data-retry-fresh-help hidden>Fresh evaluation queues new attempts for failed layouts/floor plans using current AI settings, keeping previous attempts. Queued/running work is reused. Results still require review and may fail again.</p>
     <p data-retry-error role="alert" hidden></p>
     <div class="media-actions">
       <button type="button" data-retry-cancel autofocus>Cancel</button>
       <button type="button" class="default" data-retry-continue>Continue</button>
+      <button type="button" data-retry-fresh hidden>Run fresh evaluation</button>
     </div>
   </dialog>
   <p data-evaluation-error role="alert" hidden></p>

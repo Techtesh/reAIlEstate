@@ -13,8 +13,7 @@ x-app-environment: &app-environment
   CLAMAV_ENABLED: "false"
   CLAMAV_ENDPOINT: ${CLAMAV_ENDPOINT:-tcp://clamav:3310}
   FLOOR_PLAN_EXTRACTION_MODE: ${FLOOR_PLAN_EXTRACTION_MODE:-script}
-  FLOOR_PLAN_VISION_PROFILES: ${FLOOR_PLAN_VISION_PROFILES:-{}}
-  FLOOR_PLAN_DEFAULT_VISION_PROFILE: ${FLOOR_PLAN_DEFAULT_VISION_PROFILE:-}
+  FLOOR_PLAN_VISION_PROFILES_FILE: /app/reailEstate_common/backend/vision-profiles.json
   OTEL_ENABLED: ${OTEL_ENABLED:-false}
   OTEL_EXPORTER_ENDPOINT: ${OTEL_EXPORTER_ENDPOINT:-http://otel-collector:4318/v1/traces}
 
@@ -28,6 +27,7 @@ x-app: &app
   environment: *app-environment
   volumes:
     - workspace-media:/workspace
+    - ./reailEstate_common/backend/vision-profiles.json:/app/reailEstate_common/backend/vision-profiles.json:ro
 
 services:
   postgres:

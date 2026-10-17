@@ -7,6 +7,8 @@ class PlatformApiConfig(AppConfig):
     verbose_name = "Real Estate Platform"
 
     def ready(self):
+        from .floor_plan_vision import _configured_profiles
         from .observability import configure_observability
 
+        _configured_profiles()
         configure_observability()

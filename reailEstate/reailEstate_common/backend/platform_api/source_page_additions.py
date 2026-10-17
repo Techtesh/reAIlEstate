@@ -295,11 +295,13 @@ def evaluate_source_page(payload):
                 operation.state = "completed"
                 operation.error_code = ""
                 operation.result = {"assetId": str(asset.id), "planIds": [str(p.id) for p in plans],
-                                    "outcome": "needs_review" if plans else "no_plan_detected", **skipped}
+                                    "outcome": "needs_review" if plans else "no_plan_detected",
+                                    **agent._provider_metadata(), **skipped}
                 operation.save()
         except Exception as exc:
+            from .layout_reanalysis import layout_evaluation_error
             Operation.objects.filter(pk=operation.pk).exclude(state="cancelled").update(
-                state="failed", error_code=type(exc).__name__[:64], updated_at=timezone.now())
+                state="failed", error_code=layout_evaluation_error(exc), updated_at=timezone.now())
             AgentWorkflowRun.objects.filter(floor_plan_assets__id=payload["assetId"]).update(status="failed")
             raise
         finally:

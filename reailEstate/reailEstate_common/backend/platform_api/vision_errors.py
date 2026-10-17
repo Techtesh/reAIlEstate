@@ -14,6 +14,12 @@ class VisionRequestError(ProviderUnavailable):
         self.retry_after = retry_after
 
 
+class AllVisionProvidersFailed(VisionRequestError):
+    def __init__(self, attempts):
+        super().__init__("VISION_ALL_PROVIDERS_FAILED", retryable=True)
+        self.attempts = list(attempts)
+
+
 def safe_request_error(exc):
     status = getattr(exc, "status_code", None)
     status = status if type(status) is int and 100 <= status <= 599 else None

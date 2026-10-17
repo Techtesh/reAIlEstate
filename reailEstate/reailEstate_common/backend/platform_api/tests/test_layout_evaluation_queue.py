@@ -40,6 +40,7 @@ def inference(monkeypatch):
         plan_scope="flat", plan_name="Model name", configuration_type="2BHK", carpet_area_sqft=650,
         orientation="north", dimensions=[{"room": "bedroom", "length": 10, "width": 12}],
         features={"balcony": True}, confidence=0.9,
+        dimension_metadata={},
     )
     agent = Mock()
     agent._reconcile.return_value = [candidate]
@@ -68,14 +69,15 @@ def sibling(plan):
 
 
 def test_layout_evaluation_persists_foyer_and_internal_passage_measurements(layout, monkeypatch):
-    from platform_api.floor_plan_vision import get_floor_plan_vision_provider, resolve_ai_vision_selection
+    from platform_api.floor_plan_vision import OpenAIFloorPlanVisionProvider as get_floor_plan_vision_provider, resolve_ai_vision_selection
     from platform_api.project_outputs import layout_metrics
     from .test_ai_plan_classification import layout_result
+    from .test_room_dimensions import native_room
     plan, actor = layout
     result = layout_result()
     result["floorPlans"][0]["dimensions"] = [
-        {"room": "Foyer", "lengthFt": 7 + 9 / 12, "widthFt": 3 + 11 / 12},
-        {"room": "Internal passage", "lengthFt": 3 + 5 / 12, "widthFt": 10 + 7 / 12},
+        native_room("Foyer", "7'9\"", "3'11\""),
+        native_room("Internal passage", "3'5\"", "10'7\""),
     ]
     selection = resolve_ai_vision_selection("pinned")
     provider = get_floor_plan_vision_provider(selection)
@@ -93,6 +95,38 @@ def test_layout_evaluation_persists_foyer_and_internal_passage_measurements(layo
     metrics = layout_metrics(plan, {"effectiveParcel": {"value": None}})
     assert [room["room"] for room in metrics["rooms"]] == ["Foyer", "Internal passage"]
     assert metrics["roomRectangleSumSqFt"] == 66.51
+
+
+def test_guessed_measurements_warn_without_boundary_failure_and_fresh_readings_clear_warning(layout, client, monkeypatch):
+    from django.urls import reverse
+    from .test_ai_plan_classification import layout_result
+    from .test_room_dimensions import native_room
+    from platform_api.floor_plan_vision import OpenAIFloorPlanVisionProvider as get_floor_plan_vision_provider, resolve_ai_vision_selection
+    plan, actor = layout
+    result = layout_result()
+    result["floorPlans"][0]["dimensions"] = [native_room("Living", 7, 3.87, "m", unitSource="inferred"),
+        native_room("Foyer", 7.75, None)]
+    selection = resolve_ai_vision_selection("pinned")
+    provider = get_floor_plan_vision_provider(selection)
+    provider.analyze = Mock(return_value=result)
+    monkeypatch.setattr(layouts, "get_floor_plan_vision_provider", lambda _: provider)
+    message, _ = layouts.queue_layout_evaluation(plan, actor, vision_selection=selection)
+    layouts.evaluate_layout_crop(message.payload)
+    plan.refresh_from_db()
+    assert "Living: AI-inferred unit" in plan.raw_extraction["dimensionWarning"]
+    assert plan.review_state == "gen_with_ai_needs_review" and not plan.raw_extraction.get("qualityWarning")
+    assert plan.dimensions[1]["widthFt"] is None and plan.dimensions[1]["areaSqFt"] is None
+    client.force_login(actor)
+    page = client.get(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]), {"section": "layouts"})
+    assert b"Room size review required:" in page.content
+    assert b"Living: AI-inferred unit" in page.content and b"22.97 ft" in page.content
+    assert b"Boundary review required:" not in page.content
+    result["floorPlans"][0]["dimensions"] = [native_room("Living", 7, 3.87, "m")]
+    message, _ = layouts.queue_layout_evaluation(plan, actor, vision_selection=selection, force=True)
+    layouts.evaluate_layout_crop(message.payload)
+    plan.refresh_from_db()
+    assert plan.raw_extraction["dimensionWarning"] == ""
+    assert len(plan.raw_extraction["dimensionEvidence"]) == 1
 
 
 @pytest.mark.parametrize("mode", ["new", "retry-failed", "force"])
@@ -228,6 +262,20 @@ def test_busy_document_does_not_spend_attempt_and_requests_still_queue(layout):
     message = OutboxMessage.objects.get(pk=result["messageId"])
     assert message.attempts == 0
     assert message.available_after > timezone.now()
+
+
+def test_exhausted_fallback_persists_safe_attempts_and_terminal_state(layout):
+    from platform_api.vision_errors import AllVisionProvidersFailed
+    plan, actor = layout
+    message, operation = layouts.queue_layout_evaluation(plan, actor)
+    OutboxMessage.objects.filter(pk=message.pk).update(attempts=3)
+    attempts = [{"profileId": "local", "outcome": "failed", "errorCode": "VISION_TIMEOUT"}]
+    workers._record_outbox_failure(message.pk, AllVisionProvidersFailed(attempts), expected_attempts=3)
+    message.refresh_from_db()
+    operation.refresh_from_db()
+    assert message.dead_lettered_at and message.last_error_code == "VISION_ALL_PROVIDERS_FAILED"
+    assert operation.state == "failed" and operation.error_code == message.last_error_code
+    assert operation.result["visionAttempts"] == attempts and operation.result["retryable"] is False
 
 
 @pytest.mark.parametrize("acknowledged", [False, True])

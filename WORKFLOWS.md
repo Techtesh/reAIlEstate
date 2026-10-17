@@ -49,9 +49,10 @@ Runtime startup must not recreate the database, reimport samples, or publish
 projects.
 
 For AI-assisted floor-plan extraction, copy
-`vision-profiles.example.json` to the ignored `vision-profiles.local.json`
-beside it. If more than one profile is enabled, set
-`FLOOR_PLAN_DEFAULT_VISION_PROFILE`.
+`vision-profiles.example.json` to the ignored `vision-profiles.json`
+beside it. The `profiles` array defines fallback order; manual selections run first.
+See [provider configuration](reailEstate/README.md#local-services) for reload commands
+and the other flags/environment references.
 
 ## 2. Local service lifecycle
 

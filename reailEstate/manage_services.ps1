@@ -13,6 +13,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($VisionProfilesFile) {
+    $VisionProfilesFile = (Resolve-Path -LiteralPath $VisionProfilesFile -ErrorAction Stop).Path
+}
 . (Join-Path $PSScriptRoot 'runtime_helpers.ps1')
 
 $ports = @{ admin = 8002; builder = 8003; buyer = 8004; frontend = 5173 }

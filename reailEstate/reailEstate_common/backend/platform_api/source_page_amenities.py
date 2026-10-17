@@ -10,6 +10,7 @@ from .project_vision import SCHEMA
 
 
 def evaluate_amenity_page(asset, operation, provider, data):
+    from .floor_plan_vision import provider_metadata
     result = provider.analyze_project_page(data, asset.media_type, SCHEMA)
     categories = {code: category for category, terms in AMENITIES.items() for code in terms}
     sections = {category: {"values": [], "evidence": []} for category in AMENITIES}
@@ -59,5 +60,6 @@ def evaluate_amenity_page(asset, operation, provider, data):
         operation.state = "completed"
         operation.error_code = ""
         operation.result = operation.result | {"amenityCodes": codes, "claimCount": len(claims),
-                                              "outcome": "needs_review" if codes else "no_amenities_detected"}
+                                              "outcome": "needs_review" if codes else "no_amenities_detected",
+                                              **provider_metadata(provider)}
         operation.save()

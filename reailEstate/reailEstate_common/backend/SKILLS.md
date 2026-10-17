@@ -22,7 +22,7 @@ Separates one saved full-floor `FloorPlan` into individual flat crops. The sourc
 4. Choose `script`, `ai`, or `both`, optionally enter the expected count, and select a configured AI profile.
 5. Run the operation and review every generated crop through the normal floor-plan review workflow.
 
-The portal never accepts model endpoints or credentials. AI profiles come only from `FLOOR_PLAN_VISION_PROFILES`.
+The portal never accepts model endpoints or credentials. AI providers and fallback order come from `vision-profiles.json`.
 
 ### Project media dashboard
 

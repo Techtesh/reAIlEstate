@@ -27,8 +27,8 @@ if ($definition.RequiresFrontend) {
 Initialize-RealEstateRuntime -ApplicationRoot $PSScriptRoot -VisionProfilesFile $VisionProfilesFile
 
 Write-Host "Starting $Service service at http://127.0.0.1:$Port"
-if (-not [string]::IsNullOrWhiteSpace($env:FLOOR_PLAN_DEFAULT_VISION_PROFILE)) {
-    Write-Host "AI vision profile: $env:FLOOR_PLAN_DEFAULT_VISION_PROFILE"
+if (-not [string]::IsNullOrWhiteSpace($env:FLOOR_PLAN_VISION_PROFILES_FILE)) {
+    Write-Host "AI vision configuration: $env:FLOOR_PLAN_VISION_PROFILES_FILE"
 }
 & $python (Join-Path $serviceRoot 'manage.py') runserver "127.0.0.1:$Port" --noreload "--settings=$($definition.Settings)"
 exit $LASTEXITCODE

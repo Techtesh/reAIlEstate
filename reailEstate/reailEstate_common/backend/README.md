@@ -1101,11 +1101,10 @@ synchronous importer/worker against SQLite. The command refuses pending document
 outbox work. `--test-scanner` is an explicit local/development-only **malware scanning
 bypass**, not a security scan; use it only for trusted samples with approval.
 
-Create an ignored local vision profile from [vision-profiles.example.json](vision-profiles.example.json).
-Local profiles are not bundled or loaded automatically and must contain no credentials. Load the JSON into
-`FLOOR_PLAN_VISION_PROFILES`, set `FLOOR_PLAN_EXTRACTION_MODE=ai` and
-`FLOOR_PLAN_DEFAULT_VISION_PROFILE=azure-samples` in the importing process. Authentication
-uses `DefaultAzureCredential`; do not put tokens or API keys in the profile or reports.
+Create the ignored `vision-profiles.json` from [vision-profiles.example.json](vision-profiles.example.json).
+All backend entrypoints load it at startup; `FLOOR_PLAN_VISION_PROFILES_FILE` selects another path.
+Set `FLOOR_PLAN_EXTRACTION_MODE=ai` in standalone importing processes. Credentials stay in environment
+variables referenced by `api_key_env`, or Azure identity.
 An unavailable Azure provider is reported as incomplete, never silently replaced by
 local rules. Existing page-selection budgets still apply; ingestion completion does
 not assert exhaustive visual coverage or human verification of every page.
@@ -1159,7 +1158,7 @@ Set `FLOOR_PLAN_EXTRACTION_MODE` in the environment of the API and worker proces
 | Value | Behavior |
 | --- | --- |
 | `script` (default) | Uses the built-in `rules-only` profile. No LLM, model endpoint, API key, or Azure authentication is needed. |
-| `ai` | Uses `FLOOR_PLAN_DEFAULT_VISION_PROFILE` or an explicitly requested configured vision profile. Existing Ollama/Foundry/cloud adapters are retained. |
+| `ai` | Uses the ordered `vision-profiles.json` chain; an explicitly requested profile runs first. Existing Ollama/Foundry/cloud adapters are retained. |
 
 Script mode selects floor-plan/flat-layout candidate pages using headings, room labels, and drawing/image signals, saves high-quality PNG pages, and classifies them as `floor`, `flat`, or `unknown`. It records local rule provenance and any unambiguous embedded configuration/carpet-area labels. It does not perform OCR, identify rooms from pixels, infer measurements, or segment multiple flats from one page. Scanned or mixed-layout pages remain uncertain review candidates. A completed script run means identification completed, not that all dimensions were extracted. AI-only `needs_provider` behavior does not apply to script identification; malware scanning is still mandatory.
 
@@ -1169,7 +1168,13 @@ The mode is pinned through each queue item's selected provider (`rules` versus a
 
 ### Local Ollama and cloud model choices (AI mode)
 
-Configure an administrator-owned model catalog using the JSON object in `FLOOR_PLAN_VISION_PROFILES`; set `FLOOR_PLAN_DEFAULT_VISION_PROFILE` to a catalog key. Each profile is one provider/model combination: add more profiles to offer multiple models from the same provider. [vision-profiles.example.json](vision-profiles.example.json) supplies an example. This file is not loaded automatically: set the environment variable to its JSON content after adapting the configuration, on both the API and worker processes.
+Configure the ordered `profiles` array in the ignored `vision-profiles.json`.
+[Provider configuration](../../README.md#local-services) documents the schema and restart command.
+Automatic requests try file order; a manual selection runs first, followed by the remaining entries.
+Waiting jobs use current configuration at execution and record safe attempts and winning-provider metadata.
+Provider failures advance the chain; a valid non-plan response does not. Exhausted chains report
+`VISION_ALL_PROVIDERS_FAILED`. Optional `timeout_seconds` defaults to local 1800 and cloud 90 seconds.
+An optional top-level `precheck_profile_id` retains the geometry gate in debug local/development only.
 
 | Provider | Endpoint | Authentication |
 | --- | --- | --- |
@@ -1184,7 +1189,7 @@ For Foundry, deploy a model supporting image input and structured outputs, suppl
 
 Keep secret values out of catalog JSON: `api_key_env` is only an environment variable **name**. The discovery API exposes labels, provider/model names, and local/cloud hosting, never endpoints or credentials. The server owns the catalog; developers select a profile ID, not an arbitrary endpoint or model name. Network redirects are disabled. Restrict cloud egress at the infrastructure layer as well.
 
-The legacy `FLOOR_PLAN_VISION_PROVIDER`, `FLOOR_PLAN_VISION_BASE_URL`, `FLOOR_PLAN_VISION_MODEL`, and `FLOOR_PLAN_VISION_API_KEY` settings remain supported as a single implicit `default` profile when the catalog is empty. An unconfigured server can still accept documents, but vision workflows require configuration and reprocessing before extraction succeeds.
+Legacy inline profile JSON and provider/default/model/endpoint selection environment variables are no longer read. Missing files leave AI unavailable; malformed configuration prevents startup.
 
 ### Developer API and todo batches
 

@@ -1,5 +1,7 @@
 .git
 .gitignore
+reailEstate_common/backend/vision-profiles.json
+reailEstate_common/backend/vision-profiles.local.json
 reailEstate_common/backend/.local
 reailEstate_common/backend/.venv
 reailEstate_common/backend/db.sqlite3

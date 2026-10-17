@@ -6,6 +6,7 @@ reailEstate/reailEstate_common/backend/.local/
 reailEstate/reailEstate_common/backend/.pytest_cache/
 reailEstate/reailEstate_common/backend/.venv/
 reailEstate/reailEstate_common/backend/vision-profiles.local.json
+reailEstate/reailEstate_common/backend/vision-profiles.json
 reailEstate/reailEstate_common/backend/staticfiles/
 reailEstate/reailEstate_common/frontend/dist/
 reailEstate/reailEstate_common/frontend/node_modules/
@@ -27,3 +28,4 @@ reailEstate/frontend/dist/
 reailEstate/frontend/test-results/
 reailEstate/backend/.local/
 .test-tmp/
+working/

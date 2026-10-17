@@ -36,6 +36,12 @@ from .domain.geometry import (
 )
 from .models import AgentWorkflowRun, AuditEvent, FloorPlan, FloorPlanAsset, IngestionRun, OutboxMessage, ReviewTask
 
+HIDDEN_SEGMENT_STATES = {"removed_by_user", "replaced_by_user", "superseded_page_candidate"}
+
+def _hidden_segments_only(source_plan, workflows):
+    """True when a prior run is retained solely as hidden review history."""
+    plans = FloorPlan.objects.filter(workflow_run__in=workflows)
+    return workflows.exists() and plans.exists() and not plans.exclude(review_state__in=HIDDEN_SEGMENT_STATES).exists()
 
 def require_legacy_segmentation(source_plan, actor=None):
     """Keep the central exception/decision, but explain the immutable alternative."""
@@ -49,12 +55,12 @@ def require_legacy_segmentation(source_plan, actor=None):
 
 def require_segment_replacement_allowed(source_plan, methods, actor=None, *, supersede_source=False):
     """Preflight before inference; a first generation is not destructive."""
-    if supersede_source or AgentWorkflowRun.objects.filter(
+    workflows = AgentWorkflowRun.objects.filter(
         workflow_type="unit_segmentation", result__sourceAssetId=str(source_plan.asset_id),
         result__segmentationMethod__in=methods,
-    ).exists():
+    )
+    if supersede_source or (workflows.exists() and not _hidden_segments_only(source_plan, workflows)):
         require_legacy_segmentation(source_plan, actor)
-
 
 def replace_unit_segments(source_plan, regions, method, metadata=None, actor=None):
     """Replace one method's child crops atomically; preserve source and other methods."""
@@ -91,20 +97,23 @@ def replace_unit_segments(source_plan, regions, method, metadata=None, actor=Non
             )
             # Repeat under the source locks: another generation may have committed
             # after preflight. Check before cancelling jobs or deleting any evidence.
-            if old_workflows.exists():
+            preserve_hidden_history = _hidden_segments_only(source_plan, old_workflows)
+            if old_workflows.exists() and not preserve_hidden_history:
                 require_legacy_segmentation(source_plan, actor)
-            old_assets = FloorPlanAsset.objects.filter(workflow_run__in=old_workflows)
-            old_keys = list(old_assets.values_list("object_key", flat=True))
-            old_plan_ids = [str(value) for value in FloorPlan.objects.filter(workflow_run__in=old_workflows).values_list("id", flat=True)]
-            OutboxMessage.objects.filter(
-                event_type="floor_plan.crop_evaluation.requested",
-                payload__floorPlanId__in=old_plan_ids,
-                published_at__isnull=True, dead_lettered_at__isnull=True,
-            ).update(dead_lettered_at=timezone.now(), last_error_code="MANUAL_CROPS_REPLACED")
-            ReviewTask.objects.filter(project=source.project, resolution__floorPlanId__in=old_plan_ids).delete()
-            FloorPlan.objects.filter(workflow_run__in=old_workflows).delete()
-            old_assets.delete()
-            old_workflows.delete()
+            old_keys = []
+            if not preserve_hidden_history:
+                old_assets = FloorPlanAsset.objects.filter(workflow_run__in=old_workflows)
+                old_keys = list(old_assets.values_list("object_key", flat=True))
+                old_plan_ids = [str(value) for value in FloorPlan.objects.filter(workflow_run__in=old_workflows).values_list("id", flat=True)]
+                OutboxMessage.objects.filter(
+                    event_type="floor_plan.crop_evaluation.requested",
+                    payload__floorPlanId__in=old_plan_ids,
+                    published_at__isnull=True, dead_lettered_at__isnull=True,
+                ).update(dead_lettered_at=timezone.now(), last_error_code="MANUAL_CROPS_REPLACED")
+                ReviewTask.objects.filter(project=source.project, resolution__floorPlanId__in=old_plan_ids).delete()
+                FloorPlan.objects.filter(workflow_run__in=old_workflows).delete()
+                old_assets.delete()
+                old_workflows.delete()
             run = IngestionRun.objects.create(
                 project=source.project, document=source.document, pipeline_version=f"unit-segmentation-{method}-1.0",
                 extraction_provider=method, status="completed", started_at=timezone.now(), completed_at=timezone.now(),
@@ -117,6 +126,8 @@ def replace_unit_segments(source_plan, regions, method, metadata=None, actor=Non
                 status="running", current_step="persist", started_at=timezone.now(),
             )
             plans = []
+            # One microsecond timestamp distinguishes generations that retain history.
+            name_timestamp = workflow.created_at.strftime("%Y%m%dT%H%M%S%fZ")
             for index, region in enumerate(regions, 1):
                 crop, pixel_box, size = crop_region(image, region)
                 digest = hashlib.sha256(crop).hexdigest()
@@ -140,10 +151,11 @@ def replace_unit_segments(source_plan, regions, method, metadata=None, actor=Non
                 plan = FloorPlan.objects.create(
                     project=source.project, document=source.document, workflow_run=workflow, asset=asset,
                     page_number=source.page_number, plan_scope="flat",
-                    plan_name=f"{region.label} [{method} segment {str(source.id)[:8]}]",
+                    plan_name=f"{source_plan.id}_{index}_{name_timestamp}",
+                    display_name=source_plan.display_title[:160],
                     orientation="", dimensions=[], features={"floors": region.floors},
                     raw_extraction={"sourcePlanId": str(source_plan.id), "sourceAssetId": str(source.id),
-                                    "segmentationMethod": method, "boundingBox": bounds,
+                                    "segmentationMethod": method, "boundingBox": bounds, "sourceLabel": region.label,
                                     "unitSegmentationPerformed": True, "metadata": metadata or {}},
                     confidence=region.confidence,
                     review_state={

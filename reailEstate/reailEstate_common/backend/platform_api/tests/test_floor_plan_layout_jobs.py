@@ -29,11 +29,28 @@ def test_dashboard_keeps_cropped_layouts_from_multiple_sources(source, provider,
         assert reset_url.encode() in response.content
     assert b"Reset crop" in response.content
 
+def test_hidden_segment_history_allows_a_fresh_run_without_deleting_it(source, provider):
+    plan, actor = source
+    _, _, regions, _ = provider
+    old, old_workflow = replace_unit_segments(plan, regions, "ai", actor=actor)
+    FloorPlan.objects.filter(pk__in=[item.pk for item in old]).update(review_state="removed_by_user")
+
+    fresh, fresh_workflow = replace_unit_segments(plan, regions, "ai", actor=actor)
+
+    assert fresh_workflow.pk != old_workflow.pk
+    assert FloorPlan.objects.filter(workflow_run=old_workflow, review_state="removed_by_user").count() == len(old)
+    assert FloorPlan.objects.filter(workflow_run=fresh_workflow).count() == len(fresh)
+    for layouts, workflow in [(old, old_workflow), (fresh, fresh_workflow)]:
+        timestamp = workflow.created_at.strftime("%Y%m%dT%H%M%S%fZ")
+        assert [item.plan_name for item in layouts] == [f"{plan.pk}_{index}_{timestamp}" for index in (1, 2)]
+    assert set(item.plan_name for item in old).isdisjoint(item.plan_name for item in fresh)
+
 
 """Offline regression coverage; all model responses are mocked."""
 
 import hashlib
 import io
+from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import Mock
 from uuid import uuid4
@@ -161,6 +178,38 @@ def operation_for(message):
     return Operation.objects.get(pk=message.payload["operationId"])
 
 
+@pytest.mark.parametrize("method", ["ai", "script", "manual"])
+def test_duplicate_region_labels_get_floor_uuid_counter_timestamp_names(source, provider, method):
+    plan, actor = source
+    plan.display_name = "15th Floor"
+    plan.save(update_fields=["display_name"])
+    _, _, regions, _ = provider
+    regions = [replace(region, label="flat") for region in regions]
+
+    layouts, workflow = replace_unit_segments(plan, regions, method, actor=actor)
+
+    timestamp = workflow.created_at.strftime("%Y%m%dT%H%M%S%fZ")
+    assert [item.plan_name for item in layouts] == [f"{plan.pk}_{index}_{timestamp}" for index in (1, 2)]
+    assert [item.display_title for item in layouts] == ["15th Floor", "15th Floor"]
+    assert all(item.raw_extraction["sourceLabel"] == "flat" for item in layouts)
+    plan.refresh_from_db()
+    assert plan.plan_name == "Full floor"
+
+
+def test_floor_uuid_counter_timestamp_distinguishes_segmentation_methods(source, provider):
+    plan, actor = source
+    _, _, regions, _ = provider
+
+    first, first_workflow = replace_unit_segments(plan, regions, "ai", actor=actor)
+    second, second_workflow = replace_unit_segments(plan, regions, "script", actor=actor)
+
+    for layouts, workflow in [(first, first_workflow), (second, second_workflow)]:
+        timestamp = workflow.created_at.strftime("%Y%m%dT%H%M%S%fZ")
+        assert [item.plan_name for item in layouts] == [f"{plan.pk}_{index}_{timestamp}" for index in (1, 2)]
+    assert len({item.plan_name for item in first + second}) == 4
+    assert FloorPlan.objects.filter(pk__in=[item.pk for item in first + second]).count() == 4
+
+
 def test_legacy_ai_separation_queues_every_generated_layout_with_same_profile(source, provider, monkeypatch):
     from platform_api import floor_plan_segmentation_service as service
     plan, actor = source
@@ -207,16 +256,21 @@ def test_crop_queue_failure_rolls_back_generated_layouts_and_files(source, provi
 def test_floor_then_layout_evaluation_extracts_each_crop_not_full_page(source, provider, monkeypatch):
     from platform_api import layout_reanalysis
     from .test_ai_plan_classification import layout_result
+    from .test_room_dimensions import native_room
     plan, actor = source
     message = jobs.queue_floor_plan_layouts(plan, actor)
     operation = jobs.evaluate_floor_plan_layouts(message.payload)
     layout_provider = Mock(code="ollama", model="original-model", profile_id="pinned")
-    layout_provider.analyze_layout.return_value = layout_result()
+    result = layout_result()
+    result["floorPlans"][0]["dimensions"] = [native_room("Living", 7, 3.87, "m")]
+    layout_provider.analyze_layout.return_value = result
     monkeypatch.setattr(layout_reanalysis, "get_floor_plan_vision_provider", lambda _: layout_provider)
     for crop_job in OutboxMessage.objects.filter(pk__in=operation.result["cropJobIds"]):
         layout = layout_reanalysis.evaluate_layout_crop(crop_job.payload)
         assert layout.plan_scope == "flat" and layout.configuration_type == "1BHK"
         assert layout.review_state == "gen_with_ai_needs_review"
+        assert layout.dimensions[0]["lengthFt"] == pytest.approx(7 / 0.3048)
+        assert not layout.raw_extraction["dimensionWarning"]
     assert layout_provider.analyze_layout.call_count == 2
     assert all(len(call.args[0]) != plan.asset.byte_length for call in layout_provider.analyze_layout.call_args_list)
     layout_provider.analyze_classified_plan.assert_not_called()
@@ -469,14 +523,14 @@ def test_corrupt_image_bytes_rejected_before_provider(source, provider):
     factory.assert_not_called()
 
 
-def test_changed_profile_fails_closed_instead_of_using_current_config(source, provider, settings):
+def test_changed_profile_is_resolved_at_execution(source, provider, settings):
     plan, actor = source
     _, factory, _, _ = provider
     message = jobs.queue_floor_plan_layouts(plan, actor)
     settings.FLOOR_PLAN_VISION_PROFILES = {"pinned": {"provider": "ollama", "model": "replacement"}}
-    with pytest.raises(ValueError, match="STALE_VISION_SELECTION"):
-        jobs.evaluate_floor_plan_layouts(message.payload)
-    factory.assert_not_called()
+    operation = jobs.evaluate_floor_plan_layouts(message.payload)
+    assert operation.state == "completed"
+    factory.assert_called_once_with(message.payload["visionSelection"])
 
 
 def test_committed_operation_replays_after_missing_outbox_ack_without_new_crops(source, provider):
@@ -552,6 +606,28 @@ def test_failed_pending_job_deduplicates_and_dead_letter_retry_is_explicit(sourc
     assert operation_for(message).state == "completed"
 
 
+def test_retry_keeps_preference_and_resolves_current_chain_at_execution(source, settings):
+    plan, actor = source
+    failed = jobs.queue_floor_plan_layouts(plan, actor)
+    failed_operation = operation_for(failed)
+    failed_operation.state = "failed"
+    failed_operation.save()
+    OutboxMessage.objects.filter(pk=failed.pk).update(
+        attempts=3, dead_lettered_at=timezone.now(), last_error_code="ValueError",
+    )
+    settings.FLOOR_PLAN_VISION_PROFILES = {"other": {"provider": "ollama", "model": "other-model"}}
+    settings.FLOOR_PLAN_DEFAULT_VISION_PROFILE = "other"
+
+    fresh = jobs.queue_floor_plan_layouts(plan, actor, retry=True)
+
+    assert fresh.pk == failed.pk
+    assert fresh.payload["visionSelection"]["provider"] == "automatic"
+    failed.refresh_from_db()
+    assert failed.dead_lettered_at is None
+    failed_operation.refresh_from_db()
+    assert failed_operation.state == "pending"
+
+
 @pytest.mark.parametrize("state", ["failed", "pending", "running", "completed", "cancelled"])
 def test_queue_uses_latest_matching_job_not_stale_history(source, settings, state):
     plan, actor = source
@@ -594,7 +670,7 @@ def test_dashboard_floor_queue_reports_admission_reason(source, client, monkeypa
     assert expected.encode() in response.content
     assert b"Choose an active full-floor source" not in response.content
     assert b"unexpected private provider detail" not in response.content
-    enqueue.assert_called_once_with(plan, actor, retry=True)
+    enqueue.assert_called_once_with(plan, actor, retry=True, fresh=False)
     assert not OutboxMessage.objects.exists()
 
 

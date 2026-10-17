@@ -75,6 +75,7 @@
         {% endif %}
       </div>
       {% if card.plan.raw_extraction.qualityWarning %}<p class="errornote"><strong>Boundary review required:</strong> {{ card.plan.raw_extraction.qualityWarning }}</p>{% endif %}
+      {% if card.plan.raw_extraction.dimensionWarning %}<p class="errornote" role="alert"><strong>Room size review required:</strong> {{ card.plan.raw_extraction.dimensionWarning }}</p>{% endif %}
       <dl class="facts">
         <dt>Image type</dt><dd>{% if card.isCroppedUnit %}Cropped unit{% else %}Source image (not a cropped unit){% endif %}</dd>
         <dt>Source</dt><dd>{{ card.sourceKind }}{% if card.isPreferredSource %} — preferred pre-cut layout{% endif %}</dd>
@@ -105,7 +106,7 @@
       {% if can_remove_plans and card.editExtractionUrl %}<p><a class="button" href="{{ card.editExtractionUrl }}">Manually update room sizes</a></p>{% endif %}
       {% if card.dimensions %}
         <table class="room-table"><thead><tr><th>Room</th><th>Length</th><th>Width</th><th>Area</th></tr></thead><tbody>
-        {% for room in card.dimensions %}<tr><td>{{ room.room }}</td><td>{{ room.length|default:"—" }} ft</td><td>{{ room.width|default:"—" }} ft</td><td>{% if room.area != None %}{{ room.area }} sq ft{% else %}—{% endif %}</td></tr>{% endfor %}
+        {% for room in card.dimensions %}<tr><td>{{ room.room }}</td><td>{% if room.length != None %}{{ room.length|floatformat:"-2" }} ft{% else %}—{% endif %}</td><td>{% if room.width != None %}{{ room.width|floatformat:"-2" }} ft{% else %}—{% endif %}</td><td>{% if room.area != None %}{{ room.area }} sq ft{% else %}—{% endif %}</td></tr>{% endfor %}
         </tbody></table>
       {% elif card.evaluation.state == 'queued' or card.evaluation.state == 'running' %}
         <p>Room dimensions are pending extraction, not yet missing.</p>

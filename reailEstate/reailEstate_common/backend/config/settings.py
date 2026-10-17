@@ -258,12 +258,11 @@ VISION_MAX_CONCURRENT_REQUESTS = max(1, min(int(os.environ.get('VISION_MAX_CONCU
 FLOOR_PLAN_EXTRACTION_MODE = os.environ.get('FLOOR_PLAN_EXTRACTION_MODE', 'script').strip().lower()
 if FLOOR_PLAN_EXTRACTION_MODE not in {'script', 'ai'}:
     raise ValueError('FLOOR_PLAN_EXTRACTION_MODE must be script or ai.')
-FLOOR_PLAN_VISION_PROVIDER = os.environ.get('FLOOR_PLAN_VISION_PROVIDER', 'unavailable')
-FLOOR_PLAN_VISION_BASE_URL = os.environ.get('FLOOR_PLAN_VISION_BASE_URL', '')
-FLOOR_PLAN_VISION_MODEL = os.environ.get('FLOOR_PLAN_VISION_MODEL', '')
-FLOOR_PLAN_VISION_API_KEY = os.environ.get('FLOOR_PLAN_VISION_API_KEY', '')
-FLOOR_PLAN_VISION_PROFILES = json.loads(os.environ.get('FLOOR_PLAN_VISION_PROFILES', '{}'))
-FLOOR_PLAN_DEFAULT_VISION_PROFILE = os.environ.get('FLOOR_PLAN_DEFAULT_VISION_PROFILE', '')
+from .vision_profiles import load_vision_profiles
+
+FLOOR_PLAN_VISION_PROFILES_FILE = Path(os.environ.get(
+    'FLOOR_PLAN_VISION_PROFILES_FILE', str(BASE_DIR / 'vision-profiles.json'))).resolve()
+FLOOR_PLAN_VISION_PROFILES, FLOOR_PLAN_VISION_PRECHECK_PROFILE = load_vision_profiles(FLOOR_PLAN_VISION_PROFILES_FILE)
 ENVIRONMENT = os.environ.get('ENVIRONMENT', 'development')
 OTEL_ENABLED = os.environ.get('OTEL_ENABLED', 'false').lower() == 'true'
 OTEL_SERVICE_NAME = os.environ.get('OTEL_SERVICE_NAME', 'mmr-real-estate-backend')

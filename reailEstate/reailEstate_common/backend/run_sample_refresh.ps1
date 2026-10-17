@@ -6,10 +6,7 @@ $env:DATABASE_BACKEND = 'postgresql'
 $env:PYTHONUTF8 = '1'
 $env:PYTHONUNBUFFERED = '1'
 $env:FLOOR_PLAN_EXTRACTION_MODE = 'ai'
-if (-not $env:FLOOR_PLAN_VISION_PROFILES) {
-    $env:FLOOR_PLAN_VISION_PROFILES = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'vision-profiles.local.json') -Raw
-}
-$env:FLOOR_PLAN_DEFAULT_VISION_PROFILE = 'azure-samples'
+$env:FLOOR_PLAN_VISION_PROFILES_FILE = Join-Path $PSScriptRoot 'vision-profiles.json'
 $env:MAX_UPLOAD_BYTES = '536870912'
 $reportRoot = Join-Path $workspace 'output/reports'
 New-Item -ItemType Directory -Path $reportRoot -Force | Out-Null

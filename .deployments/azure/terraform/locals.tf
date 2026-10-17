@@ -36,9 +36,8 @@ locals {
     DJANGO_ALLOWED_HOSTS                     = local.container_app_fqdn
     DJANGO_DEBUG                             = "false"
     ENVIRONMENT                              = var.environment_name
-    FLOOR_PLAN_DEFAULT_VISION_PROFILE        = var.floor_plan_default_vision_profile
     FLOOR_PLAN_EXTRACTION_MODE               = var.floor_plan_extraction_mode
-    FLOOR_PLAN_VISION_PROFILES               = var.floor_plan_vision_profiles_json
+    FLOOR_PLAN_VISION_PROFILES_FILE          = var.floor_plan_vision_profiles_file
     LOCAL_TRUST_BUILDER_UPLOADS              = "false"
     MEDIA_ROOT                               = "/workspace/legacy-media"
     OTEL_ENABLED                             = "true"

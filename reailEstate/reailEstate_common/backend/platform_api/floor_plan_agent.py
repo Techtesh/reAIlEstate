@@ -16,17 +16,12 @@ from .integrations import ProviderUnavailable
 from .models import AgentWorkflowRun, AgentWorkflowStep, DocumentLayoutPage, FactCandidate, FloorPlan, FloorPlanAsset, ReviewTask
 from .rag import retrieve
 from .ingestion_runtime import event
-from .domain.room_dimensions import calculate_room_areas
+from .domain.room_dimensions import calculate_room_areas, normalize_room_measurements, text_room_measurements
 
 
 FLOOR_PLAN_TERMS = re.compile(r"\b(floor\s*plan|unit\s*plan|flat\s*plan|apartment\s*plan|typical\s*plan|tower\s*plan|wing\s*plan|layout)\b", re.IGNORECASE)
 CONFIGURATION_PATTERN = re.compile(r"\b([1-6](?:\.5)?\s*BHK|studio)\b", re.IGNORECASE)
 AREA_PATTERN = re.compile(r"(?:carpet\s*area|rera\s*carpet)[^\d]{0,30}(\d{2,5}(?:\.\d+)?)\s*(?:sq\.?\s*ft|sqft|square\s*feet)", re.IGNORECASE)
-DIMENSION_PATTERN = re.compile(
-    r"\b(living|dining|kitchen|bed(?:room)?(?:\s*\d+)?|master\s*bed(?:room)?|bath(?:room)?(?:\s*\d+)?|toilet|balcony)\b"
-    r"[^\d]{0,25}(\d{1,2}(?:\.\d+)?)[\s'’-]*(?:ft|feet|')?\s*[x×]\s*(\d{1,2}(?:\.\d+)?)[\s'’-]*(?:ft|feet|')?",
-    re.IGNORECASE,
-)
 
 
 class FloorPlanVisionProvider:
@@ -49,12 +44,13 @@ class FloorPlanCandidate:
     plan_scope: str = "unknown"
     orientation: str = ""
     features: dict | None = None
+    dimension_metadata: dict | None = None
 
 
 class FloorPlanAgent:
     """Bounded workflow: detect, extract, validate, reconcile, and request review."""
 
-    version = "floor-plan-agent-1.6"
+    version = "floor-plan-agent-1.7"
 
     def __init__(self, vision_provider=None):
         self._owns_vision_provider = vision_provider is None
@@ -103,7 +99,7 @@ class FloorPlanAgent:
             }
             workflow.save(update_fields=["status", "current_step", "completed_at", "confidence", "result", "updated_at"])
             return workflow
-        except ProviderUnavailable:
+        except ProviderUnavailable as exc:
             # Provider failure is not a generated plan. Keep source images for inspection.
             floor_plans = []
             workflow.status = "needs_provider"
@@ -115,7 +111,7 @@ class FloorPlanAgent:
                 "floorPlanIds": [str(item.id) for item in floor_plans],
                 **self._provider_metadata(),
                 "requiresHumanReview": True,
-                "reasonCode": "VISION_PROVIDER_UNAVAILABLE",
+                "reasonCode": getattr(exc, "code", "VISION_PROVIDER_UNAVAILABLE"),
             }
             workflow.save(update_fields=["status", "error_code", "completed_at", "result", "updated_at"])
             ReviewTask.objects.get_or_create(
@@ -125,6 +121,9 @@ class FloorPlanAgent:
                 resolution={"workflowRunId": str(workflow.id)},
                 defaults={"priority": 1},
             )
+            from .vision_errors import AllVisionProvidersFailed
+            if isinstance(exc, AllVisionProvidersFailed):
+                raise
             return workflow
         except Exception as exc:
             # Preserve checkpointed source images on failure; DB records must never point at deleted assets.
@@ -226,10 +225,7 @@ class FloorPlanAgent:
                 continue
             configuration = CONFIGURATION_PATTERN.search(text)
             area = AREA_PATTERN.search(text)
-            dimensions = [
-                {"room": match.group(1).lower(), "lengthFt": float(match.group(2)), "widthFt": float(match.group(3))}
-                for match in DIMENSION_PATTERN.finditer(text)
-            ]
+            dimensions, dimension_metadata = text_room_measurements(text)
             if text and (configuration or area or dimensions):
                 confidence = min(0.92, 0.45 + 0.15 * bool(configuration) + 0.15 * bool(area) + 0.05 * len(dimensions))
                 candidates.append(FloorPlanCandidate(
@@ -238,6 +234,7 @@ class FloorPlanAgent:
                     configuration_type=configuration.group(1).upper().replace(" ", "") if configuration else "",
                     carpet_area_sqft=self._decimal(area.group(1)) if area else None,
                     dimensions=dimensions,
+                    dimension_metadata=dimension_metadata,
                     confidence=confidence,
                     evidence_text=text[:4000],
                     asset=page_assets[0] if page_assets else None,
@@ -308,7 +305,9 @@ class FloorPlanAgent:
     def _validate(self, candidates):
         valid = []
         for candidate in candidates:
-            dimensions = [item for item in candidate.dimensions if 0.5 <= item["lengthFt"] <= 100 and 0.5 <= item["widthFt"] <= 100]
+            dimensions = [item for item in candidate.dimensions if all(
+                item.get(key) is None or (not isinstance(item[key], bool) and 0.5 <= item[key] <= 100)
+                for key in ("lengthFt", "widthFt"))]
             area = candidate.carpet_area_sqft
             confidence = candidate.confidence
             if area is not None and not Decimal("100") <= area <= Decimal("20000"):
@@ -328,6 +327,7 @@ class FloorPlanAgent:
                 plan_scope=candidate.plan_scope,
                 orientation=candidate.orientation,
                 features=candidate.features or {},
+                dimension_metadata=candidate.dimension_metadata,
             ))
         return valid
 
@@ -381,6 +381,7 @@ class FloorPlanAgent:
                         "assetId": str(candidate.asset.id) if candidate.asset else None,
                         "identification": (candidate.features or {}).get("identification"),
                         **self._provider_metadata(),
+                        **(candidate.dimension_metadata or {}),
                     },
                     "confidence": candidate.confidence,
                     "review_state": "gen_with_ai_needs_review" if ai_generated else "needs_review",
@@ -523,14 +524,26 @@ class FloorPlanAgent:
                             "orientation": {"type": ["string", "null"]},
                             "dimensions": {
                                 "type": "array",
+                                "maxItems": 50,
                                 "items": {
                                     "type": "object",
                                     "additionalProperties": False,
-                                    "required": ["room", "lengthFt", "widthFt"],
+                                    "required": ["room", "measurements"],
                                     "properties": {
-                                        "room": {"type": "string"},
-                                        "lengthFt": {"type": "number"},
-                                        "widthFt": {"type": "number"},
+                                        "room": {"type": "string", "maxLength": 64},
+                                        "measurements": {"type": "array", "maxItems": 4, "items": {
+                                            "type": "object", "additionalProperties": False,
+                                            "required": ["length", "width", "unit", "unitSource", "unitEvidence", "lengthEstimated", "widthEstimated"],
+                                            "properties": {
+                                                "length": {"type": ["string", "null"], "maxLength": 80},
+                                                "width": {"type": ["string", "null"], "maxLength": 80},
+                                                "unit": {"type": "string", "enum": ["ft", "m", "unknown"]},
+                                                "unitSource": {"type": "string", "enum": ["printed", "legend", "inferred", "unknown"]},
+                                                "unitEvidence": {"type": "string", "maxLength": 500},
+                                                "lengthEstimated": {"type": "boolean"},
+                                                "widthEstimated": {"type": "boolean"},
+                                            },
+                                        }},
                                     },
                                 },
                             },
@@ -560,20 +573,8 @@ class FloorPlanAgent:
         for item in result.get("floorPlans", [])[:20]:
             if not isinstance(item, dict):
                 continue
-            dimensions = []
-            raw_dimensions = item.get("dimensions", [])
-            if isinstance(raw_dimensions, list):
-                for dimension in raw_dimensions[:50]:
-                    if not isinstance(dimension, dict):
-                        continue
-                    room = str(dimension.get("room", ""))[:64]
-                    try:
-                        length = float(dimension.get("lengthFt"))
-                        width = float(dimension.get("widthFt"))
-                    except (TypeError, ValueError):
-                        continue
-                    if room and 0.5 <= length <= 100 and 0.5 <= width <= 100:
-                        dimensions.append({"room": room, "lengthFt": length, "widthFt": width})
+            dimensions, dimension_metadata = normalize_room_measurements(item.get("dimensions", []))
+            dimension_metadata = {**self._provider_metadata(), **dimension_metadata}
             raw_features = item.get("features", [])
             features = {
                 "items": [str(feature)[:128] for feature in raw_features[:50] if str(feature).strip()]
@@ -591,6 +592,7 @@ class FloorPlanAgent:
                 carpet_area_sqft=self._decimal(str(item.get("carpetAreaSqFt"))) if item.get("carpetAreaSqFt") is not None else None,
                 dimensions=dimensions,
                 confidence=max(0, min(1, confidence)),
+                dimension_metadata=dimension_metadata,
                 evidence_text=str(result.get("visualEvidence", ""))[:4000],
                 asset=asset,
                 plan_scope=item.get("planScope") if item.get("planScope") in {"flat", "floor", "unknown"} else "unknown",
@@ -618,11 +620,10 @@ class FloorPlanAgent:
         return candidates
 
     def _provider_metadata(self):
+        from .floor_plan_vision import provider_metadata
         return {
             "extractionMode": "script" if getattr(self.vision_provider, "code", None) == "rules" else "ai",
-            "visionProvider": getattr(self.vision_provider, "code", "custom"),
-            "visionModel": getattr(self.vision_provider, "model", ""),
-            "visionProfileId": getattr(self.vision_provider, "profile_id", None),
+            **provider_metadata(self.vision_provider),
         }
 
     @staticmethod

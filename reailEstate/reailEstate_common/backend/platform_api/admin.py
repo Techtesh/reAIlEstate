@@ -222,7 +222,7 @@ class FlatSeparationForm(forms.Form):
             catalog = {"profiles": []}
             self.profile_catalog_error = True
         self.fields["vision_profile_id"].choices = [
-            ("", "Configured default")
+            ("", "Automatic — configured fallback order")
         ] + [(item["id"], f'{item["label"]} — {item["model"]}') for item in catalog["profiles"]]
 
     def clean(self):
@@ -248,7 +248,7 @@ class ManualCropForm(forms.Form):
             profiles = available_flat_separation_ai_profiles()["profiles"]
         except ValueError:
             profiles = []
-        self.fields["vision_profile_id"].choices = [("", "Configured default")] + [
+        self.fields["vision_profile_id"].choices = [("", "Automatic — configured fallback order")] + [
             (item["id"], f'{item["label"]} — {item["model"]}') for item in profiles
         ]
 
@@ -1295,9 +1295,10 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                 from .layout_evaluation_status import queue_single_layout
                 try:
                     result = queue_single_layout(project, request.POST.get("floor_plan_id"), request.user,
-                                                 retry=request.POST.get("retry") == "true")
+                                                 retry=request.POST.get("retry") == "true",
+                                                 fresh=request.POST.get("fresh_evaluation") == "true")
                 except (ValueError, ValidationError, OSError, WorkAlreadyClaimed):
-                    messages.error(request, "Could not queue this layout. Check that its source is clean and the layout is active.")
+                    messages.error(request, "Could not queue this layout. Check that its source is clean, the layout is active, and an AI profile is configured.")
                 else:
                     if result["status"] in {"queued", "running"}:
                         messages.success(request, "Extraction queued (or existing queued/running task reused). Continue selecting other layouts; process jobs from the evaluation queue.")
@@ -1319,7 +1320,8 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
             if action == "queue_floor_layouts":
                 try:
                     plan = FloorPlan.objects.get(pk=request.POST.get("floor_plan_id"), project_id__in=project_family_ids(project))
-                    job = queue_floor_plan_layouts(plan, request.user, retry=True)
+                    job = queue_floor_plan_layouts(plan, request.user, retry=True,
+                                                  fresh=request.POST.get("fresh_evaluation") == "true")
                 except (FloorPlan.DoesNotExist, TypeError):
                     messages.error(request, "Choose a valid full-floor source from this project.")
                 except ValueError as exc:
@@ -1341,6 +1343,14 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                 return self.run_reanalysis_cart_view(request)
             if action == "run_project_evaluations":
                 from .queue_monitor import start_user_queue
+                if request.POST.get("fresh_evaluation") == "true":
+                    from .reanalysis import queue_fresh_project_evaluations
+                    try:
+                        queued = queue_fresh_project_evaluations(project, request.user)
+                    except (OSError, ValueError, WorkAlreadyClaimed):
+                        messages.error(request, "Could not queue every fresh evaluation. Check clean sources and the configured AI profile. Any queued jobs remain available.")
+                        return self._evaluation_redirect(request, request.path + f"?section={section}")
+                    messages.success(request, f"{len(queued)} failed layout/floor-plan evaluation(s) queued or existing work retained. Previous attempts were preserved.")
                 try:
                     worker = start_user_queue(request.user, project=project)
                 except (OSError, ValueError) as exc:

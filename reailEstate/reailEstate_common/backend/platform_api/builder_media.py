@@ -235,6 +235,7 @@ class BuilderMediaView(BuilderView):
                     "extractorVersion": plan.extractor_version if plan else "",
                     "sourceKind": asset.asset_type,
                     "qualityWarning": plan.raw_extraction.get("qualityWarning", "") if plan else "",
+                    "dimensionWarning": plan.raw_extraction.get("dimensionWarning", "") if plan else "",
                     "features": plan.features if plan else {},
                     "evaluation": evaluations.get(str(plan.pk)) if plan else None,
                     "canCrop": bool(can_crop and asset.document.declared_media_type in SOURCE_TYPES

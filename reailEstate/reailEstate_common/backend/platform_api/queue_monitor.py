@@ -121,8 +121,7 @@ def _launch_worker(worker):
     environment = os.environ.copy()
     environment.update(PYTHONUNBUFFERED="1", PYTHONUTF8="1",
         FLOOR_PLAN_EXTRACTION_MODE=settings.FLOOR_PLAN_EXTRACTION_MODE,
-        FLOOR_PLAN_VISION_PROFILES=json.dumps(settings.FLOOR_PLAN_VISION_PROFILES),
-        FLOOR_PLAN_DEFAULT_VISION_PROFILE=settings.FLOOR_PLAN_DEFAULT_VISION_PROFILE,
+        FLOOR_PLAN_VISION_PROFILES_FILE=str(settings.FLOOR_PLAN_VISION_PROFILES_FILE),
         WORKSPACE_DATA_ROOT=str(settings.WORKSPACE_DATA_ROOT),
         INGESTION_MAX_WORKERS=str(settings.INGESTION_MAX_WORKERS))
     command = [sys.executable, str(settings.BASE_DIR / "manage.py"), "process_outbox",
@@ -200,7 +199,8 @@ def report_progress(stage, details):
     worker_id = current_worker.get()
     if worker_id:
         allowed = {key: value for key, value in details.items() if key in {
-            "pageNumber", "imageIndex", "imageTotal", "renderedPages", "selectedPages", "attempt", "httpStatus"}}
+            "pageNumber", "imageIndex", "imageTotal", "renderedPages", "selectedPages", "attempt", "httpStatus",
+            "profileId", "provider", "model", "errorCode"}}
         QueueWorker.objects.filter(pk=worker_id).update(progress={"stage": stage, **allowed}, heartbeat_at=timezone.now())
 
 

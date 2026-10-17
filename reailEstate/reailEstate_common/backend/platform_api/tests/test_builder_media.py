@@ -197,6 +197,8 @@ def test_media_shares_admin_room_areas_and_current_evaluation_states(media):
     plan.balcony_count = 0
     plan.orientation = "East"
     plan.features = {"balcony": False}
+    plan.raw_extraction = plan.raw_extraction | {"dimensionWarning": "Living room: AI-inferred unit",
+        "dimensionEvidence": [{"privateEvidence": "not part of the public media response"}]}
     plan.save()
     operation.state = "completed"
     operation.save()
@@ -209,6 +211,8 @@ def test_media_shares_admin_room_areas_and_current_evaluation_states(media):
     assert item["roomRectangleSumSqFt"] == 125
     assert (item["roomCount"], item["bathrooms"], item["balconies"]) == (2, 1, 0)
     assert item["orientation"] == "East" and item["features"] == {"balcony": False}
+    assert item["dimensionWarning"] == "Living room: AI-inferred unit"
+    assert "dimensionEvidence" not in item
     assert "rawExtraction" not in item
     plan.dimensions = []
     plan.save()

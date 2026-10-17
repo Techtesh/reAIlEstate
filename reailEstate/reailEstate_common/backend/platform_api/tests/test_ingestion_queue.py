@@ -59,7 +59,7 @@ def vision_profiles(settings, tmp_path, monkeypatch):
             "provider": "ollama",
             "model": "vision-local",
             "base_url": "http://127.0.0.1:11434/v1",
-            "enabled": True,
+
         },
         "cloud": {
             "label": "Foundry vision",
@@ -67,12 +67,9 @@ def vision_profiles(settings, tmp_path, monkeypatch):
             "model": "vision-cloud",
             "base_url": "https://sample.openai.azure.com/openai/v1",
             "api_key_env": "TEST_INGESTION_VISION_KEY",
-            "enabled": True,
+
         },
-        "disabled": {
-            "provider": "ollama", "model": "disabled-model", "enabled": False,
-        },
-        "unconfigured": {"provider": "ollama", "model": ""},
+
     }
     monkeypatch.setenv("TEST_INGESTION_VISION_KEY", "test-secret-never-expose")
     return settings.FLOOR_PLAN_VISION_PROFILES
@@ -171,6 +168,10 @@ def assert_no_pipeline_calls(mocks):
 
 
 def assert_selection(selection, profile_id):
+    if profile_id is None:
+        assert selection == floor_plan_vision.resolve_vision_selection()
+        assert selection["provider"] == "automatic"
+        return
     provider, model = {
         "local": ("ollama", "vision-local"),
         "cloud": ("azure_foundry", "vision-cloud"),
@@ -194,7 +195,7 @@ def test_vision_profiles_list_only_enabled_safe_server_metadata(client, project,
     assert response.status_code == 200
     body = response.json()
     assert set(body) == {"defaultProfileId", "profiles"}
-    assert body["defaultProfileId"] == "local"
+    assert body["defaultProfileId"] is None
     assert sorted(body["profiles"], key=lambda item: item["id"]) == [
         {"id": "cloud", "label": "Foundry vision", "provider": "azure_foundry",
          "model": "vision-cloud", "hosting": "cloud"},
@@ -222,7 +223,7 @@ def test_completion_pins_selection_without_ingestion(
 
     assert response.status_code == 202
     result = response.json()
-    assert_selection(result["visionSelection"], profile_id or "local")
+    assert_selection(result["visionSelection"], profile_id)
     assert result["queueStatus"] == "pending"
     document.refresh_from_db()
     assert document.status == "quarantined"
@@ -550,7 +551,7 @@ def test_worker_uses_saved_selection_after_default_changes_and_deduplicates(
     settings.FLOOR_PLAN_DEFAULT_VISION_PROFILE = new_default
     settings.FLOOR_PLAN_VISION_PROVIDER = "local_openai"
     settings.FLOOR_PLAN_VISION_MODEL = "changed-legacy-default"
-    assert floor_plan_vision.resolve_vision_selection()["profileId"] == new_default
+    assert floor_plan_vision.resolve_vision_selection()["profileId"] is None
 
     scanner = Mock()
     scanner.scan.return_value = "clean"

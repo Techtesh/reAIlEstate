@@ -158,6 +158,7 @@ function ProjectMarkers({ projects, matches, selected, shortlisted, onSelect }: 
 export function ProjectMap({ projects, matches, selected, onSelect, onInspect, commutePlaces = [], shortlistedIds = [], focusRequest = null, onFit = () => {} }: ProjectMapProps) {
   const [mapLayer, setMapLayer] = useState<'satellite' | 'commute'>('satellite')
   const [tileError, setTileError] = useState(false)
+  const [satelliteUnavailable, setSatelliteUnavailable] = useState(false)
   const [retry, setRetry] = useState(0)
   const [stations, setStations] = useState<MapStation[]>([])
   const [lines, setLines] = useState<MapLine[]>([])
@@ -218,6 +219,7 @@ export function ProjectMap({ projects, matches, selected, onSelect, onInspect, c
   const shortlistedCount = projects.filter(project => shortlisted.has(project.id) && coordinates(project)).length
   const activeProject = projects.find(project => project.id === selected)
   const focusedProject = projects.find(project => project.id === focusRequest?.projectId)
+  const showSatellite = mapLayer === 'satellite' && !satelliteUnavailable
   return <section className="map-region" aria-label="Projects and stations map">
     <div className="map-layer-bar">
       <fieldset className="map-layers"><legend>Map layers</legend>
@@ -241,13 +243,13 @@ export function ProjectMap({ projects, matches, selected, onSelect, onInspect, c
     </div>
     <div className={`map-canvas map-canvas-${mapLayer}`}>
     <div className="map-style-switch" role="group" aria-label="Map layer">
-      {(['satellite', 'commute'] as const).map(layer => <button key={layer} type="button" aria-pressed={mapLayer === layer} onClick={() => { setMapLayer(layer); setTileError(false) }}>{layer === 'satellite' ? 'Satellite' : 'Commute'}</button>)}
+      {(['satellite', 'commute'] as const).map(layer => <button key={layer} type="button" aria-pressed={mapLayer === layer} onClick={() => { setMapLayer(layer); setTileError(false); setSatelliteUnavailable(false) }}>{layer === 'satellite' ? 'Satellite' : 'Commute'}</button>)}
     </div>
     <MapContainer center={[19.14, 72.96]} zoom={11} className="project-map" zoomAnimation fadeAnimation scrollWheelZoom attributionControl zoomControl>
-      <TileLayer key={`${retry}:${mapLayer}`} url={mapLayer === 'satellite' ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'} maxZoom={19}
-        attribution={mapLayer === 'satellite' ? 'Tiles &copy; Esri' : '&copy; OpenStreetMap contributors'}
+      <TileLayer key={`${retry}:${mapLayer}:${satelliteUnavailable}`} url={showSatellite ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'} maxZoom={19}
+        attribution={showSatellite ? 'Tiles &copy; Esri' : '&copy; OpenStreetMap contributors'}
         keepBuffer={6} updateWhenZooming={false} updateWhenIdle
-        eventHandlers={{ tileerror: () => setTileError(true) }} />
+        eventHandlers={{ tileerror: () => { if (showSatellite) setSatelliteUnavailable(true); else setTileError(true) } }} />
       <MapSelectionClearer onClear={() => onSelect('')} />
       <Controls positions={positions} focused={focusedProject} focusVersion={focusRequest?.version ?? 0} onFit={onFit} />
       {segments.map(segment => <Polyline key={`outline:${segment.key}`} className="transit-line-outline" positions={segment.points} interactive={false} pathOptions={{ color: '#ffffff', weight: 11, opacity: .9 }} />)}
@@ -265,7 +267,7 @@ export function ProjectMap({ projects, matches, selected, onSelect, onInspect, c
     </MapContainer>
     <div className="map-caption">Mumbai Metropolitan Region{unmapped > 0 && <span>{unmapped} {unmapped === 1 ? 'project has' : 'projects have'} no {projects.some(project => project.status !== 'published') ? 'accepted' : 'published'} coordinates</span>}</div>
     {activeProject && <div className="map-preview"><strong>{activeProject.submittedName}</strong><span>{projectStatusLabel(activeProject)}</span>{activeProject.locationStatus === 'provisional' && <span>Provisional map location - not reviewed</span>}<span>{activeProject.locality} | MahaRERA: {activeProject.verificationStatus || 'Unknown'}</span><button className="text-button" onClick={() => onInspect(activeProject)}>View project</button></div>}
-    {tileError && <div className="map-warning" role="status">Basemap unavailable. Project locations and the feed remain available.<button className="icon-button" title="Retry basemap" aria-label="Retry basemap" onClick={() => { setTileError(false); setRetry(value => value + 1) }}><RefreshCw size={18} /></button></div>}
+    {(tileError || satelliteUnavailable) && <div className="map-warning" role="status">{tileError ? 'Basemap unavailable. Project locations and the feed remain available.' : 'Satellite imagery unavailable. Showing the street map instead.'}<button className="icon-button" title="Retry basemap" aria-label="Retry basemap" onClick={() => { setTileError(false); setSatelliteUnavailable(false); setRetry(value => value + 1) }}><RefreshCw size={18} /></button></div>}
     </div>
   </section>
 }

@@ -1,6 +1,7 @@
 from contextlib import ExitStack
 from datetime import timedelta
 import hashlib
+import logging
 import re
 
 from .artifact_storage import storage as default_storage, move_document
@@ -180,7 +181,8 @@ def _process_document(document_id, scanner=None, extractor=None, vision_selectio
         ReviewTask.objects.get_or_create(project=document.project, task_type="project_output", state="open",
             resolution={"ingestionRunId": str(ingestion_run.id)}, defaults={"priority": 3})
     except Exception as exc:
-        error_code = "PROVIDER_UNAVAILABLE" if isinstance(exc, ProviderUnavailable) else (
+        from .vision_errors import AllVisionProvidersFailed
+        error_code = exc.code if isinstance(exc, AllVisionProvidersFailed) else "PROVIDER_UNAVAILABLE" if isinstance(exc, ProviderUnavailable) else (
             str(exc) if isinstance(exc, ValueError) and re.fullmatch(r"[A-Z_]{1,64}", str(exc)) else exc.__class__.__name__[:64])
         if ingestion_run:
             ingestion_run.status = "failed"
@@ -197,7 +199,11 @@ def _process_document(document_id, scanner=None, extractor=None, vision_selectio
         if operation:
             operation.state = "pending" if isinstance(exc, ProviderUnavailable) else "failed"
             operation.error_code = error_code
-            operation.save(update_fields=["state", "error_code", "updated_at"])
+            if isinstance(exc, AllVisionProvidersFailed):
+                operation.result = operation.result | {"visionAttempts": exc.attempts}
+            operation.save(update_fields=["state", "error_code", "result", "updated_at"])
+        if isinstance(exc, AllVisionProvidersFailed):
+            raise
         return document
     finally:
         if owns_extractor and hasattr(extractor, "close"):
@@ -435,6 +441,19 @@ def _record_outbox_failure(message_id, exc, outcome="failed", expected_attempts=
         # before this bookkeeping step. Do not overwrite that newer request.
         return outcome
     code = layout_evaluation_error(exc)
+    operation_id = message.payload.get("operationId")
+    if not operation_id and message.event_type == "document.processing.requested":
+        operation_id = Operation.objects.filter(kind="document_processing",
+            result__documentId=message.payload["documentId"]).order_by("-created_at").values_list("pk", flat=True).first()
+    if getattr(exc, "code", None) == "VISION_ALL_PROVIDERS_FAILED":
+        operation = Operation.objects.select_for_update().filter(pk=operation_id).first()
+        if operation and operation.state not in {"completed", "cancelled"}:
+            operation.result = operation.result | {"visionAttempts": exc.attempts}
+            operation.save(update_fields=["result", "updated_at"])
+    logging.getLogger("platform_api.ingestion").warning(
+        "QUEUE ERROR messageId=%s eventType=%s errorCode=%s attempt=%s httpStatus=%s",
+        message.pk, message.event_type, code, message.attempts, getattr(exc, "status_code", None),
+    )
     terminal = message.event_type == "floor_plan.crop_evaluation.requested" and code in TERMINAL_CROP_ERRORS
     if message.event_type == "floor_plan.crop_evaluation.requested":
         operation = Operation.objects.select_for_update().get(pk=message.payload["operationId"])
@@ -460,7 +479,7 @@ def _record_outbox_failure(message_id, exc, outcome="failed", expected_attempts=
     message.available_after = None if exhausted else timezone.now() + timedelta(seconds=min(300, 2 ** min(message.attempts, 9)))
     if exhausted:
         message.dead_lettered_at = timezone.now()
-        operation = Operation.objects.select_for_update().filter(pk=message.payload.get("operationId")).first()
+        operation = Operation.objects.select_for_update().filter(pk=operation_id).first()
         if operation and operation.state not in {"completed", "cancelled"}:
             operation.state = "failed"
             operation.error_code = code

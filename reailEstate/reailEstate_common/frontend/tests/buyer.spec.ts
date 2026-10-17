@@ -28,6 +28,7 @@ const snapshot: Snapshot = { id: snapshotId, status: 'ready', profileVersion: 2,
 async function mockApi(page: Page, signedIn = true) {
   const state = { signedIn, profile: null as Profile | null, patches: [] as Draft[], consents: 0, submitKeys: [] as string[], conflict: false, empty: false, pending: false, stationError: false, catalogueError: false, requests: [] as string[] }
   let shortlists: Shortlist[] = []
+  await page.route('https://server.arcgisonline.com/**', route => route.fulfill({ status: 503, body: '' }))
   await page.route('https://tile.openstreetmap.org/**', route => route.fulfill({ status: 503, body: '' }))
   await page.route('**/api/v1/**', async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname, method = request.method()
@@ -917,10 +918,32 @@ test('station failure does not hide public projects and retries independently', 
   await expect(page.locator('.project-card')).toHaveCount(3)
 })
 
+test('satellite failure falls back to street tiles and retry restores imagery', async ({ page }) => {
+  await mockApi(page, false)
+  const tile = '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#dcefd4"/></svg>'
+  await page.route('https://tile.openstreetmap.org/**', route => route.fulfill({ contentType: 'image/svg+xml', body: tile }))
+  await page.goto('/browse')
+  await expect(page.locator('.map-warning')).toContainText('Satellite imagery unavailable. Showing the street map instead.')
+  await expect(page.locator('.leaflet-control-attribution')).toContainText('OpenStreetMap')
+  await expect.poll(() => page.locator('.leaflet-tile').evaluateAll(tiles => tiles.filter(tile => (tile as HTMLImageElement).naturalWidth === 256).length)).toBeGreaterThan(0)
+  await expect(page.locator('.price-pin')).toHaveCount(2)
+  await expect(page.locator('.station-pin')).toHaveCount(3)
+  await page.route('https://server.arcgisonline.com/**', route => route.fulfill({ contentType: 'image/svg+xml', body: tile }))
+  await page.getByRole('button', { name: 'Retry basemap', exact: true }).click()
+  await expect(page.locator('.leaflet-control-attribution')).toContainText('Esri')
+  await expect.poll(() => page.locator('.leaflet-tile').evaluateAll(tiles => tiles.filter(tile => (tile as HTMLImageElement).naturalWidth === 256).length)).toBeGreaterThan(0)
+  await expect(page.locator('.map-warning')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Commute', exact: true }).click()
+  await expect(page.locator('.leaflet-control-attribution')).toContainText('OpenStreetMap')
+  await page.getByRole('button', { name: 'Satellite', exact: true }).click()
+  await expect(page.locator('.leaflet-control-attribution')).toContainText('Esri')
+})
+
 test('unavailable basemap does not block stations, projects or the feed', async ({ page }) => {
   await mockApi(page, false)
   await page.goto('/browse')
   await expect(page.getByRole('button', { name: 'Retry basemap', exact: true })).toBeVisible()
+  await expect(page.locator('.map-warning')).toContainText('Basemap unavailable.')
   await expect(page.locator('.project-card')).toHaveCount(3)
   await expect(page.locator('.price-pin')).toHaveCount(2)
   await expect(page.locator('.station-pin')).toHaveCount(3)

@@ -14,6 +14,7 @@ from platform_api.floor_plan_agent import FloorPlanAgent, FloorPlanVisionProvide
 from platform_api.floor_plan_pages import FloorPlanPageSelector
 from platform_api.models import EvidenceDocument, Organization, Project
 from platform_api.rag import ingest_document
+from .test_room_dimensions import native_room
 
 
 @pytest.fixture
@@ -53,7 +54,7 @@ class RecordingVision:
         return {"floorPlans": [{
             "planName": "Unit A", "planScope": "flat", "configurationType": "2BHK",
             "carpetAreaSqFt": 720, "orientation": "North", "features": ["balcony"],
-            "dimensions": [{"room": "living", "lengthFt": 12, "widthFt": 18}], "confidence": 0.9,
+            "dimensions": [native_room("living", 12, 18)], "confidence": 0.9,
         }]}
 
 
@@ -136,8 +137,8 @@ def test_vision_keeps_labeled_narrow_spaces():
         "planName": "Unit 6", "planScope": "flat", "configurationType": "1BHK",
         "carpetAreaSqFt": None, "orientation": None, "features": [], "confidence": 0.9,
         "dimensions": [
-            {"room": "Wash Basin Nook", "lengthFt": 1.5, "widthFt": 3.92},
-            {"room": "Bedroom Foyer", "lengthFt": 3.08, "widthFt": 4.42},
+            native_room("Wash Basin Nook", 1.5, 3.92),
+            native_room("Bedroom Foyer", 3.08, 4.42),
         ],
     }]}
     agent = FloorPlanAgent(RecordingVision())

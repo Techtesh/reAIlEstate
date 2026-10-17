@@ -26,6 +26,7 @@ SCHEMA["properties"]["towers"] = {"type": "array", "items": {
 
 
 def visual_project_claims(workflow, provider):
+    from .floor_plan_vision import provider_metadata
     if getattr(provider, "code", "rules") == "rules":
         return {"status": "not_requested", "claims": [], "pages": []}
     if not hasattr(provider, "analyze_project_page"):
@@ -62,8 +63,10 @@ def visual_project_claims(workflow, provider):
                        for key in ("residentialUnits", "unitsPerFloor", "lifts")},
                     "evidenceText": tower["evidenceText"][:500], "documentId": str(workflow.document_id),
                     "pageNumber": asset.page_number, "source": "visual_model", "validationStatus": "unverified"})
-            pages.append({"pageNumber": asset.page_number, "status": "completed"})
+            pages.append({"pageNumber": asset.page_number, "status": "completed", **provider_metadata(provider)})
         except (ProviderUnavailable, InvalidProviderResponse, OSError, ValueError, KeyError, TypeError) as exc:
-            pages.append({"pageNumber": asset.page_number, "status": "failed", "errorCode": type(exc).__name__})
+            pages.append({"pageNumber": asset.page_number, "status": "failed",
+                          "errorCode": getattr(exc, "code", type(exc).__name__),
+                          "visionAttempts": getattr(exc, "attempts", [])})
     return {"status": "partial_failure" if any(item["status"] == "failed" for item in pages) else "completed",
             "claims": claims, "pages": pages, "towers": towers}

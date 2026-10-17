@@ -10,5 +10,14 @@
     <a href="{{ cancel_url }}">Cancel</a>
     <button type="submit">Continue</button>
   </form>
+  {% if warning.freshConfirmationToken %}
+  <p>Fresh evaluation queues new attempts for failed layouts/floor plans using current AI settings, keeping previous attempts. Queued/running work is reused. Results still require review and may fail again.</p>
+  <form method="post">{% csrf_token %}
+    {% for name, value in submitted_fields %}{% if name != 'fresh_evaluation' %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endif %}{% endfor %}
+    <input type="hidden" name="fresh_evaluation" value="true">
+    <input type="hidden" name="retry_confirmation" value="{{ warning.freshConfirmationToken }}">
+    <button type="submit">Run fresh evaluation</button>
+  </form>
+  {% endif %}
 </section>
 {% endblock %}

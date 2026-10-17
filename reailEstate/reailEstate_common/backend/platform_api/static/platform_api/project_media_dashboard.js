@@ -186,6 +186,7 @@
       'run_project_evaluations', 'run_queued_project_evaluations', 'run_layout_evaluation', 'queue_floor_layouts', 'queue_amenity_pages']);
     const cancelRetry = retryDialog.querySelector('[data-retry-cancel]');
     const continueRetry = retryDialog.querySelector('[data-retry-continue]');
+    const freshRetry = retryDialog.querySelector('[data-retry-fresh]');
     const retryError = retryDialog.querySelector('[data-retry-error]');
     const pageError = page.querySelector('[data-evaluation-error]');
     let pendingRetry = null;
@@ -199,6 +200,7 @@
       pending.form.setAttribute('aria-busy', 'true');
       cancelRetry.disabled = true;
       continueRetry.disabled = true;
+      freshRetry.disabled = true;
       if (pending.submitter) pending.submitter.disabled = true;
       try {
         const response = await fetch(pending.form.getAttribute('action') || window.location.href, {
@@ -211,7 +213,10 @@
         const result = await response.json();
         if (response.status === 409 && result.requiresConfirmation) {
           pending.data.set('retry_confirmation', result.confirmationToken);
+          pending.freshConfirmationToken = result.freshConfirmationToken;
           pendingRetry = pending;
+          freshRetry.hidden = !result.freshConfirmationToken;
+          retryDialog.querySelector('[data-retry-fresh-help]').hidden = freshRetry.hidden;
           retryDialog.querySelector('[data-retry-project]').textContent = result.project;
           retryDialog.querySelector('[data-retry-failures]').replaceChildren(...result.failures.map(failure => {
             const item = document.createElement('li');
@@ -236,6 +241,7 @@
         pending.form.removeAttribute('aria-busy');
         cancelRetry.disabled = false;
         continueRetry.disabled = false;
+        freshRetry.disabled = false;
         if (pending.submitter) pending.submitter.disabled = false;
         if (retryDialog.open) cancelRetry.focus();
       }
@@ -258,6 +264,12 @@
     });
     continueRetry.addEventListener('click', () => {
       if (pendingRetry) sendEvaluation(pendingRetry);
+    });
+    freshRetry.addEventListener('click', () => {
+      if (!pendingRetry?.freshConfirmationToken || submitting) return;
+      pendingRetry.data.set('fresh_evaluation', 'true');
+      pendingRetry.data.set('retry_confirmation', pendingRetry.freshConfirmationToken);
+      sendEvaluation(pendingRetry);
     });
   }
 
