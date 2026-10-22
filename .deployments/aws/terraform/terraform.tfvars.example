@@ -1,0 +1,40 @@
+aws_region              = "ap-south-1"
+expected_aws_account_id = "123456789012"
+workload_name           = "workspace"
+environment_name        = "poc"
+
+# First apply: keep false to provision foundations before images exist.
+# Second apply: set true and replace both not-built image tags.
+deploy_workload       = false
+application_image_tag = "not-built"
+gateway_image_tag     = "not-built"
+
+ecs_task_cpu     = 2048
+ecs_task_memory  = 4096
+ecs_desired_count = 1
+
+postgresql_engine_version           = "16"
+postgresql_instance_class           = "db.t4g.micro"
+postgresql_allocated_storage_gb     = 20
+postgresql_max_allocated_storage_gb = 100
+postgresql_backup_retention_days    = 7
+
+log_retention_days   = 30
+cloudfront_price_class = "PriceClass_200"
+
+# Leave empty to use the default cloudfront.net HTTPS hostname.
+cloudfront_aliases             = []
+cloudfront_acm_certificate_arn = ""
+
+enable_deletion_protection = false
+clamav_enabled             = false
+clamav_endpoint            = "tcp://clamav:3310"
+
+# Keep script mode until an approved AI endpoint and data-residency policy exist.
+floor_plan_extraction_mode       = "script"
+floor_plan_vision_profiles_file = "/workspace/vision-profiles.json"
+
+tags = {
+  Owner      = "personal"
+  CostCenter = "education"
+}

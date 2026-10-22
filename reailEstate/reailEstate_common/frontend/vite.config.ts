@@ -1,0 +1,27 @@
+import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite'
+import { randomBytes } from 'node:crypto'
+
+const nonce = randomBytes(24).toString('base64')
+const policy = (development: boolean) => `default-src 'self'; script-src 'self'${development ? ` 'nonce-${nonce}'` : ''}; style-src 'self'${development ? ` 'nonce-${nonce}'` : ''}; img-src 'self' data: https://tile.openstreetmap.org https://server.arcgisonline.com https://a.basemaps.cartocdn.com; font-src 'self'; connect-src 'self'${development ? ' ws://127.0.0.1:*' : ''}; worker-src ${development ? "'self' blob:" : "'none'"}; frame-src 'none'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`
+export default defineConfig(({ command, mode }) => {
+  const apiPort = mode === 'builder' ? 8003 : 8004
+  return {
+    plugins: [react()],
+    base: command === 'build' ? '/static/' : '/',
+    build: { assetsInlineLimit: 0, outDir: `dist/${mode === 'builder' ? 'builder' : 'buyer'}`, emptyOutDir: true },
+    html: command === 'serve' ? { cspNonce: nonce } : undefined,
+    server: {
+      host: '127.0.0.1',
+      port: 5173,
+      strictPort: true,
+      proxy: { '/api': { target: `http://127.0.0.1:${apiPort}`, changeOrigin: false } },
+      headers: { 'Referrer-Policy': 'strict-origin-when-cross-origin', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': policy(true) },
+    },
+    preview: {
+      host: '127.0.0.1', port: 5174, strictPort: true,
+      proxy: { '/api': { target: `http://127.0.0.1:${apiPort}`, changeOrigin: false } },
+      headers: { 'Referrer-Policy': 'strict-origin-when-cross-origin', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': policy(false) },
+    },
+  }
+})

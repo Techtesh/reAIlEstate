@@ -1,0 +1,112 @@
+x-app-environment: &app-environment
+  DATABASE_BACKEND: postgresql
+  PGHOST: postgres
+  PGPORT: "5432"
+  PGDATABASE: realestate
+  PGUSER: realestate
+  PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY}
+  DJANGO_DEBUG: "false"
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+  WORKSPACE_DATA_ROOT: /workspace
+  MEDIA_ROOT: /workspace/legacy-media
+  CLAMAV_ENABLED: "false"
+  CLAMAV_ENDPOINT: ${CLAMAV_ENDPOINT:-tcp://clamav:3310}
+  FLOOR_PLAN_EXTRACTION_MODE: ${FLOOR_PLAN_EXTRACTION_MODE:-script}
+  FLOOR_PLAN_VISION_PROFILES_FILE: /app/reailEstate_common/backend/vision-profiles.json
+  OTEL_ENABLED: ${OTEL_ENABLED:-false}
+  OTEL_EXPORTER_ENDPOINT: ${OTEL_EXPORTER_ENDPOINT:-http://otel-collector:4318/v1/traces}
+
+x-app: &app
+  build:
+    context: .
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+  environment: *app-environment
+  volumes:
+    - workspace-media:/workspace
+    - ./reailEstate_common/backend/vision-profiles.json:/app/reailEstate_common/backend/vision-profiles.json:ro
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: realestate
+      POSTGRES_USER: realestate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U realestate -d realestate"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command:
+      - python
+      - adminService/manage.py
+      - migrate
+      - --settings=admin_service.settings
+
+  admin:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command:
+      - gunicorn
+      - --bind=0.0.0.0:8000
+      - --workers=2
+      - --access-logfile=-
+      - admin_service.wsgi:application
+    ports:
+      - "${ADMIN_PORT:-8002}:8000"
+
+  builder:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command:
+      - gunicorn
+      - --bind=0.0.0.0:8000
+      - --workers=2
+      - --access-logfile=-
+      - builder_service.wsgi:application
+    ports:
+      - "${BUILDER_PORT:-8003}:8000"
+
+  buyer:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command:
+      - gunicorn
+      - --bind=0.0.0.0:8000
+      - --workers=2
+      - --access-logfile=-
+      - buyer_service.wsgi:application
+    ports:
+      - "${BUYER_PORT:-8004}:8000"
+
+  worker:
+    <<: *app
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command:
+      - python
+      - adminService/manage.py
+      - run_extraction_dispatcher
+      - --settings=admin_service.settings
+
+volumes:
+  postgres-data:
+  workspace-media:

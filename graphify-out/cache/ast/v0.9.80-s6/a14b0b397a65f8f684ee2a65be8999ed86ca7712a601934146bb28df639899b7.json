@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_reailestate_reailestate_common_backend_setup_local_postgres_ps1", "label": "setup_local_postgres.ps1", "file_type": "code", "source_file": "reailEstate/reailEstate_common/backend/setup_local_postgres.ps1", "source_location": "L1"}], "edges": [], "raw_calls": []}

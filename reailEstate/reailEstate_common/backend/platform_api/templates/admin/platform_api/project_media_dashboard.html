@@ -1,0 +1,245 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="{% static 'platform_api/project_media_dashboard.js' %}?v=20261009-fresh-evaluation" defer></script>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Home</a> &rsaquo;
+  <a href="{% url 'admin:platform_api_project_changelist' %}">Projects</a> &rsaquo;
+  <a href="{% url 'admin:platform_api_project_change' original.pk %}">{{ original }}</a> &rsaquo;
+  Media dashboard
+</div>
+{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}?v=20261017-responsive-layout">
+{% endblock %}
+
+{% block content %}
+<div id="content-main" class="media-tools">
+  <dialog id="evaluation-retry-dialog" class="evaluation-retry-dialog" aria-labelledby="evaluation-retry-title" aria-describedby="evaluation-retry-description">
+    <h2 id="evaluation-retry-title">Previous evaluation failed</h2>
+    <p id="evaluation-retry-description"><strong data-retry-project></strong> has previous evaluation failures. Continuing may fail again and use additional model requests.</p>
+    <ul data-retry-failures></ul>
+    <p data-retry-overflow hidden></p>
+    <p data-retry-fresh-help hidden>Fresh evaluation queues new attempts for failed layouts/floor plans using current AI settings, keeping previous attempts. Queued/running work is reused. Results still require review and may fail again.</p>
+    <p data-retry-error role="alert" hidden></p>
+    <div class="media-actions">
+      <button type="button" data-retry-cancel autofocus>Cancel</button>
+      <button type="button" class="default" data-retry-continue>Continue</button>
+      <button type="button" data-retry-fresh hidden>Run fresh evaluation</button>
+    </div>
+  </dialog>
+  <p data-evaluation-error role="alert" hidden></p>
+  {% if original.status == 'retired' %}<div class="retired-warning" role="alert"><strong>Retired project.</strong> These records are retained for reference and must not be treated as an active project.</div>{% endif %}
+  <div class="media-byline">
+    <p class="help">Layout tools v7 — crop-first additions, extraction status and display names</p>
+    <p><strong>Location:</strong> {{ project_location|default:"Unknown" }}</p>
+    <p><strong>Layout price range:</strong> <span data-project-price>{{ project_price }}</span></p>
+  </div>
+  <nav class="project-nav" aria-label="Project navigation">
+    <a class="button" href="{{ project_change_url }}">&larr; Back to project</a>
+    {% if can_report %}<a class="button" href="{% url 'admin:platform_api_project_external_sources' original.pk %}">External sources</a>{% endif %}
+    {% if project_navigation.previous %}<a class="button" href="{{ project_navigation.previous }}">&larr; Previous project</a>{% else %}<span aria-disabled="true">&larr; Previous project</span>{% endif %}
+    {% if project_navigation %}<strong>{{ project_navigation.position }} of {{ project_navigation.total }}</strong>{% endif %}
+    {% if project_navigation.next %}<a class="button" href="{{ project_navigation.next }}">Next project &rarr;</a>{% else %}<span aria-disabled="true">Next project &rarr;</span>{% endif %}
+    {% if can_report %}{% include "admin/platform_api/cart_icon.html" with count=draft_crop_count only %}{% endif %}
+  </nav>
+
+  {% if carousel %}
+    <section class="carousel" data-carousel aria-labelledby="media-preview-heading">
+      <h2 id="media-preview-heading">{% if section == 'layouts' %}Layout previews{% elif section == 'floor-plans' %}Floor-plan previews{% else %}Amenity previews{% endif %}</h2>
+      {% for slide in carousel %}
+        <figure class="carousel-slide{% if forloop.first %} active{% endif %}">
+          <a href="{{ slide.imageUrl }}" target="_blank" rel="noopener"><img src="{{ slide.imageUrl }}" alt="{{ slide.label }}"></a>
+          <figcaption>{{ slide.label }}</figcaption>
+        </figure>
+      {% endfor %}
+      <div class="carousel-controls">
+        <button type="button" class="button" data-prev>&larr; Previous image</button>
+        <span data-position aria-live="polite">1 of {{ carousel|length }}</span>
+        <button type="button" class="button" data-next>Next image &rarr;</button>
+      </div>
+    </section>
+  {% endif %}
+
+  <nav class="media-tabs" aria-label="Project media sections">
+    <a class="{% if section == 'project-images' %}active{% endif %}" href="?section=project-images">Project images ({{ counts.projectImages }})</a>
+    <a class="{% if section == 'amenities' %}active{% endif %}" href="?section=amenities">Amenities ({{ counts.amenities }})</a>
+    <a class="{% if section == 'floor-plans' %}active{% endif %}" href="?section=floor-plans">Floor plans ({{ counts.floorPlans }})</a>
+    <a class="{% if section == 'layouts' %}active{% endif %}" href="?section=layouts">Layouts ({{ counts.layouts }})</a>
+    {% if can_report %}
+      {% if section == 'project-images' %}
+      <a class="button media-primary media-add" href="#project-image-form">Add project image</a>
+      {% else %}
+      <a class="button media-primary media-add" href="{{ add_source_pages_url }}?category={{ section }}">{% if section == 'layouts' %}Add missing layout{% elif section == 'floor-plans' %}Add missing floor-plan pages{% else %}Add missing amenity pages{% endif %}</a>
+      {% endif %}
+    {% endif %}
+  </nav>
+
+  {% if boundary_review_count or boundary_only %}
+  <section class="module media-panel boundary-banner" aria-labelledby="boundary-review-heading">
+    <h2 id="boundary-review-heading">Boundary review</h2>
+    <p>{{ boundary_review_count|default:0 }} layout{{ boundary_review_count|pluralize }} flagged for boundary review.</p>
+    <div class="media-actions">
+      {% if boundary_review_url %}<a class="button" href="{{ boundary_review_url }}">View layouts needing boundary review</a>{% endif %}
+      {% if boundary_only %}<span>Showing boundary-review layouts only.</span><a class="button" href="?section=layouts">Clear boundary filter</a>{% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if can_report and section != 'project-images' %}
+  {% if section == 'layouts' %}
+  <section class="module media-panel" id="draft-crop-cart">
+    <h2>Draft cart for this project</h2>
+    <p>{{ draft_crop_count }} / 20 drafts in your private cart across all projects. Use <strong>Draft cart</strong> above to manage drafts across projects.</p>
+    {% if draft_crops %}
+    {% if messages %}
+      <ul class="messagelist" aria-label="Draft cart result">
+        {% for message in messages %}<li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+    <form method="post" action="{{ draft_cart_action_url }}" data-draft-cart-form>{% csrf_token %}
+      <p data-draft-cart-feedback class="errornote" role="alert" tabindex="-1" hidden></p>
+      {% if draft_new_count %}
+      <p><label><input type="checkbox" data-select-new-drafts> Select all {{ draft_new_count }} new layout draft{{ draft_new_count|pluralize }}</label></p>
+      {% endif %}
+      <div class="media-grid">
+      {% for draft in draft_crops %}
+        <label class="media-card" for="draft-{{ draft.pk }}">
+          <img src="{% url 'admin:platform_api_project_crop_draft_preview' original.pk draft.pk %}" alt="Draft {{ draft.label }}" loading="lazy">
+          <p>{% if draft.bounds.draftAction == 'update' %}<strong>Update existing layout</strong>{% elif draft.bounds.draftAction == 'page' %}<strong>Add {{ draft.bounds.category }} page</strong>{% else %}<strong>New layout</strong>{% endif %}</p>
+          <p><input type="checkbox" id="draft-{{ draft.pk }}" name="draft_ids" value="{{ draft.pk }}" data-draft-kind="{% if draft.bounds.draftAction == 'update' or draft.bounds.draftAction == 'page' %}saved{% else %}new{% endif %}"> {{ draft.label }} — {% if draft.document_id %}{{ draft.document.original_name }}, page {{ draft.page_number }}{% else %}{{ draft.source_plan.document.original_name }}, page {{ draft.source_plan.page_number }}{% endif %}</p>
+        </label>
+      {% endfor %}
+      </div>
+      <p>{{ draft_evaluation_form.vision_profile_id.as_field_group }}</p>
+      <div class="media-actions"><button type="submit" class="default" name="draft_action" value="add"{% if not draft_new_count %} disabled{% endif %}>Add selected new layouts</button>
+      <button type="submit" class="button media-destructive" name="draft_action" value="discard">Discard selected drafts</button></div>
+      <p><label><input type="checkbox" name="confirm_commit"> Apply selected saved pages/updates and queue evaluation. Crop updates keep the layout ID and replace its current image and facts.</label></p>
+      <div class="media-actions"><button type="submit" class="button" name="draft_action" value="commit_saved"{% if not draft_saved_count %} disabled title="No saved page or crop-update drafts are available."{% endif %}>Commit saved pages/updates{% if not draft_saved_count %} (none available){% endif %}</button></div>
+      <details><summary>Replace existing layouts instead (explicit user action)</summary>
+        <p>Only the layouts selected here will be marked replaced. Source images and audit history remain available.</p>
+        <div class="replacement-layouts">{% for plan in replacement_layouts %}<p><label><input type="checkbox" name="replacement_ids" value="{{ plan.pk }}"> {{ plan.display_title }} — page {{ plan.page_number }}</label></p>{% endfor %}</div>
+        <p><label><input type="checkbox" name="confirm_replace"> I confirm replacing the selected existing layouts with the selected drafts.</label></p>
+        <div class="media-actions"><button type="submit" class="button media-destructive" name="draft_action" value="replace">Replace selected layouts</button></div>
+      </details>
+    </form>
+    {% else %}<p>No drafts for this project.</p>{% endif %}
+  </section>
+  {% endif %}
+  <section class="module media-panel">
+    <h2>Evaluation queue — amenities, floor splits and attached layouts{% if update_cart_count %} ({{ update_cart_count }} task{{ update_cart_count|pluralize }}){% endif %}</h2>
+    <p class="help">Draft crops are not processed here. Add selected drafts to the project first.</p>
+    {% if failed_cart_count %}<p class="errornote">{{ failed_cart_count }} task(s) stopped or exhausted retries. Inspect the task details; use the saved-amenity or floor-split retry action where appropriate. Cancelled removals are not restarted.</p>{% endif %}
+    {% if update_cart_items %}<details><summary>View queued and stopped tasks</summary><ul>{% for task in update_cart_items %}<li>{{ task.kind }} — {{ task.assetId }} — attempts: {{ task.attempts }}{% if task.stopped %} — stopped{% elif task.retryAt %} — retry after {{ task.retryAt }}{% endif %}{% if task.error %} — {{ task.error }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+    <form method="post" class="media-actions">{% csrf_token %}
+      <button class="button" name="action" value="queue_failed_reanalysis">Add failed documents</button>
+      <button class="button" name="action" value="queue_project_reanalysis">Add all project documents</button>
+      <button class="default" name="action" value="run_project_evaluations">Run evaluations for this project</button>
+      <a class="button" href="{% url 'admin:platform_api_project_jobs' %}">Evaluation jobs</a>
+      {% if section == 'amenities' %}<button class="button" name="action" value="queue_amenity_pages">Queue saved amenity pages / retry failed</button>{% endif %}
+    </form>
+    {% if section == 'layouts' %}<h3>Crop a missed layout from its source page</h3>
+    <form method="post" class="media-actions media-actions--fields">{% csrf_token %}<input type="hidden" name="action" value="mark_layout_page">
+      <label>Document <select name="document_id" required>{% for item in documents %}<option value="{{ item.document.id }}">{{ item.document.original_name }}</option>{% endfor %}</select></label>
+      <label>PDF page <input type="number" name="page_number" min="1" required class="page-number-input"></label>
+      <button class="button">Open page to crop layouts</button>
+    </form>{% endif %}
+    <details><summary>Source documents and explicit pages</summary><ul>{% for item in documents %}<li><a href="{{ item.sourceUrl }}" target="_blank" rel="noopener">Open {{ item.document.original_name }}</a>{% if item.decisions %} — marked pages: {% for decision in item.decisions %}{{ decision.page_number }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</li>{% endfor %}</ul></details>
+  </section>
+  {% endif %}
+
+  {% if section == 'project-images' %}
+    <section class="project-images" aria-labelledby="project-images-heading">
+      <h2 id="project-images-heading">Project images</h2>
+      {% if has_project_picture %}
+      <figure class="project-cover-preview">
+        <a href="{% url 'project-picture' original.pk %}" target="_blank" rel="noopener"><img src="{% url 'project-picture' original.pk %}?v={{ original.updated_at|date:'U' }}" alt="Current cover for {{ original.submitted_name }}"></a>
+        <figcaption>{% if original.project_pic %}Current listing cover{% else %}Automatic cover: first PDF page{% endif %}</figcaption>
+      </figure>
+      {% else %}<p>No listing cover is available.</p>{% endif %}
+      <form method="post" enctype="multipart/form-data" id="project-image-form" action="?section=project-images">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save_project_picture">
+        <input type="hidden" name="version" value="{{ original.updated_at.isoformat }}">
+        <fieldset{% if not can_report %} disabled{% endif %}>
+          <legend>Listing cover</legend>
+          <div class="project-image-upload">{{ project_picture_form.project_pic.as_field_group }}</div>
+          <h3>{{ project_picture_form.project_picture_source.label }}</h3>
+          {{ project_picture_form.project_picture_source }}
+        </fieldset>
+        {% if can_report %}<div class="media-actions"><button type="submit" class="default">Save project picture</button></div>{% endif %}
+      </form>
+    </section>
+  {% elif section == 'amenities' %}
+    <section class="module media-panel">
+      <h2>Project amenities</h2>
+      <table><thead><tr><th>Amenity</th><th>Category</th><th>Availability</th><th>Distance</th><th>Travel time</th></tr></thead><tbody>
+      {% for claim in amenity_claims %}
+        <tr><td>{{ claim.amenity.display_name }}</td><td>{{ claim.amenity.category }}</td><td>{{ claim.availability_state }}</td><td>{% if claim.distance_meters != None %}{{ claim.distance_meters }} m{% else %}—{% endif %}</td><td>{% if claim.travel_minutes != None %}{{ claim.travel_minutes }} min{% else %}—{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="5">No structured amenities are available.</td></tr>{% endfor %}
+      </tbody></table>
+    </section>
+    <form method="post" action="?section=amenities" class="module media-panel amenity-manual-entry">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add_manual_amenities">
+      <fieldset{% if not can_report or original.status == 'retired' or original.status == 'merged' %} disabled{% endif %}>
+        <legend>Add missing amenities</legend>
+        <label for="manual-amenities">Amenity names</label>
+        <textarea id="manual-amenities" name="manual_amenities" rows="3" placeholder="For example: gym, swimming pool, children's play area"></textarea>
+        <p class="help">Separate entries with commas or new lines. Recognized amenities are added as reviewed manual claims; brochure evidence remains unchanged.</p>
+        <button type="submit" class="default">Add amenities</button>
+      </fieldset>
+    </form>
+    <div class="media-grid">
+      {% for item in amenities %}
+        <article class="media-card">
+          <a href="{{ item.imageUrl }}" target="_blank" rel="noopener"><img src="{{ item.imageUrl }}" alt="Amenity image on page {{ item.asset.page_number }}"></a>
+          <h2>Amenity image — page {{ item.asset.page_number|default:'unknown' }}</h2>
+          <p>Extraction: {{ item.extractionStatus }}. Extracted claims require review.</p>
+          <details><summary>Extraction metadata</summary><pre>{{ item.metadata }}</pre></details>
+        </article>
+      {% empty %}<p>No amenity images are available for this project.</p>{% endfor %}
+    </div>
+  {% elif section == 'floor-plans' %}
+    <form method="get" data-floor-plan-sort-form class="media-actions">
+      <input type="hidden" name="section" value="floor-plans">
+      <label>Sort floor plans
+        <select name="sort">
+          <option value="name"{% if layout_sort != 'name-desc' %} selected{% endif %}>Name (A-Z)</option>
+          <option value="name-desc"{% if layout_sort == 'name-desc' %} selected{% endif %}>Name (Z-A)</option>
+        </select>
+      </label>
+    </form>
+    {% include "admin/platform_api/project_plan_cards.html" with cards=floor_plans show_report=False %}
+  {% else %}
+    <noscript><p><strong>Sort layouts:</strong> <a href="?section=layouts&amp;sort=priority{% if boundary_only %}&amp;boundary_only=1{% endif %}{% if include_candidates %}&amp;include_candidates=1{% endif %}">preferred source</a> | <a href="?section=layouts&amp;sort=unit{% if boundary_only %}&amp;boundary_only=1{% endif %}{% if include_candidates %}&amp;include_candidates=1{% endif %}">unit/name</a></p></noscript>
+    {% if hidden_layout_count %}
+      <p class="help">
+        {{ hidden_layout_count }} older, duplicate, or page-level layout record{{ hidden_layout_count|pluralize }} hidden to keep this view manageable. Pre-cut source layouts are shown first.
+        {% if include_candidates %}<a href="?section=layouts{% if boundary_only %}&amp;boundary_only=1{% endif %}">Show preferred and current generated layouts</a>{% else %}<a href="?section=layouts&amp;include_candidates=1{% if boundary_only %}&amp;boundary_only=1{% endif %}">Include page-level candidates</a>{% endif %}
+      </p>
+    {% endif %}
+    {% if section == 'layouts' and can_remove_plans %}
+    <form id="layout-bulk-removal" method="post" action="{{ bulk_remove_url }}" class="module media-panel">
+      {% csrf_token %}
+      <h2>Remove selected layouts</h2>
+      <div class="media-actions">
+        <label><input type="checkbox" data-select-layouts> Select all visible layouts</label>
+        <span data-layout-selection-count role="status" aria-live="polite" aria-atomic="true">0 selected</span>
+        <button type="submit" class="button media-destructive">Remove selected…</button>
+      </div>
+      <p class="help">Select individual layouts below, then review the removal confirmation. Up to 200 per request. Source floor plans are not selected.</p>
+      <noscript><p>JavaScript is required for the layout list and bulk selection. Individual removal is available on each layout.</p></noscript>
+    </form>
+    {% endif %}
+    {% include "admin/platform_api/project_plan_cards.html" with cards=layouts show_report=can_report %}
+  {% endif %}
+</div>
+{% endblock %}

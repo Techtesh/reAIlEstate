@@ -1,0 +1,298 @@
+{
+  "generated_at": "2026-10-22T08:07:14.491254+00:00",
+  "nodes": {
+    "reailestate_maintainers_modular_monolith": {
+      "code_fingerprint": "4d272fb5aeb10653ce656e7bcbe9eb5b92e145fb4d6c903755064a89c408e5a0",
+      "label": "Django Modular Monolith",
+      "last": "2026-10-22T08:00:28.895916+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-22T08:00:28.895916+00:00",
+          "outcome": "useful",
+          "q": "Give me a run down of this project"
+        }
+      ],
+      "score": 0.999891542,
+      "source_file": "reailEstate/MAINTAINERS.md",
+      "status": "tentative",
+      "uses": 1
+    },
+    "reailestate_readme_perforated_monolith": {
+      "code_fingerprint": "3d09ed1951cf54f53729625e46e144af9165bcdfd6844400a02132e1a8faf480",
+      "label": "Perforated Monolith Layout",
+      "last": "2026-10-22T08:00:28.895916+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-22T08:00:28.895916+00:00",
+          "outcome": "useful",
+          "q": "Give me a run down of this project"
+        }
+      ],
+      "score": 0.999891542,
+      "source_file": "reailEstate/README.md",
+      "status": "tentative",
+      "uses": 1
+    },
+    "reailestate_reailestate_common_backend_platform_api_floor_plan_agent_floorplanagent": {
+      "code_fingerprint": "bf308cdfe10c323bd1099ff0d303d2f9cf41b98a97516d57edc6ff3914f41893",
+      "label": "FloorPlanAgent",
+      "last": "2026-10-08T19:44:39.526619+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-08T19:44:39.526619+00:00",
+          "outcome": "useful",
+          "q": "Implement unit-aware room-size extraction"
+        },
+        {
+          "date": "2026-10-08T17:33:05.184743+00:00",
+          "outcome": "useful",
+          "q": "check for A Wing Unit 03"
+        }
+      ],
+      "score": 1.462012075,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/floor_plan_agent.py",
+      "status": "preferred",
+      "uses": 2
+    },
+    "reailestate_reailestate_common_backend_platform_api_floor_plan_layout_jobs_evaluate_floor_plan_layouts": {
+      "code_fingerprint": "bed2cc55a860c83c4e25a06eef97908ffbfa3427699588808ee541bb1c0f998c",
+      "label": "evaluate_floor_plan_layouts()",
+      "last": "2026-10-08T22:59:29.564627+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-08T22:59:29.564627+00:00",
+          "outcome": "useful",
+          "q": "We ran the evaluations again but we dont see updated data"
+        }
+      ],
+      "score": 0.734068854,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/floor_plan_layout_jobs.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "reailestate_reailestate_common_backend_platform_api_floor_plan_vision_openaifloorplanvisionprovider": {
+      "code_fingerprint": "b0610b1e7a8a83ef7f727d10f30391ddd5cbaa631d0de60062a65cbdd9864044",
+      "label": "OpenAIFloorPlanVisionProvider",
+      "last": "2026-10-14T13:18:21.925138+00:00",
+      "neg": 1,
+      "provenance": [
+        {
+          "date": "2026-10-14T13:18:21.925138+00:00",
+          "outcome": "corrected",
+          "q": "here i would like another layer of pre check get qwen 3.8 from http://127.0.0.1:11435 a local ai box set specifically for dev"
+        },
+        {
+          "date": "2026-10-14T13:17:02.707510+00:00",
+          "outcome": "useful",
+          "q": "here i would like another layer of pre check get qwen 3.8 from http://127.0.0.1:11435 a local ai box set specifically for dev"
+        },
+        {
+          "date": "2026-10-08T23:39:58.940307+00:00",
+          "outcome": "useful",
+          "q": "the extractions are not upto par, lets switch back to azure openAI instance"
+        },
+        {
+          "date": "2026-10-08T19:44:39.526619+00:00",
+          "outcome": "useful",
+          "q": "Implement unit-aware room-size extraction"
+        },
+        {
+          "date": "2026-10-08T17:33:05.184743+00:00",
+          "outcome": "useful",
+          "q": "check for A Wing Unit 03"
+        }
+      ],
+      "score": 3.656846748,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/floor_plan_vision.py",
+      "status": "contested",
+      "uses": 6,
+      "verdict": "useful"
+    },
+    "reailestate_reailestate_common_backend_platform_api_floor_plan_vision_profile_for_selection": {
+      "code_fingerprint": "b0610b1e7a8a83ef7f727d10f30391ddd5cbaa631d0de60062a65cbdd9864044",
+      "label": "_profile_for_selection()",
+      "last": "2026-10-08T22:37:58.017045+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-08T22:37:58.017045+00:00",
+          "outcome": "useful",
+          "q": "check why are we fetting PROVIDER_UNAVAILABLE errors , ollama is working"
+        },
+        {
+          "date": "2026-10-08T17:23:02.354260+00:00",
+          "outcome": "useful",
+          "q": "why are ai jobs still failing"
+        }
+      ],
+      "score": 1.463932082,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/floor_plan_vision.py",
+      "status": "preferred",
+      "uses": 2
+    },
+    "reailestate_reailestate_common_backend_platform_api_layout_reanalysis_evaluate_layout_crop": {
+      "code_fingerprint": "4c61b6cf28907b7ef8ac4900bb82ffbe37af2cde71d5065187edb1b70161f358",
+      "label": "evaluate_layout_crop()",
+      "last": "2026-10-08T22:59:29.564627+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-08T22:59:29.564627+00:00",
+          "outcome": "useful",
+          "q": "We ran the evaluations again but we dont see updated data"
+        },
+        {
+          "date": "2026-10-08T19:44:39.526619+00:00",
+          "outcome": "useful",
+          "q": "Implement unit-aware room-size extraction"
+        },
+        {
+          "date": "2026-10-08T17:33:05.184743+00:00",
+          "outcome": "useful",
+          "q": "check for A Wing Unit 03"
+        },
+        {
+          "date": "2026-10-08T17:29:16.374350+00:00",
+          "outcome": "useful",
+          "q": "please check why its failing"
+        }
+      ],
+      "score": 2.926270678,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/layout_reanalysis.py",
+      "status": "preferred",
+      "uses": 4
+    },
+    "reailestate_reailestate_common_backend_platform_api_layout_reanalysis_queue_layout_evaluation": {
+      "code_fingerprint": "4c61b6cf28907b7ef8ac4900bb82ffbe37af2cde71d5065187edb1b70161f358",
+      "label": "queue_layout_evaluation()",
+      "last": "2026-10-08T22:59:29.564627+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-08T22:59:29.564627+00:00",
+          "outcome": "useful",
+          "q": "We ran the evaluations again but we dont see updated data"
+        },
+        {
+          "date": "2026-10-08T22:37:58.017045+00:00",
+          "outcome": "useful",
+          "q": "check why are we fetting PROVIDER_UNAVAILABLE errors , ollama is working"
+        }
+      ],
+      "score": 1.467884218,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/layout_reanalysis.py",
+      "status": "preferred",
+      "uses": 2
+    },
+    "reailestate_reailestate_common_backend_platform_api_models_floorplan": {
+      "code_fingerprint": "73730bdd2b7e50392536ae33af6f4d72ddc0e178cd633bbb76eead3198e5b454",
+      "label": "FloorPlan",
+      "last": "2026-10-09T21:37:09.059561+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-09T21:37:09.059561+00:00",
+          "outcome": "useful",
+          "q": "Integrity error on other floors, please check"
+        }
+      ],
+      "score": 0.75023505,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/models.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "reailestate_reailestate_common_backend_platform_api_models_homeconfiguration": {
+      "code_fingerprint": "73730bdd2b7e50392536ae33af6f4d72ddc0e178cd633bbb76eead3198e5b454",
+      "label": "HomeConfiguration",
+      "last": "2026-10-08T11:28:15.385505+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-08T11:28:15.385505+00:00",
+          "outcome": "useful",
+          "q": "Why do selected configurations not restrict recommendation measurements, and why do catalogue filters still use HomeConfiguration?"
+        }
+      ],
+      "score": 0.725972325,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/models.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "reailestate_reailestate_common_backend_platform_api_services_scoringconfiguration": {
+      "code_fingerprint": "f616f61d27ad48b0fb2e4f3d361567fc1f16e342cb636e77df804bfbac6b5601",
+      "label": "ScoringConfiguration",
+      "last": "2026-10-08T11:28:15.385505+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-08T11:28:15.385505+00:00",
+          "outcome": "useful",
+          "q": "Why do selected configurations not restrict recommendation measurements, and why do catalogue filters still use HomeConfiguration?"
+        }
+      ],
+      "score": 0.725972325,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/services.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "reailestate_reailestate_common_backend_platform_api_views_projectviewset": {
+      "code_fingerprint": "a4914c00fba811bdc8ba8c89cae9ea9e61a6c58a6e7e28f00a85d3298b850abd",
+      "label": "ProjectViewSet",
+      "last": "2026-10-08T11:28:15.385505+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-08T11:28:15.385505+00:00",
+          "outcome": "useful",
+          "q": "Why do selected configurations not restrict recommendation measurements, and why do catalogue filters still use HomeConfiguration?"
+        }
+      ],
+      "score": 0.725972325,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/views.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "reailestate_reailestate_common_backend_platform_api_views_sessionloginview": {
+      "code_fingerprint": "a4914c00fba811bdc8ba8c89cae9ea9e61a6c58a6e7e28f00a85d3298b850abd",
+      "label": "SessionLoginView",
+      "last": "2026-10-22T08:02:37.851561+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-22T08:02:37.851561+00:00",
+          "outcome": "useful",
+          "q": "tell me how the login flow works for all 3 portals"
+        }
+      ],
+      "score": 0.999926024,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/views.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "reailestate_reailestate_common_frontend_src_projectmap_projectmap": {
+      "code_fingerprint": "e6f0533159b73a6ccead866d248e7e888a17c6f45214ff252a17281c25dda4c7",
+      "label": "ProjectMap()",
+      "last": "2026-10-08T22:03:49.722084+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-08T22:03:49.722084+00:00",
+          "outcome": "useful",
+          "q": "Commute map is broken"
+        }
+      ],
+      "score": 0.733413525,
+      "source_file": "reailEstate/reailEstate_common/frontend/src/ProjectMap.tsx",
+      "status": "tentative",
+      "uses": 1
+    },
+    "workflows": {
+      "code_fingerprint": "fe691fcc38e738323074d2c8538a5e49a8a132ec488af39125fa47f9a2003096",
+      "label": "WORKFLOWS.md",
+      "last": "2026-10-22T08:00:28.895916+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-22T08:00:28.895916+00:00",
+          "outcome": "useful",
+          "q": "Give me a run down of this project"
+        }
+      ],
+      "score": 0.999891542,
+      "source_file": "WORKFLOWS.md",
+      "status": "tentative",
+      "uses": 1
+    }
+  },
+  "version": 1
+}

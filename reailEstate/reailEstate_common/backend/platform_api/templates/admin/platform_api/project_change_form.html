@@ -1,0 +1,106 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'platform_api/project_form.css' %}?v=20261019-map-panel">
+{% endblock %}
+
+{% block object-tools-items %}
+  {{ block.super }}
+  {% if project_media_dashboard_url %}
+    <li><a href="{{ project_media_dashboard_url }}">Media dashboard</a></li>
+    {% if has_change_permission %}<li><a href="{% url 'admin:platform_api_project_external_sources' original.pk %}">External sources</a></li>{% endif %}
+  {% endif %}
+  {% if project_merge_url %}
+    <li><a href="{{ project_merge_url }}">Join duplicate project</a></li>
+  {% endif %}
+{% endblock %}
+
+{% block form_top %}
+  {% include "admin/platform_api/image_navigation.html" %}
+  {{ block.super }}
+{% endblock %}
+
+{% block submit_buttons_bottom %}
+  {% include "admin/platform_api/image_navigation.html" %}
+  {{ block.super }}
+{% endblock %}
+
+{% block field_sets %}
+  <div class="project-details-layout">
+  {% for fieldset in adminform %}
+    {% if forloop.counter == 2 %}<div class="project-details-sidebar">{% endif %}
+    {% if 'project-map-reference' not in fieldset.classes %}
+    {% if 'project-address' in fieldset.classes %}
+    {% include "admin/platform_api/project_layout_summary.html" %}
+    <details class="project-address-disclosure"{% if adminform.form.address.errors or adminform.form.locality.errors %} open{% endif %}>
+      <summary>Address and locality</summary>
+    {% endif %}
+    {% include "admin/includes/fieldset.html" with heading_level=2 prefix="fieldset" id_prefix=0 id_suffix=forloop.counter0 %}
+    {% if 'project-address' in fieldset.classes %}</details>{% endif %}
+    {% endif %}
+    {% if forloop.last %}</div>{% endif %}
+  {% endfor %}
+  <div class="project-maps-panel">
+  {% for fieldset in adminform %}
+    {% if 'project-map-reference' in fieldset.classes %}
+      {% include "admin/includes/fieldset.html" with heading_level=2 prefix="fieldset" id_prefix=0 id_suffix=forloop.counter0 %}
+    {% endif %}
+  {% endfor %}
+  {% if project_transit_maps %}
+  <section class="project-transit" aria-labelledby="project-transit-heading">
+    <h2 id="project-transit-heading">Nearby transit</h2>
+    {% if project_transit_maps.has_location %}<p>{{ project_transit_maps.location_label }}</p>{% endif %}
+    <fieldset class="transit-views">
+      <legend>Destination</legend>
+      {% for view in project_transit_maps.views %}
+      <input type="radio" name="transit_view" id="transit-{{ view.kind }}" value="{{ view.kind }}"{% if forloop.first %} checked{% endif %} aria-controls="transit-panel-{{ view.kind }}">
+      <label for="transit-{{ view.kind }}">{{ view.label }}</label>
+      {% endfor %}
+      {% for view in project_transit_maps.views %}
+      <div class="transit-panel transit-panel-{{ view.kind }}" id="transit-panel-{{ view.kind }}" role="region" aria-label="{{ view.label }} directions">
+        {% if view.errors %}
+        <div role="alert" class="errornote">
+          <strong>Directions lookup failed</strong>
+          {% for error in view.errors %}<p>{{ error }}</p>{% endfor %}
+          {% if view.access_denied %}<p>Check that Routes API is enabled, billing is active, and the server key permits Routes API requests. Website-referrer restrictions cannot authorize backend requests.</p>{% endif %}
+        </div>
+        {% endif %}
+        {% if view.station %}
+        <div class="transit-summary"><strong>{{ view.station }}</strong><span>{{ view.service_status }}</span></div>
+        <p>{% if view.selected %}Selected station{% else %}Nearest saved candidate by walking distance{% endif %}:{% if view.distance_meters != None %} {{ view.distance_meters }} m{% else %} walking distance unavailable{% endif %}</p>
+        {% if view.different_origin %}<p>Directions use the saved reference pin, which differs from the project location.</p>{% endif %}
+        <iframe src="{{ view.embed_url }}" title="Walking directions to {{ view.station }}" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+        <a href="{{ view.directions_url }}" target="_blank" rel="noopener noreferrer">Open in Google Maps &#8599;</a>
+        {% else %}
+        <p>{% if not project_transit_maps.has_location %}No saved project location.{% else %}No saved {{ view.label|lower }} walking route.{% endif %}</p>
+        {% if project_transit_maps.pin_embed_url %}
+        <iframe src="{{ project_transit_maps.pin_embed_url }}" title="Project pin - {{ view.label }} view" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+        <a href="{{ project_transit_maps.pin_url }}" target="_blank" rel="noopener noreferrer">View pin on Google Maps &#8599;</a>
+        {% endif %}
+        {% endif %}
+      </div>
+      {% endfor %}
+    </fieldset>
+  <div class="project-transit-tools">
+    {% if project_transit_maps.retrieved_at %}<p class="help">Routes retrieved: {{ project_transit_maps.retrieved_at }}</p>{% endif %}
+    {% if has_change_permission and transit_reference_id %}
+    <input type="hidden" name="reference_id" value="{{ transit_reference_id }}">
+    <input type="hidden" name="return_to" value="project">
+    <div class="transit-generate">
+      <label for="transit-radius">Station radius</label>
+      <select name="radius" id="transit-radius"><option value="5000">5 km</option><option value="10000" selected>10 km</option><option value="20000">20 km</option></select>
+      <button type="submit" name="action" value="retry_saved_routes" formmethod="post" formnovalidate
+        formaction="{% url 'admin:platform_api_project_external_sources' original.pk %}"
+        {% if not transit_maps_configured or original.status == 'retired' or original.status == 'merged' %}disabled{% endif %}>Generate directions</button>
+    </div>
+    {% if not transit_maps_configured %}<p class="help">Google Maps API is not configured on this server.</p>{% endif %}
+    {% endif %}
+    {% if has_change_permission %}<p><a href="{% url 'admin:platform_api_project_external_sources' original.pk %}">Review location and routes</a></p>{% endif %}
+  </div>
+  </section>
+  {% endif %}
+  </div>
+  </div>
+{% endblock %}

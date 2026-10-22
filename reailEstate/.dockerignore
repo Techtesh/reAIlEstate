@@ -1,0 +1,16 @@
+.git
+.gitignore
+reailEstate_common/backend/vision-profiles.json
+reailEstate_common/backend/vision-profiles.local.json
+reailEstate_common/backend/.local
+reailEstate_common/backend/.venv
+reailEstate_common/backend/db.sqlite3
+reailEstate_common/backend/media
+reailEstate_common/backend/staticfiles
+reailEstate_common/frontend/dist
+reailEstate_common/frontend/node_modules
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/test-results
+**/playwright-report

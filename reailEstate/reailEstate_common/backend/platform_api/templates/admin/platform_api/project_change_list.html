@@ -1,0 +1,25 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  <li><a href="{{ organization_scope_toggle_url }}">{% if show_inactive_organizations %}Active organizations only{% else %}Show inactive organizations{% endif %}</a></li>
+  {{ block.super }}
+  <li><a href="{% url 'admin:platform_api_project_jobs' %}">Evaluation jobs</a></li>
+  {% if perms.platform_api.change_project and perms.platform_api.change_floorplan %}<li><form method="post" action="{{ run_reanalysis_cart_url }}">{% csrf_token %}<button type="submit">Run my queued evaluations</button></form></li>{% endif %}
+{% endblock %}
+
+{% block search %}
+  {{ block.super }}
+  <form method="get" style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:8px 0 16px">
+    {% for key, value in request.GET.items %}
+      {% if key != "page_size" and key != "p" %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endif %}
+    {% endfor %}
+    <label for="project-page-size"><strong>Projects per page</strong></label>
+    <select id="project-page-size" name="page_size">
+      <option value="10"{% if project_page_size == "10" %} selected{% endif %}>10</option>
+      <option value="20"{% if project_page_size == "20" %} selected{% endif %}>20</option>
+      <option value="50"{% if project_page_size == "50" %} selected{% endif %}>50</option>
+      <option value="all"{% if project_page_size == "all" %} selected{% endif %}>All</option>
+    </select>
+    <button type="submit" class="button">Apply</button>
+  </form>
+{% endblock %}

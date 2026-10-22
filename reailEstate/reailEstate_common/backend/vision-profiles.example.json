@@ -1,0 +1,22 @@
+{
+  "profiles": [
+    {
+      "id": "mac-qwen",
+      "label": "Mac Ollama Qwen 3.8 vision",
+      "provider": "ollama",
+      "model": "qwen3.8:latest",
+      "base_url": "http://127.0.0.1:11435/v1",
+      "response_format": "json_schema",
+      "timeout_seconds": 1800
+    },
+    {
+      "id": "local-qwen",
+      "label": "Local Ollama Qwen 3.8 vision",
+      "provider": "ollama",
+      "model": "qwen3.8:latest",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "response_format": "json_schema",
+      "timeout_seconds": 1800
+    }
+  ]
+}

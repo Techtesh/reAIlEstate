@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<section aria-labelledby="retry-warning-title">
+  <h1 id="retry-warning-title">Previous evaluation failed</h1>
+  <p><strong>{{ warning.project }}</strong> has previous evaluation failures. Continuing may fail again and use additional model requests.</p>
+  <ul>{% for failure in warning.failures %}<li>{{ failure.label }}: {{ failure.error }}{% if failure.attempts != None %} ({{ failure.attempts }} attempt{{ failure.attempts|pluralize }}){% endif %}</li>{% endfor %}</ul>
+  <form method="post">{% csrf_token %}
+    {% for name, value in submitted_fields %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    <input type="hidden" name="retry_confirmation" value="{{ warning.confirmationToken }}">
+    <a href="{{ cancel_url }}">Cancel</a>
+    <button type="submit">Continue</button>
+  </form>
+  {% if warning.freshConfirmationToken %}
+  <p>Fresh evaluation queues new attempts for failed layouts/floor plans using current AI settings, keeping previous attempts. Queued/running work is reused. Results still require review and may fail again.</p>
+  <form method="post">{% csrf_token %}
+    {% for name, value in submitted_fields %}{% if name != 'fresh_evaluation' %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endif %}{% endfor %}
+    <input type="hidden" name="fresh_evaluation" value="true">
+    <input type="hidden" name="retry_confirmation" value="{{ warning.freshConfirmationToken }}">
+    <button type="submit">Run fresh evaluation</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}
