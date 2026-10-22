@@ -1,0 +1,55 @@
+name: Build AWS EC2 release
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: aws-ec2-build
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate deployment configuration
+        shell: pwsh
+        run: ./.deployments/aws/scripts/Test-Ec2Configuration.ps1
+      - name: Check shell scripts
+        run: |
+          bash -n .deployments/aws/ec2/start.sh
+          bash -n .deployments/aws/ec2/package.sh
+          bash -n .deployments/aws/ec2/deploy-release.sh
+          bash .deployments/aws/ec2/test-package.sh
+      - name: Build and verify release images
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 -t "realestate-app:$GITHUB_SHA" -f reailEstate/Dockerfile reailEstate
+          docker build --platform linux/amd64 \
+            --build-arg "APPLICATION_IMAGE=realestate-app:$GITHUB_SHA" \
+            -t "realestate-ec2-gateway:$GITHUB_SHA" \
+            -f .deployments/aws/ec2/gateway.Dockerfile .
+          for service in admin builder buyer; do
+            docker run --rm -e DATABASE_BACKEND=sqlite -e DJANGO_DEBUG=false \
+              -e DJANGO_ALLOWED_HOSTS=localhost -e DJANGO_SECRET_KEY=ci-validation-only \
+              "realestate-app:$GITHUB_SHA" python "${service}Service/manage.py" check \
+              "--settings=${service}_service.settings"
+          done
+          docker run --rm "realestate-ec2-gateway:$GITHUB_SHA" nginx -t
+          docker pull caddy:2-alpine
+          docker run --rm -e DOMAIN=validation.example \
+            -v "$PWD/.deployments/aws/ec2/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Package release
+        run: bash .deployments/aws/ec2/package.sh "$GITHUB_SHA" /tmp/realestate-release
+      - name: Upload release
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-ec2-release
+          path: /tmp/realestate-release/realestate-*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3

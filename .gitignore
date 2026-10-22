@@ -29,3 +29,5 @@ reailEstate/frontend/test-results/
 reailEstate/backend/.local/
 .test-tmp/
 working/
+*.dump
+*.tar.gz

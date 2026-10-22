@@ -1,3 +1,15 @@
+# Current deployment: EC2 + existing RDS/EFS
+
+Use [ec2/README.md](ec2/README.md) for the current cost-conscious deployment,
+HTTPS, image packaging, manual migrations, media paths and launch load testing.
+The target is a brief peak of approximately 1,000 concurrent users, subject to
+measured capacity and credit budget. The migration EC2 micro is not launch-sized.
+
+**Do not apply the Terraform below to the console-created infrastructure.**
+It describes the earlier alternative and would create a separate full stack.
+No live resources are provisioned by the EC2 configuration.
+
+---
 # AWS POC deployment
 
 This directory maps the perforated monolith to one ECS Fargate task and keeps

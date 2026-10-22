@@ -1,0 +1,82 @@
+name: realestate
+
+x-app: &app
+  image: ${APPLICATION_IMAGE:?Set APPLICATION_IMAGE to an immutable release tag}
+  network_mode: host
+  user: "1000:1000"
+  init: true
+  restart: unless-stopped
+  env_file:
+    - path: ./app.env
+      format: raw
+  volumes:
+    - type: bind
+      source: ${WORKSPACE_PATH:-/mnt/realestate/workspace}
+      target: /workspace
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ./global-bundle.pem
+      target: /etc/ssl/certs/rds-bundle.pem
+      read_only: true
+      bind:
+        create_host_path: false
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  admin:
+    <<: *app
+    mem_limit: 768m
+    command: [gunicorn, "--bind=127.0.0.1:8002", "--workers=${ADMIN_WORKERS:-1}", "--threads=2", "--timeout=60", "--access-logfile=-", admin_service.wsgi:application]
+  builder:
+    <<: *app
+    mem_limit: 768m
+    command: [gunicorn, "--bind=127.0.0.1:8003", "--workers=${BUILDER_WORKERS:-1}", "--threads=2", "--timeout=60", "--access-logfile=-", builder_service.wsgi:application]
+  buyer:
+    <<: *app
+    mem_limit: 1536m
+    command: [gunicorn, "--bind=127.0.0.1:8004", "--workers=${BUYER_WORKERS:-2}", "--threads=4", "--timeout=60", "--access-logfile=-", buyer_service.wsgi:application]
+  worker:
+    <<: *app
+    profiles: [processing]
+    mem_limit: 2g
+    environment:
+      INGESTION_MAX_WORKERS: "1"
+      VISION_MAX_CONCURRENT_REQUESTS: "1"
+    command: [python, adminService/manage.py, run_extraction_dispatcher, "--settings=admin_service.settings"]
+  migrate:
+    <<: *app
+    profiles: [maintenance]
+    restart: "no"
+    mem_limit: 1g
+    command: [python, adminService/manage.py, migrate, "--settings=admin_service.settings", --noinput]
+  gateway:
+    image: ${GATEWAY_IMAGE:?Set GATEWAY_IMAGE to the matching EC2 gateway release}
+    network_mode: host
+    restart: unless-stopped
+    mem_limit: 128m
+    depends_on: [admin, builder, buyer]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  https:
+    image: caddy:2-alpine
+    network_mode: host
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN to your public DNS hostname}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [gateway]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+volumes:
+  caddy-data:
+  caddy-config:
