@@ -52,7 +52,7 @@ Images are real files; the database/report stores metadata and **URI references*
 
 Relocation copies and verifies bytes, saves the new DB key, and deletes the original copy only after the database transaction commits. Rollback/crash may leave an unreferenced copy for an administrator to reconcile, but should not lose the current source. Reprocessing moves completed sources back to todo as part of enqueueing. Files dropped into a directory alone are **not** jobs: the API's authorization, hashes and outbox record are required.
 
-Use one non-overlapping worker with SQLite. Current worker transactions include long parsing/inference operations; PostgreSQL and improved work leasing/transaction boundaries are needed before multi-worker production scaling.
+PostgreSQL is required. Workers use PostgreSQL session advisory locks for ownership and short row-locking transactions for state changes; use a direct or session-pooled database connection for concurrent processing.
 
 ## 4. Structured project contract
 

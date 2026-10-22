@@ -14,7 +14,6 @@ if ($env:WORKSPACE_DATA_ROOT -and [IO.Path]::GetFullPath($env:WORKSPACE_DATA_ROO
     throw "WORKSPACE_DATA_ROOT must identify this workspace."
 }
 $env:WORKSPACE_DATA_ROOT = $workspace
-$env:DATABASE_BACKEND = "postgresql"
 $env:PYTHONUTF8 = "1"
 if (-not $env:PROJECT_METRO_CATALOGUE_FILE) {
     $catalogue = Join-Path $PSScriptRoot "config/mmr-upcoming-metro.json"

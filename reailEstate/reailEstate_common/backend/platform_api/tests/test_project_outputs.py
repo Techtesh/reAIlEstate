@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -45,76 +46,50 @@ def stub_run():
 @pytest.mark.django_db
 @pytest.mark.parametrize("adding", [False, True])
 def test_project_admin_columns_preserve_fields_and_links(client, django_user_model, adding, settings):
-    from django.urls import clear_url_caches, reverse
-
-    settings.ROOT_URLCONF = "admin_service.urls"
-    clear_url_caches()
-
-    actor = django_user_model.objects.create_superuser(username="project-form-editor", password="test-only")
-    project = Project.objects.create(organization=Organization.objects.create(legal_name="Form tests"),
-                                     submitted_name="Test Gardens")
+    from django.urls import clear_url_caches,reverse
+    settings.ROOT_URLCONF='admin_service.urls';clear_url_caches()
+    actor=django_user_model.objects.create_superuser(username='project-form-editor',password='test-only')
+    project=Project.objects.create(organization=Organization.objects.create(legal_name='Form tests'),submitted_name='Test Gardens')
     client.force_login(actor)
-    url = reverse("admin:platform_api_project_add") if adding else reverse("admin:platform_api_project_change", args=[project.pk])
-    before = Project.objects.values().get(pk=project.pk)
-    response = client.get(url)
-    assert response.status_code == 200
-    assert b"project-details-grid" in response.content and b"platform_api/project_form.css" in response.content
-    assert list(response.context["adminform"].form.fields) == [
-        "organization", "status", "maha_rera_id", "submitted_name",
-        "published_fact_set_version", "verification_status", "processing_attested", "verification_checked_at",
-        "address", "locality", "manual_amenities", "project_picture_source",
-    ]
-    assert b'name="latitude"' not in response.content and b'name="longitude"' not in response.content
-    assert b'project-details-layout' in response.content
-    assert b"field-extraction_outputs" in response.content and b"field-media_dashboard_link" in response.content
-    assert b"field-google_location_reference" in response.content
-    from django import forms
-    assert isinstance(response.context["adminform"].form.fields["status"].widget, forms.Select)
-    assert isinstance(response.context["adminform"].form.fields["verification_status"].widget, forms.Select)
-    assert b'name="project_pic"' not in response.content
-    assert b'name="project_picture_source"' not in response.content
-    assert b'name="_save"' in response.content
-    assert b'class="project-address-disclosure">' in response.content
-    assert b"field-manual_amenities" in response.content and b"Add missing amenities" in response.content
-    assert b"Layouts, prices and sizes" in response.content
+    url=reverse('admin:platform_api_project_add') if adding else reverse('admin:platform_api_project_change',args=[project.pk])
+    before=Project.objects.values().get(pk=project.pk)
+    response=client.get(url)
     if adding:
-        assert b"Save the project to add layouts" in response.content
+        assert response.status_code==302 and response.url.endswith('/admin/project-workspace/?new=1')
     else:
-        assert b"No active layouts available." in response.content
-    if not adding:
-        assert reverse("admin:platform_api_project_media_dashboard", args=[project.pk]).encode() in response.content
-    assert Project.objects.values().get(pk=project.pk) == before
+        assert response.status_code==200
+        assert list(response.context['adminform'].form.fields)==[]
+        assert b'project-details-grid' in response.content and b'platform_api/project_form.css' in response.content
+        for name in ['organization','status','maha_rera_id','submitted_name','published_fact_set_version','verification_status','processing_attested','verification_checked_at','address','locality','extraction_outputs','media_dashboard_link','google_location_reference']:
+            assert f'field-{name}'.encode() in response.content
+        assert b'name="_save"' not in response.content
+        assert b'name="project_pic"' not in response.content and b'name="project_picture_source"' not in response.content
+        assert b'name="latitude"' not in response.content and b'name="longitude"' not in response.content
+        assert b'Upload documents and edit layouts' in response.content
+        assert b'class="project-address-disclosure">' in response.content
+        assert b'Layouts, prices and sizes' in response.content and b'No active layouts available.' in response.content
+    assert Project.objects.values().get(pk=project.pk)==before
 
 
 @pytest.mark.django_db
 def test_project_admin_columns_preserve_validation_and_saving(client, django_user_model):
     from django.urls import reverse
-
-    actor = django_user_model.objects.create_superuser(username="project-form-save", password="test-only")
-    project = Project.objects.create(organization=Organization.objects.create(legal_name="Form saves"),
-                                     submitted_name="Original name", latitude="19.150000", longitude="72.950000")
+    from .workspace_helpers import workspace_request
+    actor=django_user_model.objects.create_superuser(username='project-form-save',password='test-only')
+    project=Project.objects.create(organization=Organization.objects.create(legal_name='Form saves'),submitted_name='Original name',latitude='19.150000',longitude='72.950000')
     client.force_login(actor)
-    url = reverse("admin:platform_api_project_change", args=[project.pk])
-    data = {"organization": str(project.organization_id), "status": project.status, "submitted_name": "",
-            "address": json.dumps({"city": "Thane"}), "locality": "Thane", "published_fact_set_version": 0,
-            "verification_status": project.verification_status, "_save": "Save"}
-    response = client.post(url, data)
-    assert response.status_code == 200
-    assert "submitted_name" in response.context["adminform"].form.errors
-    assert b"project-details-grid" in response.content
-    project.refresh_from_db()
-    assert project.submitted_name == "Original name"
-    response = client.post(url, dict(data, submitted_name="Updated name"))
-    assert response.status_code == 302, response.context["adminform"].form.errors
-    project.refresh_from_db()
-    assert project.submitted_name == "Updated name" and project.locality == "Thane"
-    assert float(project.latitude) == 19.15 and float(project.longitude) == 72.95
-    response = client.post(url, dict(data, submitted_name="Updated name", address="{invalid json"))
-    assert response.status_code == 200
-    assert "address" in response.context["adminform"].form.errors
-    assert b'class="project-address-disclosure" open>' in response.content
-    project.refresh_from_db()
-    assert project.address == {"city": "Thane"}
+    url=reverse('admin:platform_api_project_change',args=[project.pk])
+    assert client.post(url,{'submitted_name':'Bypass'}).status_code==405
+    body={'submittedName':'','address':{'city':'Thane'},'locality':'Thane','expectedUpdatedAt':project.updated_at.isoformat()}
+    response=workspace_request(client,project,'',body,method='patch');assert response.status_code==400
+    project.refresh_from_db();assert project.submitted_name=='Original name'
+    body['submittedName']='Updated name'
+    response=workspace_request(client,project,'',body,method='patch');assert response.status_code==200,response.content
+    project.refresh_from_db();assert project.submitted_name=='Updated name' and project.locality=='Thane'
+    assert float(project.latitude)==19.15 and float(project.longitude)==72.95
+    body.update(expectedUpdatedAt=project.updated_at.isoformat(),address='{invalid json')
+    response=workspace_request(client,project,'',body,method='patch');assert response.status_code==400
+    project.refresh_from_db();assert project.address=={'city':'Thane','locality':'Thane'}
 
 
 @pytest.mark.django_db
@@ -204,7 +179,7 @@ def test_project_details_responsive_layout(client, source, monkeypatch, tmp_path
                 assert metadata and resources and maps and reference and transit and address and layouts
                 assert page.locator(".project-details-sidebar .field-google_location_reference").count() == 0
                 assert reference["y"] + reference["height"] <= transit["y"] + 1
-                assert not page.locator("#id_address").is_visible()
+                assert not page.locator(".field-address .readonly").is_visible()
                 assert page.locator(".project-layout-table tbody tr").count() == 12
                 assert page.locator(".project-layout-scroll").evaluate("element => element.scrollHeight > element.clientHeight")
                 assert layouts["y"] >= resources["y"] + resources["height"] - 1
@@ -216,7 +191,7 @@ def test_project_details_responsive_layout(client, source, monkeypatch, tmp_path
                 else:
                     assert transit["y"] >= address["y"] + address["height"] - 1
                 page.locator(".project-address-disclosure > summary").click()
-                assert page.locator("#id_address").is_visible()
+                assert page.locator(".field-address .readonly").is_visible()
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
                 page.locator(".project-address-disclosure > summary").click()
                 assert page.locator(".project-transit .project-transit-tools").count() == 1
@@ -354,8 +329,8 @@ def test_legacy_office_requires_explicit_converter(settings):
     assert detect_media_type(io.BytesIO(b"not a doc"), "application/msword") == "application/octet-stream"
 
 
-@pytest.mark.django_db
-def test_processing_outputs_and_transactional_move(settings, tmp_path, django_user_model, django_capture_on_commit_callbacks):
+@pytest.mark.django_db(transaction=True)
+def test_processing_outputs_and_transactional_move(settings, tmp_path, django_user_model):
     settings.MEDIA_ROOT = tmp_path / "legacy"
     settings.FLOOR_PLAN_EXTRACTION_MODE = "script"
     settings.ALLOWED_HOSTS = ["testserver"]
@@ -370,7 +345,7 @@ def test_processing_outputs_and_transactional_move(settings, tmp_path, django_us
         object_key=key, declared_media_type="text/plain", byte_length=len(content), sha256=hashlib.sha256(content).hexdigest(),
         status="quarantined", retention_until=timezone.now() + timedelta(days=7))
     scanner = SimpleNamespace(scan=lambda source: "clean")
-    with django_capture_on_commit_callbacks(execute=True):
+    with transaction.atomic():
         processed = process_document(document.id, scanner=scanner)
         assert storage.exists(key)  # Old copy retained until commit.
     assert processed.status == "needs_review"
@@ -392,7 +367,7 @@ def test_processing_outputs_and_transactional_move(settings, tmp_path, django_us
     stranger = django_user_model.objects.create_user(username="output-stranger")
     client.force_authenticate(stranger)
     assert client.get(run.summary["outputs"]["project"]["uri"]).status_code == 403
-    with django_capture_on_commit_callbacks(execute=True):
+    with transaction.atomic():
         enqueue_document(processed, uuid4())
     assert processed.object_key.startswith("user/media/todo/")
     assert storage.exists(processed.object_key)

@@ -96,90 +96,62 @@ def test_nonmatching_scope_does_not_broaden_navigation(client, records):
 @pytest.mark.parametrize("organization_status", ["inactive", "suspended"])
 @pytest.mark.parametrize("section", ["layouts", "floor-plans", "amenities", "project-images"])
 def test_media_project_navigation_matches_list_and_skips_hidden_organizations(client, records, organization_status, section):
-    owner, current, _, _ = records
-    current.submitted_name = "Adani The Views"
-    current.save(update_fields=["submitted_name"])
-    previous = Project.objects.create(organization=current.organization, submitted_name="Ace Parkside")
-    hidden = Project.objects.create(
-        organization=Organization.objects.create(legal_name="DemoPins", status=organization_status),
-        submitted_name="ADIJON",
-    )
-    following = Project.objects.create(organization=current.organization, submitted_name="Adityaraj Avenue")
-    Project.objects.create(organization=current.organization, submitted_name="Abandoned merged source",
-                           address={"mergedIntoProjectId": str(current.pk)})
+    from .workspace_helpers import workspace_request
+    owner,current,_,_=records
+    current.submitted_name='Adani The Views';current.save()
+    previous=Project.objects.create(organization=current.organization,submitted_name='Ace Parkside')
+    hidden=Project.objects.create(organization=Organization.objects.create(legal_name='DemoPins',status=organization_status),submitted_name='ADIJON')
+    following=Project.objects.create(organization=current.organization,submitted_name='Adityaraj Avenue')
+    merged=Project.objects.create(organization=current.organization,submitted_name='Abandoned merged source',address={'mergedIntoProjectId':str(current.pk)})
     client.force_login(owner)
-    listing = client.get(reverse("admin:platform_api_project_changelist"))
-    listed_ids = list(listing.context["cl"].queryset.values_list("pk", flat=True))
-    assert listed_ids == [previous.pk, current.pk, following.pk]
-    url = reverse("admin:platform_api_project_media_dashboard", args=[current.pk])
-    response = client.get(url, {"section": section})
-    assert response.status_code == 200
-    navigation = response.context["project_navigation"]
-    assert navigation["position"] == listed_ids.index(current.pk) + 1 == 2
-    assert navigation["total"] == listing.context["cl"].result_count == 3
-    assert str(hidden.pk) not in str(navigation)
-    assert str(previous.pk) in navigation["previous"]
-    assert str(following.pk) in navigation["next"]
-    assert parse_qs(urlsplit(navigation["next"]).query)["section"] == [section]
-    next_response = client.get(navigation["next"])
-    assert next_response.status_code == 200
-    assert next_response.context["original"].pk == following.pk
-    assert next_response.context["project_navigation"]["position"] == 3
-    assert next_response.context["project_navigation"]["next"] is None
-    previous_response = client.get(navigation["previous"])
-    assert previous_response.status_code == 200
-    assert previous_response.context["project_navigation"]["previous"] is None
-    assert client.get(reverse("admin:platform_api_project_media_dashboard", args=[hidden.pk])).status_code == 404
+    listing=client.get(reverse('admin:platform_api_project_changelist'))
+    assert list(listing.context['cl'].queryset.values_list('pk',flat=True))==[previous.pk,current.pk,following.pk]
+    response=client.get(reverse('admin:platform_api_project_media_dashboard',args=[current.pk]),{'section':section})
+    assert response.status_code==302
+    params=parse_qs(urlsplit(response.url).query)
+    assert params['project']==[str(current.pk)] and params['section']==[section]
+    from django.test import override_settings
+    with override_settings(ROOT_URLCONF='config.urls'):
+        projects=client.get('/api/v1/admin/project-workspace/builder/projects').json()
+    assert {item['id'] for item in projects}=={str(item.pk) for item in [previous,current,following]}
+    assert str(hidden.pk) not in response.url and str(merged.pk) not in response.url
 
 
 def test_media_project_navigation_preserves_project_search_filter_order_and_entry_links(client, records):
     from django.contrib import admin
-    owner, current, _, _ = records
-    current.submitted_name = "Adani The Views"
-    current.locality = "Ghatkopar"
-    current.save(update_fields=["submitted_name", "locality"])
-    for name in ["Ace Parkside", "Adityaraj Avenue"]:
-        Project.objects.create(organization=current.organization, submitted_name=name, locality="Ghatkopar")
-    Project.objects.create(organization=current.organization, submitted_name="Adani Elsewhere", locality="Vikhroli")
+    owner,current,_,_=records
+    current.submitted_name='Adani The Views';current.locality='Ghatkopar';current.save()
+    for name in ['Ace Parkside','Adityaraj Avenue']:Project.objects.create(organization=current.organization,submitted_name=name,locality='Ghatkopar')
+    Project.objects.create(organization=current.organization,submitted_name='Adani Elsewhere',locality='Vikhroli')
     client.force_login(owner)
-    list_url = reverse("admin:platform_api_project_changelist")
-    listing = client.get(list_url)
-    column = listing.context["cl"].list_display.index("submitted_name")
-    filters = urlencode({"q": "A", "locality__exact": "Ghatkopar", "o": f"-{column}", "page_size": "10"})
-    listing = client.get(list_url + "?" + filters)
-    assert listing.status_code == 200
-    listed_ids = list(listing.context["cl"].queryset.values_list("pk", flat=True))
-    assert len(listed_ids) == 3
-    url = reverse("admin:platform_api_project_media_dashboard", args=[current.pk])
-    response = client.get(url, {"section": "layouts", "_changelist_filters": filters})
-    navigation = response.context["project_navigation"]
-    assert navigation["position"] == listed_ids.index(current.pk) + 1
-    assert navigation["total"] == listing.context["cl"].result_count
-    assert parse_qs(urlsplit(navigation["next"]).query)["_changelist_filters"] == [filters]
-    assert str(listed_ids[2]) in navigation["next"]
-    assert client.get(navigation["next"]).context["project_navigation"]["total"] == 3
-    back = client.get(response.context["project_change_url"])
-    assert back.context["image_navigation"]["position"] == navigation["position"]
-    assert back.context["image_navigation"]["total"] == navigation["total"]
-    dashboard_entry = back.context["project_media_dashboard_url"]
-    assert parse_qs(urlsplit(dashboard_entry).query)["_changelist_filters"] == [filters]
-    model_admin = admin.site._registry[Project]
-    listed = next(project for project in listing.context["cl"].queryset if project.pk == current.pk)
-    assert "_changelist_filters=" in str(model_admin.media_dashboard_link(listed))
-    listed.boundary_review_count = 1
-    assert "_changelist_filters=" in str(model_admin.boundary_review_link(listed))
+    list_url=reverse('admin:platform_api_project_changelist')
+    listing=client.get(list_url);column=listing.context['cl'].list_display.index('submitted_name')
+    filters=urlencode({'q':'A','locality__exact':'Ghatkopar','o':f'-{column}','page_size':'10'})
+    listing=client.get(list_url+'?'+filters)
+    listed_ids=list(listing.context['cl'].queryset.values_list('pk',flat=True));assert len(listed_ids)==3
+    back=client.get(reverse('admin:platform_api_project_change',args=[current.pk]),{'_changelist_filters':filters})
+    navigation=back.context['image_navigation']
+    assert navigation['position']==listed_ids.index(current.pk)+1 and navigation['total']==3
+    assert parse_qs(urlsplit(navigation['next']).query)['_changelist_filters']==[filters]
+    entry=back.context['project_media_dashboard_url'];assert parse_qs(urlsplit(entry).query)['_changelist_filters']==[filters]
+    redirect=client.get(entry);assert redirect.status_code==302
+    assert parse_qs(urlsplit(redirect.url).query)['returnFilters']==[filters]
+    listed=next(project for project in listing.context['cl'].queryset if project.pk==current.pk)
+    assert '_changelist_filters=' in str(admin.site._registry[Project].media_dashboard_link(listed))
+    listed.boundary_review_count=1
+    assert '_changelist_filters=' in str(admin.site._registry[Project].boundary_review_link(listed))
 
 
 @pytest.mark.parametrize("filters", ["q=nonexistent", "invalid_lookup__exact=true"])
 def test_media_dashboard_never_broadens_nonmatching_or_invalid_project_scope(client, records, filters):
-    owner, project, _, _ = records
+    owner,project,_,_=records
     client.force_login(owner)
-    url = reverse("admin:platform_api_project_media_dashboard", args=[project.pk])
-    response = client.get(url, {"_changelist_filters": filters})
-    assert response.status_code == 200
-    assert response.context["project_navigation"] is None
-    assert b">Next project &rarr;</a>" not in response.content
-    assert b">Previous project</a>" not in response.content
+    response=client.get(reverse('admin:platform_api_project_media_dashboard',args=[project.pk]),{'_changelist_filters':filters})
+    assert response.status_code==302
+    assert parse_qs(urlsplit(response.url).query)['project']==[str(project.pk)]
+    review=client.get(reverse('admin:platform_api_project_change',args=[project.pk]),{'_changelist_filters':filters})
+    assert review.context['image_navigation'] is None
+    assert b'>Next project &rarr;</a>' not in review.content
 
 
 def test_staff_without_model_permission_cannot_navigate(client, records, django_user_model):
@@ -203,24 +175,15 @@ def test_sidebar_quick_queue_link(client, records):
 
 
 def test_media_dashboard_adds_manual_amenities(client, records):
-    owner, project, _, _ = records
+    from .workspace_helpers import workspace_request
+    owner,project,_,_=records
     client.force_login(owner)
-    url = reverse("admin:platform_api_project_media_dashboard", args=[project.pk])
-
-    response = client.get(url, {"section": "amenities"})
-    assert response.status_code == 200
-    assert b'name="action" value="add_manual_amenities"' in response.content
-    assert b"Add missing amenities" in response.content
-
-    response = client.post(url + "?section=amenities", {
-        "action": "add_manual_amenities",
-        "manual_amenities": "gym, swimming pool",
-    })
-    assert response.status_code == 302
-    assert response.url.endswith("?section=amenities")
-    assert set(project.project_amenities.values_list("amenity__taxonomy_code", flat=True)) == {
-        "gymnasium", "swimming_pool",
-    }
+    payload={'action':'amenities','text':'gym, swimming pool','confirm':True,'requestId':str(uuid4()),'expectedUpdatedAt':project.updated_at.isoformat()}
+    response=workspace_request(client,project,'/content',payload,method='post')
+    assert response.status_code==201,response.content
+    assert set(project.project_amenities.values_list('amenity__taxonomy_code',flat=True))=={'gymnasium','swimming_pool'}
+    assert all(claim.evidence_summary['reviewState']=='unreviewed' for claim in project.project_amenities.all())
+    assert all(claim['state']=='unreviewed' for claim in workspace_request(client,project,'/content').json()['amenities'])
 
 def test_project_delete_confirmation_and_retirement(client, records):
     owner, project, _, _ = records
@@ -238,19 +201,18 @@ def test_project_delete_confirmation_and_retirement(client, records):
 
 def test_quick_cart_is_current_users_total(client, records, django_user_model):
     from platform_api.models import LayoutCropDraft
-
-    owner, project, plans, _ = records
-    other = django_user_model.objects.create_superuser(username="other-cart-owner", password="test-only")
-    for actor in (owner, owner, other):
-        LayoutCropDraft.objects.create(owner=actor, project=project, source_plan=plans[0],
-            source_sha256="0" * 64, label="Private draft", image=b"image", sha256="1" * 64,
-            pixel_width=100, pixel_height=100)
+    from django.test import override_settings
+    owner,project,plans,_=records
+    other=django_user_model.objects.create_superuser(username='other-cart-owner',password='test-only')
+    for actor in [owner,owner,other]:
+        LayoutCropDraft.objects.create(owner=actor,project=project,source_plan=plans[0],source_sha256='0'*64,label='Private draft',image=b'image',sha256='1'*64,pixel_width=100,pixel_height=100)
     client.force_login(owner)
-    response = client.get(reverse("admin:platform_api_project_layout_cart"))
-    assert response.status_code == 200
-    assert response.context["cart_count"] == 2
-    assert len(response.context["cart_projects"]) == 1
-    assert "no-store" in response["Cache-Control"]
+    redirect=client.get(reverse('admin:platform_api_project_layout_cart'))
+    assert redirect.status_code==302 and redirect.url.endswith('?cart=1')
+    with override_settings(ROOT_URLCONF='config.urls'):
+        response=client.get('/api/v1/admin/project-workspace/builder/crop-cart')
+    assert response.status_code==200 and 'no-store' in response['Cache-Control']
+    assert response.json()==[{'projectId':str(project.pk),'organizationId':str(project.organization_id),'name':project.submitted_name,'count':2}]
 
 
 def extraction_post(plan):
@@ -656,9 +618,8 @@ def test_external_sources_navigation_preserves_quick_link_queue(client, records)
     assert parse_qs(urlsplit(nav["next"]).query)["_changelist_filters"] == [filters]
     assert b"Quick-link record navigation" in response.content
     assert client.get(nav["next"]).context["image_navigation"]["next"] is None
-    preview = client.post(url, {"action": "direct_location", "latitude": "19.15", "longitude": "72.95"})
-    assert parse_qs(urlsplit(preview.url).query)["_changelist_filters"] == [filters]
-    assert client.get(preview.url).context["image_navigation"]["total"] == 2
+    assert b'Edit sources in project workspace' in response.content
+    assert b'name="action" value="direct_location"' not in response.content
     invalid = client.get(reverse("admin:platform_api_project_external_sources", args=[project.pk]), {"_changelist_filters": "q=absent"})
     assert invalid.context["image_navigation"] is None
 
@@ -672,8 +633,11 @@ def test_map_preview_browser_layout(client, records, tmp_path):
     owner, project, _, _ = records
     client.force_login(owner)
     url = reverse("admin:platform_api_project_external_sources", args=[project.pk])
-    preview = client.post(url, {"action": "direct_location", "latitude": "19.1192391", "longitude": "72.9371398"})
-    response = client.get(preview.url)
+    from platform_api.external_sources import direct_location
+    from platform_api.models import ReviewTask
+    ReviewTask.objects.create(project=project,task_type="external_sources",resolution={"manualLocation":direct_location(19.1192391,72.9371398),"reviewState":"unreviewed"})
+    url = reverse("admin:platform_api_project_change", args=[project.pk])
+    response = client.get(url)
 
     def serve(route):
         path = urlsplit(route.request.url).path
@@ -688,21 +652,18 @@ def test_map_preview_browser_layout(client, records, tmp_path):
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         page = browser.new_page(viewport={"width": 1440, "height": 1000})
-        page.route("http://testserver/**", serve)
-        page.goto("http://testserver" + preview.url)
-        frame = page.locator('iframe[title="Draft project location map"]')
+        page.route("**/*", lambda route: serve(route) if route.request.url.startswith("http://testserver/") else route.abort())
+        page.goto("http://testserver" + url)
+        frame = page.locator('iframe[title="Project pin - Metro view"]')
         frame.scroll_into_view_if_needed()
         expect(frame).to_be_visible()
-        expect(page.frame_locator("iframe").locator(".maplibregl-marker")).to_be_visible(timeout=20000)
-        expect(page.frame_locator("iframe").locator(".maplibregl-canvas")).to_be_visible(timeout=20000)
-        section = page.locator('section[aria-labelledby="draft-heading"]')
+        section = page.locator('#project-transit-heading').locator('..')
         for width in (1440, 390, 320):
             page.set_viewport_size({"width": width, "height": 1000})
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), width
             bounds = frame.bounding_box()
-            assert bounds and bounds["width"] <= min(600, width)
-            assert bounds["height"] == pytest.approx(max(260, bounds["width"] * 9 / 16), abs=1)
+            assert bounds and bounds["width"] <= width and bounds["height"] > 0
             section.screenshot(path=str(tmp_path / f"map-preview-{width}.png"))
-        assert not page.get_by_role("checkbox", name="I confirm these references belong to this project and submit them for review.").is_checked()
+        assert page.get_by_role("link", name="Upload documents and edit layouts").is_visible()
         print(f"Map preview screenshots: {tmp_path}")
         browser.close()

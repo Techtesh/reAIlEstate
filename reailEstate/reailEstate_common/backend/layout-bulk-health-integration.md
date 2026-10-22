@@ -64,8 +64,7 @@ work locks, then sorted pending-outbox work locks, before the short transaction.
 Inside it they lock documents, plans and pending outbox rows in sorted order. A job
 inserted after work-lock discovery forces retry; plan/document row locks serialize
 against queue writers even when those writers use no document work lock. PostgreSQL
-row contention fails fast with NOWAIT; SQLite still has its database write-lock
-limitations. Queue writers must check hidden state under the same plan row lock.
+row contention fails fast with NOWAIT. Queue writers must check hidden state under the same plan row lock.
 
 Every selected plan gets its own existing `floor_plan.removed_by_user` audit with
 `previousReviewState` and cancelled job/operation IDs. Existing per-record restore

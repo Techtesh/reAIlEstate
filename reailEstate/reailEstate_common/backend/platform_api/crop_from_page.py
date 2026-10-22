@@ -55,6 +55,8 @@ def stage_page_crops(project, document_id, page_number, raw_regions, actor, sour
     if type(rotation_degrees) is not int or rotation_degrees not in {-180, -90, 0, 90, 180}:
         raise ValueError("Invalid rotation.")
     regions = validate_regions(raw_regions, allow_overlap=True)
+    if len({(r.x, r.y, r.width, r.height) for r in regions}) != len(regions):
+        raise ValueError("Each crop must select a different rectangle.")
     if not regions or len(regions) > CART_LIMIT:
         raise ValueError("Select between 1 and 20 individual crops, not whole pages.")
     with work_lock("crop-cart", actor.pk), work_lock("document", document_id):

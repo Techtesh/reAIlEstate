@@ -1,33 +1,21 @@
 def test_dashboard_keeps_cropped_layouts_from_multiple_sources(source, provider, client):
-    from django.urls import reverse
-    plan, actor = source
-    _, _, regions, _ = provider
-    first, _ = replace_unit_segments(plan, regions, "ai", actor=actor)
-    second_asset = FloorPlanAsset.objects.get(pk=plan.asset_id)
-    second_asset.pk = None
-    second_asset.page_number = 2
-    with storage.open(plan.asset.object_key, "rb") as stream:
-        second_asset.object_key = storage.save("images/second-page.png", ContentFile(stream.read()))
-    second_asset.workflow_run = AgentWorkflowRun.objects.create(project=plan.project, document=plan.document,
-        ingestion_run=plan.workflow_run.ingestion_run, status="completed")
-    second_asset.save()
-    second_source = FloorPlan.objects.create(project=plan.project, document=plan.document,
-        workflow_run=plan.workflow_run, asset=second_asset, page_number=2, plan_scope="floor",
-        plan_name="Second floor", extractor_version="test")
-    second, _ = replace_unit_segments(second_source, regions, "ai", actor=actor)
-    plan.active = False
-    plan.save()
+    from .workspace_helpers import workspace_request,frontend_source
+    plan,actor=source
+    _,_,regions,_=provider
+    first,_=replace_unit_segments(plan,regions,'ai',actor=actor)
+    second_asset=FloorPlanAsset.objects.get(pk=plan.asset_id);second_asset.pk=None;second_asset.page_number=2
+    with storage.open(plan.asset.object_key,'rb') as stream:second_asset.object_key=storage.save('images/second-page.png',ContentFile(stream.read()))
+    second_asset.workflow_run=AgentWorkflowRun.objects.create(project=plan.project,document=plan.document,ingestion_run=plan.workflow_run.ingestion_run,status='completed');second_asset.save()
+    second_source=FloorPlan.objects.create(project=plan.project,document=plan.document,workflow_run=plan.workflow_run,asset=second_asset,page_number=2,plan_scope='floor',plan_name='Second floor',extractor_version='test')
+    second,_=replace_unit_segments(second_source,regions,'ai',actor=actor)
+    plan.active=False;plan.save()
     client.force_login(actor)
-    response = client.get(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]), {"section": "layouts"})
-    assert response.status_code == 200
-    cards = {card["plan"].pk: card for card in response.context["layouts"]}
-    assert set(cards) == {item.pk for item in first + second}
-    assert all(cards[item.pk]["inactive"] for item in first)
-    assert not any(cards[item.pk]["inactive"] for item in second)
-    for item in first + second:
-        reset_url = reverse("admin:platform_api_floorplan_crop_update", args=[item.pk]) + "?source_mode=original"
-        assert reset_url.encode() in response.content
-    assert b"Reset crop" in response.content
+    response=workspace_request(client,plan.project,'/media');assert response.status_code==200,response.content
+    cards={item['planId']:item for item in response.json()['items'] if item['category']=='layouts'}
+    assert set(cards)=={str(item.pk) for item in first+second}
+    assert all(cards[str(item.pk)]['inactiveSource'] for item in first)
+    assert not any(cards[str(item.pk)]['inactiveSource'] for item in second)
+    assert 'Restore original crop' in frontend_source()
 
 def test_hidden_segment_history_allows_a_fresh_run_without_deleting_it(source, provider):
     plan, actor = source
@@ -125,34 +113,18 @@ def source(settings, tmp_path, django_user_model):
 
 @pytest.mark.parametrize("scope,section", [("floor", "floor-plans"), ("flat", "layouts")])
 def test_dashboard_crop_actions_use_full_page_for_floor_plans(source, client, scope, section):
-    from django.urls import reverse
-
-    plan, actor = source
-    plan.plan_scope = scope
-    plan.save()
-    client.force_login(actor)
-    response = client.get(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]),
-                          {"section": section})
-    assert response.status_code == 200
-    html = response.content.decode()
-    crop_url = reverse("admin:platform_api_floorplan_crop_update", args=[plan.pk])
-    assert html.count(f'href="{crop_url}?source_mode=original"') == 1
-    assert "Create new crops from source" not in html
-    if scope == "floor":
-        assert "Create new layouts from floor plan" in html
-        assert "Fix floor plan crop" in html
-        assert "Crop floor plan" not in html
-        assert "Reset crop" not in html
-        assert f'href="{crop_url}"' not in html
-        assert html.count('value="queue_floor_layouts"') == 1
-        assert ">Extract individual layouts</button>" in html
-    else:
-        assert "Create new layouts from floor plan" not in html
-        assert "Update this unit crop" in html
-        assert "Reset crop" in html
-        assert f'href="{crop_url}"' in html
-        assert "Fix floor plan crop" not in html
-        assert 'value="queue_floor_layouts"' not in html
+    from .workspace_helpers import workspace_request,frontend_source
+    plan,actor=source
+    plan.plan_scope=scope;plan.save();client.force_login(actor)
+    items=workspace_request(client,plan.project,'/media').json()['items']
+    item=next(item for item in items if item['planId']==str(plan.pk))
+    assert item['category']==section and item['canCrop']
+    assert item['documentId']==str(plan.document_id) and item['pageNumber']==1
+    preview=workspace_request(client,plan.project,f'/media/documents/{plan.document_id}/pages/1?sha256={plan.document.sha256}')
+    assert preview.status_code==200 and preview['Content-Type']=='image/png'
+    ui=frontend_source()
+    assert 'Manually crop layouts' in ui and 'Extract layouts' in ui and 'Restore original crop' in ui
+    assert "selected.category === 'floor-plans'" in ui
 
 
 @pytest.fixture
@@ -660,18 +632,16 @@ def test_queue_uses_latest_matching_job_not_stale_history(source, settings, stat
     ("unexpected private provider detail", "Check source readiness and the configured AI profile"),
 ])
 def test_dashboard_floor_queue_reports_admission_reason(source, client, monkeypatch, error, expected):
-    from django.urls import reverse
-    plan, actor = source
-    enqueue = Mock(side_effect=ValueError(error))
-    monkeypatch.setattr("platform_api.admin.queue_floor_plan_layouts", enqueue)
+    from .workspace_helpers import media_action
+    plan,actor=source
     client.force_login(actor)
-    response = client.post(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]),
-        {"action": "queue_floor_layouts", "floor_plan_id": str(plan.pk)}, follow=True)
-    assert response.status_code == 200
+    enqueue=Mock(side_effect=ValueError(error))
+    monkeypatch.setattr('platform_api.floor_plan_layout_jobs.queue_floor_plan_layouts',enqueue)
+    response=media_action(client,plan,'segment')
+    assert response.status_code==400,response.content
     assert expected.encode() in response.content
-    assert b"Choose an active full-floor source" not in response.content
-    assert b"unexpected private provider detail" not in response.content
-    enqueue.assert_called_once_with(plan, actor, retry=True, fresh=False)
+    assert b'unexpected private provider detail' not in response.content
+    enqueue.assert_called_once_with(plan,actor,vision_profile_id=None,retry=True,fresh=False)
     assert not OutboxMessage.objects.exists()
 
 

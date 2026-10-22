@@ -20,7 +20,10 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from platform_api.views import LiveHealthView, ReadyHealthView
 
+from .service_frontend import admin_project_workspace
+
 urlpatterns = [
+    path("admin/project-workspace/", admin.site.admin_view(admin_project_workspace), name="admin-project-workspace"),
     path('admin/', admin.site.urls),
     path('api/v1/', include('platform_api.urls')),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

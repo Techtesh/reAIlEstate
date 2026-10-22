@@ -83,28 +83,27 @@ def test_cancelled_job_never_restarts(source, monkeypatch):
 
 
 def test_card_template_shows_pending_and_friendly_title(source):
-    plan, actor = source
-    crop_job(plan, actor)
-    plan.plan_name = f"Tower A Unit 1 [manual {uuid4()}]"
-    plan.save()
-    request = RequestFactory().get("/?section=layouts&include_candidates=1")
-    request.user = actor
-    response = ProjectAdmin(Project, admin.site).media_dashboard_view(request, str(plan.project_id))
-    response.render()
-    html = response.content.decode()
-    assert "<h2>Tower A Unit 1</h2>" in html
-    assert "Room dimensions are pending extraction" in html
-    assert "No room dimensions were extracted" not in html
-    assert 'value="save_layout_name"' in html
-    assert 'value="run_layout_evaluation"' in html
+    from django.test import Client
+    from .workspace_helpers import workspace_request,frontend_source
+    plan,actor=source
+    crop_job(plan,actor)
+    plan.plan_name=f'Tower A Unit 1 [manual {uuid4()}]';plan.save()
+    client=Client();client.force_login(actor)
+    items=workspace_request(client,plan.project,'/media').json()['items']
+    item=next(item for item in items if item['planId']==str(plan.pk))
+    assert item['label']=='Tower A Unit 1'
+    assert item['evaluation']['state']=='queued'
+    ui=frontend_source();assert 'pending extraction' in ui and 'evaluationAction' in ui and 'Edit media title' in ui
 
 
 def test_missed_page_shortcut_opens_cropper_without_queue(source):
-    plan, actor = source
-    request = RequestFactory().post("/", {"action": "mark_layout_page", "document_id": str(plan.document_id), "page_number": 1})
-    request.user = actor
-    response = ProjectAdmin(Project, admin.site).media_dashboard_view(request, str(plan.project_id))
-    assert response.status_code == 302
-    assert reverse("admin:platform_api_project_add_source_pages", args=[plan.project_id]) in response.url
-    assert "category=layouts" in response.url and "page_number=1" in response.url
+    from django.test import Client
+    from .workspace_helpers import workspace_request,frontend_source
+    plan,actor=source
+    client=Client();client.force_login(actor)
+    response=client.get(reverse('admin:platform_api_project_add_source_pages',args=[plan.project_id]))
+    assert response.status_code==302 and str(plan.project_id) in response.url
+    page=workspace_request(client,plan.project,f'/media/documents/{plan.document_id}/pages/1?sha256={plan.document.sha256}')
+    assert page.status_code==200
+    assert 'Crop source editor' in frontend_source()
     assert not OutboxMessage.objects.exists()

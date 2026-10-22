@@ -41,11 +41,9 @@ class CorrelationIdMiddleware:
                 "; script-src 'self'; style-src 'self' 'unsafe-inline'; "
                 "img-src 'self'; font-src 'self'; connect-src 'self'; form-action 'self'"
             )
-            if match.url_name == "platform_api_project_external_sources":
-                policy += "; frame-src https://www.openstreetmap.org"
-            elif match.url_name == "platform_api_project_change":
+            if match.url_name == "platform_api_project_change":
                 policy += "; frame-src https://maps.google.com https://www.google.com"
-        elif match and match.url_name == "service-frontend":
+        elif match and match.url_name in {"service-frontend", "admin-project-workspace"}:
             policy += (
                 "; script-src 'self'; style-src 'self'; "
                 "img-src 'self' data: https://tile.openstreetmap.org "

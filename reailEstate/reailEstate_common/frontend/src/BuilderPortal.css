@@ -66,3 +66,9 @@
 .builder-role-forms fieldset { display: grid; gap: 14px; }
 .builder-member-list { overflow-x: auto; }
 @media (max-width: 700px) { .builder-role-forms { grid-template-columns: 1fr; } }
+
+.project-content form + form { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
+.project-content fieldset { display: grid; gap: 14px; }
+.project-content legend { margin-bottom: 12px; font-weight: 700; }
+.project-content fieldset > button { justify-self: start; }
+.project-content h3 { margin-top: 24px; }

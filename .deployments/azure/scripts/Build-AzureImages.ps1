@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
-    [string] $SubscriptionId = "088476fe-27ee-42b2-a867-268aab19dce3",
+    [string] $SubscriptionId = "",
 
-    [string] $TenantId = "d68b2372-3268-46b9-8329-75273fb49a72",
+    [string] $TenantId = "",
 
     [string] $TerraformDirectory = (Join-Path $PSScriptRoot "..\terraform"),
 

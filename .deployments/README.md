@@ -1,30 +1,18 @@
-# Deployment providers
+# Deployment
 
-This directory keeps cloud-specific infrastructure outside the application
-packages while preserving one runtime contract.
+Deploy the current service through [GitHub Actions](aws/ec2/README.md).
+The workflow builds and checks a release, transfers its checked artifact over SSH,
+and starts the services in private-preview or public-HTTPS mode.
 
-## Runtime contract
+Deployment-specific hosts, keys, IDs and account details belong in GitHub environment
+secrets/variables or ignored server configuration. Agents must explain each AWS/Azure
+CLI command and obtain explicit user permission before running it.
 
-Every provider implementation must supply:
+The application contract remains three web services, one shared PostgreSQL database,
+a private persistent workspace, independent migration ownership and health endpoints.
+[Runtime settings](../reailEstate/compose.services.yml) document service configuration.
 
-- One HTTPS gateway.
-- Admin, builder, buyer, and extraction-worker processes from the shared
-  application image.
-- One PostgreSQL database.
-- One persistent filesystem mounted at `/workspace`.
-- The environment variables documented in
-  [`reailEstate/compose.services.yml`](../reailEstate/compose.services.yml).
-- A one-shot migration command owned by the admin service.
-- Health checks for `/health/live` and `/health/ready`.
-- Secret injection without committing credentials.
-- `CLAMAV_ENABLED=false` unless a reachable scanner has been deployed and
-  validated.
-
-## Providers
-
-- [`azure/`](./azure/) contains the approved POC Terraform and operational
-  scripts.
-- [`aws/`](./aws/) contains offline-only AWS Terraform and operational scripts.
-
-Provider directories must not share Terraform state, provider credentials, or
-generated secret files.
+AWS ECS and Azure Container Apps Terraform directories are alternative infrastructure
+reference templates, not the active application deployment pipeline. They do not
+adopt existing console-created resources automatically. Legacy provider tools remain
+for separately requested infrastructure work; they are not release entrypoints.

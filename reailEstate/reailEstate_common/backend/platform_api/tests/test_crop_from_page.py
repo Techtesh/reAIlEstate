@@ -267,10 +267,10 @@ def test_owner_and_project_scoping(page_source):
             method(foreign, actor, ids)
     with pytest.raises(ValueError, match="project family"):
         stage_page_crops(foreign, document.pk, 1, [REGION], actor, document.sha256)
-    request = RequestFactory().get("/")
-    request.user = other
-    with pytest.raises(Http404):
-        ProjectAdmin(Project, admin.site).draft_crop_preview(request, str(project.pk), ids[0])
+    from django.test import Client
+    from .workspace_helpers import workspace_request
+    client=Client();client.force_login(other)
+    assert workspace_request(client,project,f'/media/drafts/{ids[0]}').status_code==404
     assert LayoutCropDraft.objects.count() == 1
     assert not FloorPlan.objects.exists()
 
@@ -386,25 +386,19 @@ def test_model_constraint_rejects_neither_or_both_sources(page_source):
 
 @pytest.mark.django_db
 def test_add_layout_view_uses_cropper_and_old_page_post_cannot_queue(page_source, client):
-    project, document, actor, *_ = page_source
+    from .workspace_helpers import workspace_request
+    project,document,actor,*_=page_source
     client.force_login(actor)
-    url = reverse("admin:platform_api_project_add_source_pages", args=[project.pk])
-    response = client.get(url, {"category": "layouts", "document": document.pk, "page_number": 2})
-    assert response.status_code == 200
-    assert response.template_name == "admin/platform_api/crop_from_page.html"
-    assert "source_sha256=" + document.sha256 in response.context_data["preview_url"]
-    assert b'data-crop-canvas' in response.content and b'Save to cart' in response.content
-    assert b'Save and queue extraction' not in response.content
-    response = client.post(url, {"category": "layouts", "document": document.pk, "pages": [1, 2]})
-    assert response.status_code == 200
+    url=reverse('admin:platform_api_project_add_source_pages',args=[project.pk])
+    assert client.get(url,{'category':'layouts','document':document.pk,'page_number':2}).status_code==302
+    assert client.post(url,{'category':'layouts','document':document.pk,'pages':[1,2]}).status_code==405
     assert not LayoutCropDraft.objects.exists() and not OutboxMessage.objects.exists()
-    response = client.post(url, {
-        "category": "layouts", "document": document.pk, "page_number": 2,
-        "source_sha256": document.sha256, "regions_json": json.dumps([REGION]), "rotation_degrees": 0,
-    })
-    assert response.status_code == 302
-    assert LayoutCropDraft.objects.count() == 1
-    assert published_counts() == (0,) * len(PUBLISHED_MODELS)
+    response=workspace_request(client,project,'/media/crops',{'documentId':str(document.pk),'pageNumber':2,'sourceSha256':document.sha256,
+        'regions':[REGION],'rotationDegrees':0,'requestId':str(uuid4())},method='post')
+    assert response.status_code==202,response.content
+    assert LayoutCropDraft.objects.count()==1
+    assert published_counts()[:-1]==(0,)*(len(PUBLISHED_MODELS)-1)
+    assert AuditEvent.objects.count()==1
 
 
 @pytest.mark.django_db

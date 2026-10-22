@@ -2,7 +2,6 @@ param([int]$Workers = 8, [switch]$Resume, [switch]$RetryFailed, [switch]$Trusted
     [string]$ReportName = 'sample-corpus-refresh-20260911.json')
 $ErrorActionPreference = 'Stop'
 $workspace = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$env:DATABASE_BACKEND = 'postgresql'
 $env:PYTHONUTF8 = '1'
 $env:PYTHONUNBUFFERED = '1'
 $env:FLOOR_PLAN_EXTRACTION_MODE = 'ai'

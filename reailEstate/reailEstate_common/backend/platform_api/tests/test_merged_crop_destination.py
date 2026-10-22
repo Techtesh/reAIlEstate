@@ -72,24 +72,22 @@ def test_canonical_project_unchanged(source):
 
 
 def test_old_crop_route_preserves_posted_regions_and_redirects_to_canonical_cart(source):
-    old, plan, actor, target, _ = merged_source(source)
-    view = FloorPlanAdmin(FloorPlan, admin.site)
-    path = reverse("admin:platform_api_floorplan_manual_crops", args=[plan.pk])
-    get = RequestFactory().get(path)
-    get.user = actor
-    response = view.manual_crops_view(get, str(plan.pk))
-    assert response.status_code == 200
-    assert response.context_data["destination_project"].pk == target.pk
-    assert str(target.pk) in response.context_data["cancel_url"]
-    assert str(target.pk) in response.context_data["source_url"]
-    post = RequestFactory().post(path, {"regions_json": json.dumps([REGION]), "rotation_degrees": "0"})
-    post.user = actor
-    post.session = {}
-    post._messages = FallbackStorage(post)
-    response = view.manual_crops_view(post, str(plan.pk))
-    assert response.status_code == 302 and str(target.pk) in response.url
-    assert LayoutCropDraft.objects.get().project_id == target.pk
-    assert not OutboxMessage.objects.exists()
+    from .workspace_helpers import workspace_request
+    from django.test import Client
+    from uuid import uuid4
+    old,plan,actor,target,_=merged_source(source)
+    view=FloorPlanAdmin(FloorPlan,admin.site)
+    path=reverse('admin:platform_api_floorplan_manual_crops',args=[plan.pk])
+    get=RequestFactory().get(path);get.user=actor
+    response=view.manual_crops_view(get,str(plan.pk))
+    assert response.status_code==302 and str(target.pk) in response.url
+    post=RequestFactory().post(path,{'regions_json':json.dumps([REGION]),'rotation_degrees':'0'});post.user=actor
+    assert view.manual_crops_view(post,str(plan.pk)).status_code==405
+    client=Client();client.force_login(actor)
+    response=workspace_request(client,target,'/media/crops',{'documentId':str(plan.document_id),'pageNumber':plan.page_number,
+        'sourceSha256':plan.document.sha256,'regions':[REGION],'requestId':str(uuid4())},method='post')
+    assert response.status_code==202,response.content
+    assert LayoutCropDraft.objects.get().project_id==target.pk and not OutboxMessage.objects.exists()
 
 
 def test_merge_retired_during_image_preparation_leaves_no_drafts(source, monkeypatch):
@@ -103,3 +101,22 @@ def test_merge_retired_during_image_preparation_leaves_no_drafts(source, monkeyp
     with pytest.raises(ValueError):
         stage_crops(plan, [REGION], actor)
     assert not LayoutCropDraft.objects.exists()
+
+def test_shared_workspace_evaluates_and_reprocesses_merged_evidence(source, client):
+    from uuid import uuid4
+    from .workspace_helpers import workspace_request
+    old, plan, actor, target, _ = merged_source(source)
+    client.force_login(actor)
+    response = workspace_request(client, target, '/media/evaluate', {
+        'planId': str(plan.pk), 'expectedUpdatedAt': plan.updated_at.isoformat(),
+        'confirm': True, 'requestId': str(uuid4()),
+    }, method='post')
+    assert response.status_code == 202, response.content
+    assert OutboxMessage.objects.filter(payload__floorPlanId=str(plan.pk)).count() == 1
+    response = workspace_request(client, target, '/media/actions', {
+        'action': 'reprocess-all', 'targets': [], 'confirm': True, 'requestId': str(uuid4()),
+    }, method='post')
+    assert response.status_code == 202, response.content
+    assert OutboxMessage.objects.filter(event_type='document.processing.requested', payload__documentId=str(plan.document_id)).count() == 1
+    plan.refresh_from_db()
+    assert plan.project_id == old.pk

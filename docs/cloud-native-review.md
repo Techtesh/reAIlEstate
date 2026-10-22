@@ -132,9 +132,9 @@ Evidence: [release instructions](../.deployments/aws/ec2/README.md), [deployment
 
 ### 10. Fail startup on incomplete production configuration
 
-- **What this is:** Shared settings default to debug enabled, a development secret/environment, SQLite without a local PostgreSQL config, and PostgreSQL TLS mode prefer. Deployment definitions override many correctly.
-- **Problem:** An omitted setting in a new service can silently select development behavior or ephemeral SQLite state.
-- **Fix:** Require an explicit runtime environment and validate PostgreSQL selection, non-placeholder secret, debug off, hosts/origins, secure cookies, proxy trust, verified database TLS and required dependency configuration before serving traffic. Keep development defaults isolated and run Django deployment checks.
+- **What this is:** Shared settings default to debug enabled, a development secret/environment, and PostgreSQL TLS mode prefer. PostgreSQL is now required even when local credentials are absent; SQLite fallbacks and exports have been removed. Deployment definitions override many correctly.
+- **Problem:** An omitted setting in a new service can still silently select development security behavior.
+- **Fix:** Require an explicit runtime environment and validate PostgreSQL connectivity, non-placeholder secret, debug off, hosts/origins, secure cookies, proxy trust, verified database TLS and required dependency configuration before serving traffic. Keep development defaults isolated and run Django deployment checks.
 - **If skipped:** Configuration mistakes can create insecure or non-durable replicas.
 
 Evidence: [settings at lines 30, 33, 103, 114 and 266](../reailEstate/reailEstate_common/backend/config/settings.py), [EC2 overrides](../.deployments/aws/ec2/app.env.example).
@@ -197,7 +197,7 @@ Evidence: [tracing](../reailEstate/reailEstate_common/backend/platform_api/obser
 
 ### 17. Promote one reproducible, verified artifact
 
-- **What this is:** GitHub manually builds/packages images and runs SQLite Django checks and gateway validation. It omits backend/frontend regression tests and PostgreSQL integration. Python/base-image versions include ranges/moving tags.
+- **What this is:** The GitHub-dispatched workflow builds/packages images, checks all three Django services against disposable PostgreSQL, validates the gateway and mocked deployment failure paths, and deploys the checked artifact over pinned-key SSH. Target details are configured through GitHub environment secrets; ad hoc EC2 orchestration wrappers are retired. It still omits backend/frontend regression suites and PostgreSQL concurrency tests from CI. Python/base-image versions include ranges/moving tags.
 - **Problem:** Build success does not prove runtime/migration/ownership correctness; rebuilding source can resolve different dependencies.
 - **Fix:** Add PR gates, PostgreSQL integration, frontend/migration checks and ephemeral release smoke tests. Lock dependencies, deploy image digests, gate artifact scans by an agreed policy, retain provenance/SBOM and rollback digests, and promote the same artifact. Use scoped short-lived CI identity for deployment. Preserve existing immutable ECR tags/scanning.
 - **If skipped:** Green builds remain weak release evidence and deployment remains partly manual.

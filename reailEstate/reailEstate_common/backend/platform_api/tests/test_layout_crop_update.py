@@ -21,7 +21,8 @@ from platform_api import layout_crop_update as crops
 from platform_api import layout_reanalysis
 from platform_api.artifact_storage import storage
 from platform_api.ingestion_runtime import WorkAlreadyClaimed
-from platform_api.layout_crop_update_admin import LayoutCropUpdateAdminMixin, LayoutCropUpdateForm
+from platform_api.layout_crop_update_admin import LayoutCropUpdateAdminMixin
+from platform_api.builder_media import CropInput
 from platform_api.models import (
     AgentWorkflowRun, AuditEvent, EvidenceDocument, FloorPlan, FloorPlanAsset,
     IngestionRun, LayoutCropDraft, Operation, Organization, OutboxMessage, Project,
@@ -128,7 +129,7 @@ def sibling(plan):
 def test_five_degree_rotation_validation():
     for rotation in range(0, 360, 5):
         assert crops.validate_rotation(rotation) == rotation
-        assert LayoutCropUpdateForm.base_fields["rotation_degrees"].clean(str(rotation)) == rotation
+        assert CropInput().fields["rotationDegrees"].run_validation(rotation) == rotation
     for rotation in (-5, 1, 89, 360, 365, 5.0, True, "5", None):
         with pytest.raises(ValueError, match="multiple of 5"):
             crops.validate_rotation(rotation)
@@ -247,17 +248,18 @@ def test_stale_crop_update_draft_is_retained(layout):
 
 @pytest.mark.parametrize("rotation", [0, 5, 355])
 def test_admin_crop_save_stages_without_queueing(layout, client, rotation):
-    import json
-
-    plan, actor, _ = layout
+    from .workspace_helpers import workspace_request
+    plan,actor,_=layout
     client.force_login(actor)
-    args = edit_args(plan, actor)
-    args["rotation_degrees"] = rotation
-    response = client.post(editor_url(plan), {**args, "regions": json.dumps(args["regions"]), "confirm": "on"})
-    assert response.status_code == 302
-    assert response.url.endswith("#draft-crop-cart")
-    assert LayoutCropDraft.objects.get().bounds["draftAction"] == "update"
-    assert LayoutCropDraft.objects.get().bounds["parameters"]["rotation_degrees"] == rotation
+    payload={'documentId':str(plan.document_id),'pageNumber':plan.page_number,'sourceSha256':plan.document.sha256,
+        'regions':[{'label':'Fine correction','x':.05,'y':.05,'width':.9,'height':.9}],
+        'rotationDegrees':rotation,'sourceMode':'current','category':'layouts','targetPlanId':str(plan.pk),
+        'expectedUpdatedAt':plan.updated_at.isoformat(),'requestId':str(uuid4())}
+    response=workspace_request(client,plan.project,'/media/crops',payload,method='post')
+    assert response.status_code==202,response.content
+    draft=LayoutCropDraft.objects.get()
+    assert draft.bounds['draftAction']=='update'
+    assert draft.bounds['builderRevision']['rotation']==(-rotation)%360
     assert not OutboxMessage.objects.exists()
 
 
@@ -285,28 +287,20 @@ def test_cancels_old_jobs_for_target_only_and_reconciles_scoped_reviews(layout):
 
 @pytest.mark.parametrize("scope", ["flat", "floor"])
 def test_reset_crop_opens_full_page_without_mutation(layout, client, settings, scope):
-    settings.ROOT_URLCONF = "config.urls"
-    plan, actor, source = layout
-    plan.plan_scope = scope
-    plan.save()
-    before = FloorPlan.objects.values().get(pk=plan.pk)
-    asset_count = FloorPlanAsset.objects.count()
+    from .workspace_helpers import workspace_request
+    settings.ROOT_URLCONF='config.urls'
+    plan,actor,source=layout
+    plan.plan_scope=scope;plan.save()
+    before=FloorPlan.objects.values().get(pk=plan.pk);asset_count=FloorPlanAsset.objects.count()
     client.force_login(actor)
-    url = reverse("admin:platform_api_floorplan_crop_update", args=[plan.pk])
-    response = client.get(url + "?source_mode=original")
-    assert response.status_code == 200
-    assert response.context_data["source_mode"] == "original"
-    assert response.context_data["crop_config"]["width"] == source.pixel_width
-    assert response.context_data["crop_config"]["height"] == source.pixel_height
-    assert response.context_data["form"].initial["regions"] == []
-    assert b"Reset crop" in response.content
-    preview = client.get(response.context_data["preview_url"])
-    assert preview.status_code == 200
-    assert hashlib.sha256(preview.content).hexdigest() == source.sha256
-    assert FloorPlan.objects.values().get(pk=plan.pk) == before
-    assert FloorPlanAsset.objects.count() == asset_count
-    assert not LayoutCropDraft.objects.exists()
-    assert not OutboxMessage.objects.exists()
+    url=reverse('admin:platform_api_floorplan_crop_update',args=[plan.pk])
+    response=client.get(url+'?source_mode=original')
+    assert response.status_code==302 and 'plan='+str(plan.pk) in response.url
+    preview=workspace_request(client,plan.project,f'/media/documents/{plan.document_id}/pages/1?sha256={plan.document.sha256}')
+    assert preview.status_code==200
+    assert hashlib.sha256(preview.content).hexdigest()==source.sha256
+    assert FloorPlan.objects.values().get(pk=plan.pk)==before
+    assert FloorPlanAsset.objects.count()==asset_count and not LayoutCropDraft.objects.exists() and not OutboxMessage.objects.exists()
 
 
 def test_default_preview_is_current_and_original_is_explicit(layout, monkeypatch):
@@ -575,7 +569,7 @@ def test_confirmation_must_be_explicit(layout):
     args["confirm"] = False
     with pytest.raises(ValueError, match="Confirm"):
         crops.update_layout_crop(plan.pk, actor, **args)
-    assert not LayoutCropUpdateForm({}).is_valid()
+    assert not CropInput(data={}).is_valid()
 
 
 @pytest.mark.parametrize("active,staff,permissions", [
@@ -647,24 +641,17 @@ def editor_url(plan):
 
 
 def test_admin_preview_auth_private_headers_and_read_only_get(layout, client):
-    plan, actor, _ = layout
-    _, _, _, token = crops.prepare_crop_edit(plan.pk, actor)
-    url = reverse("admin:platform_api_floorplan_crop_update_preview", args=[plan.pk], current_app=site.name)
-    assert client.get(url, {"token": token}).status_code == 302
+    from .workspace_helpers import workspace_request
+    plan,actor,_=layout
+    suffix=f'/media/documents/{plan.document_id}/pages/1?sha256={plan.document.sha256}'
+    assert workspace_request(client,plan.project,suffix).status_code in {401,403}
     client.force_login(actor)
-    response = client.get(url, {"token": token})
-    assert response.status_code == 200
-    assert {"private", "no-store"}.issubset(response["Cache-Control"].split(", "))
-    assert response["X-Content-Type-Options"] == "nosniff"
-    assert hashlib.sha256(response.content).hexdigest() == plan.asset.sha256
-    assert client.post(url, {"token": token}).status_code == 405
-    assert FloorPlanAsset.objects.count() == 2 and AuditEvent.objects.count() == 0
-    assert OutboxMessage.objects.count() == 0 and LayoutCropDraft.objects.count() == 0
-    response = client.get(editor_url(plan))
-    assert response.status_code == 200
-    assert response.context_data["source_mode"] == "current"
-    assert response.context_data["crop_config"]["width"] == 120
-    assert response.context_data["form"].initial["regions"] == []
+    response=workspace_request(client,plan.project,suffix)
+    assert response.status_code==200
+    assert {'private','no-store'}<=set(response['Cache-Control'].split(', '))
+    assert workspace_request(client,plan.project,suffix,{},method='post').status_code==405
+    assert FloorPlanAsset.objects.count()==2 and AuditEvent.objects.count()==0
+    assert not OutboxMessage.objects.exists() and not LayoutCropDraft.objects.exists()
 
 
 def test_preview_token_is_actor_bound_and_tamper_proof(layout, django_user_model):
@@ -678,14 +665,15 @@ def test_preview_token_is_actor_bound_and_tamper_proof(layout, django_user_model
 
 
 def test_removed_or_retired_target_cannot_reuse_existing_preview(layout, client):
-    plan, actor, _ = layout
-    _, _, _, token = crops.prepare_crop_edit(plan.pk, actor)
-    url = reverse("admin:platform_api_floorplan_crop_update_preview", args=[plan.pk], current_app=site.name)
+    from .workspace_helpers import workspace_request
+    plan,actor,_=layout
     client.force_login(actor)
-    plan.project.status = "retired"
-    plan.project.save()
-    assert client.get(url, {"token": token}).status_code == 404
-    assert FloorPlanAsset.objects.count() == 2
+    plan.project.status='retired';plan.project.save()
+    payload={'documentId':str(plan.document_id),'pageNumber':plan.page_number,'sourceSha256':plan.document.sha256,
+        'regions':[{'label':'Blocked','x':0,'y':0,'width':1,'height':1}], 'targetPlanId':str(plan.pk),
+        'expectedUpdatedAt':plan.updated_at.isoformat(),'requestId':str(uuid4())}
+    assert workspace_request(client,plan.project,'/media/crops',payload,method='post').status_code==409
+    assert FloorPlanAsset.objects.count()==2 and not LayoutCropDraft.objects.exists()
 
 
 def test_asset_and_document_checksum_changes_reject_preview(layout):
@@ -705,19 +693,16 @@ def test_asset_and_document_checksum_changes_reject_preview(layout):
 
 
 def test_stale_admin_post_returns_conflict_without_rebasing(layout, client):
-    import json
-
-    plan, actor, _ = layout
+    from .workspace_helpers import workspace_request
+    plan,actor,_=layout
     client.force_login(actor)
-    args = edit_args(plan, actor, "original")
-    crops.update_layout_crop(plan.pk, actor, **args)
-    posted = {**args, "regions": json.dumps(args["regions"]), "confirm": "on"}
-    response = client.post(editor_url(plan), posted)
-    assert response.status_code == 409
-    assert response.context_data["source_mode"] == "original"
-    assert response.context_data["preview_url"] is None
-    assert "source_mode=original" in response.context_data["reload_url"]
-    assert FloorPlanAsset.objects.count() == 3
+    payload={'documentId':str(plan.document_id),'pageNumber':plan.page_number,'sourceSha256':plan.document.sha256,
+        'regions':[{'label':'Stale','x':0,'y':0,'width':1,'height':1}], 'targetPlanId':str(plan.pk),
+        'expectedUpdatedAt':plan.updated_at.isoformat(),'requestId':str(uuid4())}
+    args=edit_args(plan,actor,'original');crops.update_layout_crop(plan.pk,actor,**args)
+    response=workspace_request(client,plan.project,'/media/crops',payload,method='post')
+    assert response.status_code==409
+    assert FloorPlanAsset.objects.count()==3 and not LayoutCropDraft.objects.exists()
 
 
 def test_admin_post_requires_csrf(layout):

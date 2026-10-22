@@ -94,7 +94,8 @@ def test_confirmed_remove_and_record_restore_preserve_evidence(records, client, 
     url = visibility_url(project, selected)
     dashboard = reverse("admin:platform_api_project_media_dashboard", args=[project.pk])
     response = client.get(dashboard, {"section": section})
-    assert url.encode() in response.content  # Both categories have the explicit action.
+    assert response.status_code == 302 and str(project.pk) in response.url
+    assert "section=" + section in response.url
     response = client.get(url)
     assert b"csrfmiddlewaretoken" in response.content
     assert b"onclick=" not in response.content and b"onsubmit=" not in response.content
@@ -115,10 +116,13 @@ def test_confirmed_remove_and_record_restore_preserve_evidence(records, client, 
         with storage.open(key) as source:
             assert source.read() == b"immutable source evidence"
     assert AuditEvent.objects.get(action="floor_plan.removed_by_user").metadata["previousReviewState"] == "pending_page_evaluation"
-    response = client.get(dashboard, {"section": section, "include_candidates": "1"})
-    cards = response.context["floor_plans" if scope == "floor" else "layouts"]
-    assert [card["plan"].pk for card in cards] == [retained.pk]
-    assert response.context["carousel"]  # A shared source remains available.
+    from .workspace_helpers import workspace_request
+    media = workspace_request(client, project, '/media')
+    assert media.status_code == 200
+    plans = {item['planId']: item for item in media.json()['items'] if item['planId']}
+    assert plans[str(retained.pk)]['reviewState'] == 'pending_page_evaluation'
+    assert plans[str(selected.pk)]['reviewState'] == 'removed_by_user'
+    assert plans[str(retained.pk)]['assetId'] == str(retained.asset_id)
     record = client.get(reverse("admin:platform_api_floorplan_change", args=[selected.pk]))
     restore_url = visibility_url(project, selected, "restore")
     assert restore_url.encode() in record.content
@@ -285,6 +289,7 @@ def test_api_and_published_facts_hide_removed_records(records):
     assert restored.status_code == 200 and len(restored.data["facts"]) == 2
 
 
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("output_name", ["layout-metrics", "layout-metrics-csv"])
 def test_historical_downloads_filter_without_rewriting_artifact(records, output_name):
     actor, project, selected, retained = records

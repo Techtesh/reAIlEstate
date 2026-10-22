@@ -117,10 +117,13 @@ def test_guessed_measurements_warn_without_boundary_failure_and_fresh_readings_c
     assert plan.review_state == "gen_with_ai_needs_review" and not plan.raw_extraction.get("qualityWarning")
     assert plan.dimensions[1]["widthFt"] is None and plan.dimensions[1]["areaSqFt"] is None
     client.force_login(actor)
-    page = client.get(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]), {"section": "layouts"})
-    assert b"Room size review required:" in page.content
-    assert b"Living: AI-inferred unit" in page.content and b"22.97 ft" in page.content
-    assert b"Boundary review required:" not in page.content
+    from .workspace_helpers import workspace_request, frontend_source
+    items=workspace_request(client,plan.project,'/media').json()['items']
+    item=next(item for item in items if item['planId']==str(plan.pk))
+    assert 'Living: AI-inferred unit' in item['dimensionWarning']
+    assert not item['qualityWarning']
+    assert item['dimensions'][0]['lengthFt']==pytest.approx(22.97,abs=.01)
+    assert 'Room size review:' in frontend_source()
     result["floorPlans"][0]["dimensions"] = [native_room("Living", 7, 3.87, "m")]
     message, _ = layouts.queue_layout_evaluation(plan, actor, vision_selection=selection, force=True)
     layouts.evaluate_layout_crop(message.payload)
@@ -253,12 +256,18 @@ def test_running_model_allows_same_and_other_layout_clicks(layout, inference):
 
 
 def test_busy_document_does_not_spend_attempt_and_requests_still_queue(layout):
-    if connection.vendor == "postgresql":
-        pytest.skip("Same-session PostgreSQL advisory locks are reentrant; this exercises the file-lock fallback")
     plan, actor = layout
     with work_lock("document", plan.document_id):
         result = queue_single_layout(plan.project, plan.pk, actor)
-        assert workers.process_outbox_message(result["messageId"]) == "not_ready"
+        from concurrent.futures import ThreadPoolExecutor
+        def contend():
+            from django.db import connections
+            try:
+                return workers.process_outbox_message(result["messageId"])
+            finally:
+                connections.close_all()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            assert executor.submit(contend).result(timeout=10) == "not_ready"
     message = OutboxMessage.objects.get(pk=result["messageId"])
     assert message.attempts == 0
     assert message.available_after > timezone.now()
@@ -504,24 +513,16 @@ def test_canonical_project_can_queue_its_merged_family_layout(layout):
     assert queue_single_layout(canonical, plan.pk, actor)["status"] == "queued"
 
 
-def test_sqlite_busy_retry_restarts_only_own_short_transaction(layout, monkeypatch):
-    if connection.vendor != "sqlite":
-        pytest.skip("SQLite writer reservation regression")
+@pytest.mark.parametrize("nested", [False, True])
+def test_database_error_is_propagated_without_replaying_queue_work(layout, monkeypatch, nested):
+    from contextlib import nullcontext
     plan, actor = layout
-    real_queue = layouts._queue_layout_evaluation
-    queue = Mock(side_effect=[OperationalError("database is locked"), ("message", "operation")])
+    queue = Mock(side_effect=OperationalError("connection lost"))
     monkeypatch.setattr(layouts, "_queue_layout_evaluation", queue)
-    sleep = Mock()
-    monkeypatch.setattr(layouts.time, "sleep", sleep)
-    assert layouts.queue_layout_evaluation(plan, actor) == ("message", "operation")
-    assert queue.call_count == 2
-    sleep.assert_called_once()
-    queue.reset_mock()
-    queue.side_effect = OperationalError("database is locked")
-    with transaction.atomic(), pytest.raises(OperationalError):
-        layouts.queue_layout_evaluation(plan, actor)
+    with transaction.atomic() if nested else nullcontext():
+        with pytest.raises(OperationalError, match="connection lost"):
+            layouts.queue_layout_evaluation(plan, actor)
     queue.assert_called_once()
-    monkeypatch.setattr(layouts, "_queue_layout_evaluation", real_queue)
 
 
 def test_evaluator_rejects_outer_transaction_before_model_or_status_write(layout, inference):

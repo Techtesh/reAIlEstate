@@ -32,7 +32,6 @@ locals {
     CLAMAV_ENDPOINT                          = var.clamav_endpoint
     CORS_ALLOWED_ORIGINS                     = "https://${local.container_app_fqdn}"
     CSRF_TRUSTED_ORIGINS                     = "https://${local.container_app_fqdn}"
-    DATABASE_BACKEND                         = "postgresql"
     DJANGO_ALLOWED_HOSTS                     = local.container_app_fqdn
     DJANGO_DEBUG                             = "false"
     ENVIRONMENT                              = var.environment_name

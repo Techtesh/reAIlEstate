@@ -1,3 +1,4 @@
+from .workspace_helpers import workspace_request, media_action, frontend_source
 """Alias presentation and persistence regressions; no live model calls."""
 
 import csv
@@ -30,15 +31,16 @@ GENERATED_ID = "12345678-1234-4321-8765-123456789abc"
 @pytest.mark.parametrize("alias", ["Tower 2 Floor 2", '<Tower & "Floor">'])
 def test_manual_crop_heading_uses_escaped_source_name(source, client, alias):
     from django.urls import reverse
-    from django.utils.html import escape
-
+    from urllib.parse import parse_qs, urlsplit
     plan, actor = source
     save_layout_name(plan.project, plan.pk, alias, actor)
     client.force_login(actor)
-    response = client.get(reverse("admin:platform_api_floorplan_manual_crops", args=[plan.pk]))
-    assert response.status_code == 200
-    assert response.context["title"] == f"Draw individual layout crops: {alias}"
-    assert f"<h1>{escape(response.context['title'])}</h1>" in response.content.decode()
+    response = client.get(reverse('admin:platform_api_floorplan_manual_crops', args=[plan.pk]))
+    assert response.status_code == 302
+    assert parse_qs(urlsplit(response.url).query)['plan'] == [str(plan.pk)]
+    items = workspace_request(client, plan.project, '/media').json()['items']
+    assert next(item for item in items if item['planId'] == str(plan.pk))['label'] == alias
+    assert 'dangerouslySetInnerHTML' not in frontend_source()
 
 
 @pytest.mark.django_db
@@ -47,267 +49,166 @@ def test_manual_crop_heading_uses_escaped_source_name(source, client, alias):
     ("name-desc", ["Tower 10", "Tower 2", "Tower 1"]),
 ])
 def test_floor_plan_sort_is_natural_and_active_first(source, client, sort, expected):
-    from django.urls import reverse
-
     plan, actor = source
-    plan.display_name = "Tower 10"
-    plan.save()
-    for name, active in [("Tower 2", True), ("Tower 1", False)]:
+    plan.display_name = 'Tower 10'; plan.save()
+    for name, active in [('Tower 2',True),('Tower 1',False)]:
         FloorPlan.objects.create(project=plan.project, document=plan.document, asset=plan.asset,
-            workflow_run=plan.workflow_run, page_number=1, plan_scope="floor",
-            plan_name=name, display_name=name, active=active, extractor_version="test")
+            workflow_run=plan.workflow_run, page_number=1, plan_scope='floor', plan_name=name, display_name=name, active=active, extractor_version='test')
     client.force_login(actor)
-    response = client.get(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]),
-                          {"section": "floor-plans", "sort": sort})
-    assert response.status_code == 200
-    html = response.content.decode()
-    assert 'name="sort"' in html and 'data-floor-plan-grid' in html
-    positions = [html.index(f"<h2>{name}</h2>") for name in expected]
-    assert positions == sorted(positions)
+    response = workspace_request(client, plan.project, f'/media?sort={sort}')
+    assert response.status_code == 200, response.content
+    assert [item['label'] for item in response.json()['items'] if item['category'] == 'floor-plans'] == expected
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("alias", ["", "Garden home", '<Example & "alias">'])
 def test_dashboard_alias_editor_starts_with_displayed_title(source, client, alias):
-    from django.urls import reverse
-    from django.utils.html import escape
-
     plan, actor = source
-    save_layout_name(plan.project, plan.pk, alias, actor)
-    plan.refresh_from_db()
+    save_layout_name(plan.project, plan.pk, alias, actor); plan.refresh_from_db()
     client.force_login(actor)
-    response = client.get(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]),
-                          {"section": "floor-plans"})
-    assert response.status_code == 200
-    html = response.content.decode()
-    assert f'value="{escape(plan.display_title)}" aria-label="Display name / alias"' in html
-    assert "data-alias-cancel" in html
-    assert "data-active-form" in html
-    assert 'title="Save active state"' not in html
+    item = next(item for item in workspace_request(client, plan.project, '/media').json()['items'] if item['planId'] == str(plan.pk))
+    assert item['label'] == plan.display_title
+    assert item['displayName'] == alias
+    ui = frontend_source()
+    assert 'item.displayName || item.label' in ui or 'selected.displayName || selected.label' in ui
+    assert 'Cancel name edit' in ui and 'changeActivity' in ui
 
 
 @pytest.mark.django_db
 def test_active_toggle_is_audited_and_rejects_stale_version(source, client):
-    from django.urls import reverse
     plan, actor = source
     client.force_login(actor)
-    url = reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id])
     version = plan.updated_at.isoformat()
-    response = client.post(url, {"action": "set_plan_active", "floor_plan_id": str(plan.pk), "version": version})
-    assert response.status_code == 302
-    plan.refresh_from_db()
-    assert not plan.active
-    assert AuditEvent.objects.filter(action="floor_plan.active_changed", entity_id=plan.pk).count() == 1
-    client.post(url, {"action": "set_plan_active", "floor_plan_id": str(plan.pk), "version": version, "active": "true"})
-    plan.refresh_from_db()
-    assert not plan.active
-    response = client.post(url + "?section=floor-plans", {"action": "set_plan_active", "floor_plan_id": str(plan.pk),
-                           "version": plan.updated_at.isoformat(), "active": "true"})
-    assert response.status_code == 302 and response.url.endswith("?section=floor-plans")
-    plan.refresh_from_db()
-    assert plan.active
-    assert AuditEvent.objects.filter(action="floor_plan.active_changed", entity_id=plan.pk).count() == 2
+    assert media_action(client,plan,'set-active',active=False).status_code == 202
+    plan.refresh_from_db(); assert not plan.active
+    assert AuditEvent.objects.filter(action='floor_plan.active_changed',entity_id=plan.pk).count() == 1
+    assert media_action(client,plan,'set-active',active=True,version=version).status_code == 409
+    plan.refresh_from_db(); assert not plan.active
+    assert media_action(client,plan,'set-active',active=True).status_code == 202
+    plan.refresh_from_db(); assert plan.active
+    assert AuditEvent.objects.filter(action='floor_plan.active_changed',entity_id=plan.pk).count() == 2
 
 
 @pytest.mark.django_db
 def test_active_toggle_ajax_returns_versions_and_inherited_inactivity(source, client):
-    from django.urls import reverse
-
     plan, actor = source
-    child = FloorPlan.objects.create(project=plan.project, document=plan.document,
-        workflow_run=plan.workflow_run, asset=plan.asset, page_number=plan.page_number,
-        plan_scope="flat", plan_name="Unit 01", extractor_version="test")
-    removed = FloorPlan.objects.create(project=plan.project, document=plan.document,
-        workflow_run=plan.workflow_run, asset=plan.asset, page_number=plan.page_number,
-        plan_scope="floor", plan_name="Removed source", extractor_version="test",
-        active=False, review_state="removed_by_user")
+    child = FloorPlan.objects.create(project=plan.project,document=plan.document,workflow_run=plan.workflow_run,asset=plan.asset,
+        page_number=plan.page_number,plan_scope='flat',plan_name='Unit 01',extractor_version='test')
+    removed = FloorPlan.objects.create(project=plan.project,document=plan.document,workflow_run=plan.workflow_run,asset=plan.asset,
+        page_number=plan.page_number,plan_scope='floor',plan_name='Removed source',extractor_version='test',active=False,review_state='removed_by_user')
     client.force_login(actor)
-    url = reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id])
     version = plan.updated_at.isoformat()
-    response = client.post(url, {"action": "set_plan_active", "floor_plan_id": str(plan.pk), "version": version},
-                           HTTP_X_REQUESTED_WITH="XMLHttpRequest")
-    assert response.status_code == 200
-    assert {"private", "no-store"} <= set(response["Cache-Control"].split(", "))
-    states = {item["id"]: item for item in response.json()["plans"]}
-    assert str(removed.pk) not in states
-    assert not states[str(plan.pk)]["active"] and states[str(plan.pk)]["inactive"]
-    assert not states[str(child.pk)]["active"] and states[str(child.pk)]["inactive"]
-    assert states[str(plan.pk)]["version"] != version
-    child.refresh_from_db()
-    assert not child.active
-    response = client.post(url, {"action": "set_plan_active", "floor_plan_id": str(plan.pk), "version": version,
-                                "active": "true"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
-    assert response.status_code == 409 and response.json()["status"] == 409
-    assert response["Content-Type"].startswith("application/problem+json")
-    assert AuditEvent.objects.filter(action="floor_plan.active_changed").count() == 2
-    response = client.post(url, {"action": "set_plan_active", "floor_plan_id": str(plan.pk),
-                                "version": states[str(plan.pk)]["version"], "active": "true"},
-                           HTTP_X_REQUESTED_WITH="XMLHttpRequest")
-    assert response.status_code == 200
-    states = {item["id"]: item for item in response.json()["plans"]}
-    assert states[str(plan.pk)]["active"] and not states[str(plan.pk)]["inactive"]
-    assert not states[str(child.pk)]["active"] and states[str(child.pk)]["inactive"]
-    assert AuditEvent.objects.filter(action="floor_plan.active_changed").count() == 3
+    response = media_action(client,plan,'set-active',active=False)
+    assert response.status_code == 202 and 'no-store' in response['Cache-Control']
+    states = {item['planId']:item for item in workspace_request(client,plan.project,'/media').json()['items'] if item['planId']}
+    assert not states[str(plan.pk)]['active'] and not states[str(child.pk)]['active']
+    assert states[str(removed.pk)]['reviewState'] == 'removed_by_user'
+    assert states[str(plan.pk)]['updatedAt'] != version
+    assert media_action(client,plan,'set-active',active=True,version=version).status_code == 409
+    plan.refresh_from_db()
+    assert media_action(client,plan,'set-active',active=True).status_code == 202
+    plan.refresh_from_db(); child.refresh_from_db(); removed.refresh_from_db()
+    assert plan.active and not child.active and not removed.active
+    assert AuditEvent.objects.filter(action='floor_plan.active_changed').count() == 3
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("restriction,expected", [("retired", 409), ("permission", 403), ("other_project", 404)])
 def test_active_toggle_ajax_rejects_unauthorized_changes(source, client, django_user_model, restriction, expected):
-    from django.urls import reverse
-
     plan, actor = source
     project = plan.project
-    if restriction == "retired":
-        project.status = "retired"
-        project.save(update_fields=["status"])
-    elif restriction == "permission":
-        actor = django_user_model.objects.create_user(username="no-plan-changes", is_staff=True)
-        actor.user_permissions.add(Permission.objects.get(codename="change_project", content_type__app_label="platform_api"))
+    if restriction == 'retired':
+        project.status='retired'; project.save()
+    elif restriction == 'permission':
+        actor=django_user_model.objects.create_user(username='no-plan-changes',is_staff=True)
+        actor.user_permissions.add(Permission.objects.get(codename='change_project',content_type__app_label='platform_api'))
     else:
-        project = Project.objects.create(organization=project.organization, submitted_name="Unrelated")
+        project=Project.objects.create(organization=project.organization,submitted_name='Unrelated')
     client.force_login(actor)
-    response = client.post(reverse("admin:platform_api_project_media_dashboard", args=[project.pk]),
-        {"action": "set_plan_active", "floor_plan_id": str(plan.pk), "version": plan.updated_at.isoformat()},
-        HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+    payload={'action':'set-active','targets':[{'planId':str(plan.pk),'expectedUpdatedAt':plan.updated_at.isoformat()}],
+        'active':False,'confirm':True,'requestId':str(uuid4())}
+    response=workspace_request(client,project,'/media/actions',payload,method='post')
     assert response.status_code == expected
-    plan.refresh_from_db()
-    assert plan.active
-    assert not AuditEvent.objects.filter(action="floor_plan.active_changed").exists()
+    plan.refresh_from_db(); assert plan.active
+    assert not AuditEvent.objects.filter(action='floor_plan.active_changed').exists()
 
 
 @pytest.mark.django_db
 def test_dashboard_layout_explorer_names_only_and_preserves_controls(source, client):
-    from django.urls import reverse
-    from django.utils.html import escape
-
-    plan, actor = source
-    plan.plan_scope = "flat"
-    plan.display_name = '<East & "garden">'
-    plan.save()
+    plan,actor=source
+    plan.plan_scope='flat'; plan.display_name='<East & "garden">'; plan.save()
     client.force_login(actor)
-    url = reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id])
-    response = client.get(url, {"section": "layouts", "include_candidates": "1"})
-    assert response.status_code == 200
-    html = response.content.decode()
-    assert "data-layout-explorer" in html and "data-carousel" in html
-    assert "Layout previews" in html
-    tabs = html.split('class="media-tabs"', 1)[1].split("</nav>", 1)[0]
-    assert tabs.index("Project images") < tabs.index("Amenities") < tabs.index("Floor plans") < tabs.index("Layouts")
-    assert html.index('class="media-tabs"') < html.index("data-carousel")
-    assert 'data-layout-divider role="separator"' in html
-    assert 'aria-controls="layout-directory"' in html
-    assert 'id="layout-directory"' in html
-    assert 'data-layout-sort aria-label="Sort layouts"' in html
-    assert '<option value="name">Name (A-Z)</option>' in html
-    assert '<option value="name-desc">Name (Z-A)</option>' in html
-    directory = html.split('class="layout-name-list"', 1)[1].split('class="layout-list-status"', 1)[0]
-    assert '<img' not in directory
-    assert escape(plan.display_title) in directory
-    assert f'aria-controls="layout-detail-{plan.pk}"' in directory
-    assert f'id="layout-detail-{plan.pk}"' in html
-    assert directory.count("data-layout-select") == 1
-    assert "data-active-status" in html and "data-active-error" in html
-    assert "Update this unit crop" in html and "Raw extraction and provenance" in html
-    assert "data-layout-explorer" not in client.get(url, {"section": "floor-plans"}).content.decode()
-    assert "data-layout-explorer" not in client.get(url, {"section": "amenities"}).content.decode()
+    items=workspace_request(client,plan.project,'/media').json()['items']
+    assert next(item for item in items if item['planId']==str(plan.pk))['label']==plan.display_title
+    ui=frontend_source()
+    assert "'Sort layouts'" in ui and 'layoutSearch' in ui
+    assert 'Name (A–Z)' in ui or 'Name (A-Z)' in ui
+    assert 'Raw extraction' in ui or 'Extraction' in ui
+    assert 'Update crop' in ui and 'Restore original crop' in ui
+    assert 'aria-controls' in ui and '<aside' in ui
+    name_list=ui.split('className="builder-layout-directory"',1)[1].split('</aside>',1)[0]
+    assert '<PrivateImage' not in name_list
 
 
 @pytest.mark.django_db
 def test_dashboard_layouts_are_active_first_when_sorted_by_name(source, client):
-    from django.urls import reverse
-
-    plan, actor = source
-    plan.plan_scope = "flat"
-    plan.display_name = "Zulu active"
-    plan.save()
-    inactive = FloorPlan.objects.create(
-        project=plan.project, document=plan.document, asset=plan.asset,
-        workflow_run=plan.workflow_run, page_number=plan.page_number, plan_scope="flat",
-        plan_name="Alpha inactive", display_name="Alpha inactive", active=False, extractor_version="test",
-    )
+    plan,actor=source
+    plan.plan_scope='flat'; plan.display_name='Zulu active'; plan.save()
+    inactive=FloorPlan.objects.create(project=plan.project,document=plan.document,asset=plan.asset,workflow_run=plan.workflow_run,
+        page_number=plan.page_number,plan_scope='flat',plan_name='Alpha inactive',display_name='Alpha inactive',active=False,extractor_version='test')
     client.force_login(actor)
-
-    response = client.get(
-        reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]),
-        {"section": "layouts", "sort": "unit", "include_candidates": "1"},
-    )
-
-    assert response.status_code == 200
-    html = response.content.decode()
-    directory = html.split('class="layout-name-list"', 1)[1].split('class="layout-list-status"', 1)[0]
-    assert directory.index(str(plan.pk)) < directory.index(str(inactive.pk))
+    items=workspace_request(client,plan.project,'/media?sort=name').json()['items']
+    layouts=[item['planId'] for item in items if item['category']=='layouts']
+    assert layouts.index(str(plan.pk)) < layouts.index(str(inactive.pk))
 
 
 @pytest.mark.django_db
 def test_dashboard_project_images_select_upload_and_restore_automatic(source, client):
     from django.core.files.uploadedfile import SimpleUploadedFile
-    from django.urls import reverse
-
-    plan, actor = source
-    project = plan.project
-    client.force_login(actor)
-    url = reverse("admin:platform_api_project_media_dashboard", args=[project.pk]) + "?section=project-images"
-    response = client.get(url)
-    assert response.status_code == 200
-    html = response.content.decode()
-    assert "Project images (1)" in html
-    assert 'enctype="multipart/form-data"' in html
-    assert f'value="{plan.asset_id}"' in html
-    assert "Save project picture" in html
-    assert "Evaluation queue" not in html and "data-layout-explorer" not in html
-    original_name = project.submitted_name
-    with storage.open(plan.asset.object_key, "rb") as stream:
-        original_bytes = stream.read()
-    for choice in (str(plan.asset_id), "upload", "automatic"):
-        payload = {"action": "save_project_picture", "version": project.updated_at.isoformat(),
-                   "project_picture_source": "" if choice == "upload" else choice}
-        if choice == "upload":
-            payload["project_pic"] = SimpleUploadedFile("cover.png", original_bytes, content_type="image/png")
-        response = client.post(url, payload)
-        assert response.status_code == 302 and response.url.endswith("?section=project-images")
-        project.refresh_from_db()
-        assert bool(project.project_pic) == (choice != "automatic")
-        assert project.submitted_name == original_name
-    assert AuditEvent.objects.filter(action="project.picture_changed", entity_id=project.pk).count() == 3
-    with storage.open(plan.asset.object_key, "rb") as stream:
-        assert stream.read() == original_bytes
+    plan,actor=source
+    project=plan.project; client.force_login(actor)
+    original_name=project.submitted_name
+    with storage.open(plan.asset.object_key,'rb') as stream: original_bytes=stream.read()
+    for choice in ['asset','upload','automatic']:
+        payload={'source':choice,'expectedUpdatedAt':project.updated_at.isoformat(),'requestId':str(uuid4())}
+        if choice=='asset': payload['assetId']=str(plan.asset_id)
+        if choice=='upload': payload['image']=SimpleUploadedFile('cover.png',original_bytes,content_type='image/png')
+        if choice=='upload':
+            from django.test import override_settings
+            with override_settings(ROOT_URLCONF='config.urls'):
+                response=client.post(f'/api/v1/admin/project-workspace/builder/projects/{project.pk}/media/picture',payload)
+        else: response=workspace_request(client,project,'/media/picture',payload,method='post')
+        assert response.status_code==202,response.content
+        project.refresh_from_db(); assert bool(project.project_pic)==(choice!='automatic')
+        assert project.submitted_name==original_name
+    assert AuditEvent.objects.filter(action='project.picture_changed',entity_id=project.pk).count()==3
+    with storage.open(plan.asset.object_key,'rb') as stream: assert stream.read()==original_bytes
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("restriction", ["stale", "retired", "foreign_image", "permission", "bad_upload"])
 def test_dashboard_project_images_reject_invalid_updates(source, client, django_user_model, restriction):
     from django.core.files.uploadedfile import SimpleUploadedFile
-    from django.urls import reverse
-
-    plan, actor = source
-    project = plan.project
-    payload = {"action": "save_project_picture", "version": project.updated_at.isoformat(),
-               "project_picture_source": str(plan.asset_id)}
-    if restriction == "stale":
-        project.save()
-    elif restriction == "retired":
-        project.status = "retired"
-        project.save()
-        payload["version"] = project.updated_at.isoformat()
-    elif restriction == "foreign_image":
-        project = Project.objects.create(organization=project.organization, submitted_name="Unrelated")
-        payload["version"] = project.updated_at.isoformat()
-    elif restriction == "permission":
-        actor = django_user_model.objects.create_user(username="picture-reader", is_staff=True)
-        actor.user_permissions.add(Permission.objects.get(codename="view_project", content_type__app_label="platform_api"))
+    from django.test import override_settings
+    plan,actor=source
+    project=plan.project
+    payload={'source':'asset','assetId':str(plan.asset_id),'expectedUpdatedAt':project.updated_at.isoformat(),'requestId':str(uuid4())}
+    if restriction=='stale': project.save()
+    elif restriction=='retired':
+        project.status='retired'; project.save(); payload['expectedUpdatedAt']=project.updated_at.isoformat()
+    elif restriction=='foreign_image':
+        project=Project.objects.create(organization=project.organization,submitted_name='Unrelated');payload['expectedUpdatedAt']=project.updated_at.isoformat()
+    elif restriction=='permission':
+        actor=django_user_model.objects.create_user(username='picture-reader',is_staff=True)
+        actor.user_permissions.add(Permission.objects.get(codename='view_project',content_type__app_label='platform_api'))
     else:
-        payload["project_picture_source"] = ""
-        payload["project_pic"] = SimpleUploadedFile("invalid.png", b"not an image", content_type="image/png")
+        payload.pop('assetId');payload.update(source='upload',image=SimpleUploadedFile('invalid.png',b'not an image',content_type='image/png'))
     client.force_login(actor)
-    url = reverse("admin:platform_api_project_media_dashboard", args=[project.pk]) + "?section=project-images"
-    if restriction == "permission":
-        html = client.get(url).content.decode()
-        assert "Save project picture" not in html and "fieldset disabled" in html
-    response = client.post(url, payload)
-    assert response.status_code == (403 if restriction == "permission" else 302)
-    project.refresh_from_db()
-    assert not project.project_pic
-    assert not AuditEvent.objects.filter(action="project.picture_changed").exists()
+    with override_settings(ROOT_URLCONF='config.urls'):
+        response=client.post(f'/api/v1/admin/project-workspace/builder/projects/{project.pk}/media/picture',payload)
+    assert response.status_code == {'stale':409,'retired':409,'permission':403,'foreign_image':404}.get(restriction,400),response.content
+    project.refresh_from_db();assert not project.project_pic
+    assert not AuditEvent.objects.filter(action='project.picture_changed').exists()
 
 
 @pytest.mark.parametrize("suffix", [

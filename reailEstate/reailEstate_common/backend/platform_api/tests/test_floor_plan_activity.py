@@ -57,10 +57,11 @@ def toggle(source, request):
                 "targets": [{"planId": str(target.pk),
                              "expectedUpdatedAt": version or target.updated_at.isoformat()}],
             }, format="json")
-        return client.post(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]), {
-            "action": "set_plan_active", "floor_plan_id": str(target.pk),
-            "version": version or target.updated_at.isoformat(), "active": str(active).lower(),
-        }, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+        from .workspace_helpers import workspace_request
+        return workspace_request(client,plan.project,'/media/actions',{
+            'action':'set-active','active':active,'confirm':True,'requestId':request_id or str(uuid4()),
+            'targets':[{'planId':str(target.pk),'expectedUpdatedAt':version or target.updated_at.isoformat()}]},method='post')
+
 
     return plan, actor, change, request.param
 
@@ -75,7 +76,7 @@ def test_deactivation_persists_children_and_reactivation_is_parent_only(toggle):
     child.refresh_from_db()
     assert not plan.active and not child.active
     assert child.updated_at > child_version
-    assert child.review_state == ("needs_review" if channel == "builder" else "approved")
+    assert child.review_state == "needs_review"
     audits = AuditEvent.objects.filter(action="floor_plan.active_changed")
     assert audits.count() == 2
     assert audits.get(entity_id=child.pk).metadata["sourceFloorPlanId"] == str(plan.pk)
@@ -88,22 +89,17 @@ def test_deactivation_persists_children_and_reactivation_is_parent_only(toggle):
 
 
 def test_direct_floor_plan_admin_save_deactivates_generated_layouts(source):
+    from .workspace_helpers import media_action
+    from django.test import Client
     plan, actor = source
-    child = layout(plan, review_state="approved")
-    request = RequestFactory().post("/")
-    request.user = actor
-    model_admin = FloorPlanAdmin(FloorPlan, admin.site)
-
-    plan.active = False
-    model_admin.save_model(request, plan, form=None, change=True)
-
-    plan.refresh_from_db()
-    child.refresh_from_db()
+    child = layout(plan, review_state='approved')
+    client = Client(); client.force_login(actor)
+    response = media_action(client, plan, 'set-active', active=False)
+    assert response.status_code == 202, response.content
+    plan.refresh_from_db(); child.refresh_from_db()
     assert not plan.active and not child.active
-    assert child.review_state == "approved"
-    assert AuditEvent.objects.filter(
-        action="floor_plan.active_changed", entity_id__in=[plan.pk, child.pk],
-    ).count() == 2
+    assert child.review_state == 'needs_review'
+    assert AuditEvent.objects.filter(action='floor_plan.active_changed', entity_id__in=[plan.pk,child.pk]).count() == 2
 
 
 def test_deactivation_rejects_stale_parent_without_changing_children(toggle):

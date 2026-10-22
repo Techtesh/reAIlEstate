@@ -8,7 +8,7 @@ from django.core.exceptions import PermissionDenied
 from django.utils import timezone
 
 from platform_api.external_sources import GoogleProjectMaps, coordinates, registry_lookup, station_routes
-from platform_api.external_sources_admin import RegistryEvidenceForm, commit_references, draft_key
+from platform_api.project_sources import RegistryEvidenceForm, commit_references
 from platform_api.models import AuditEvent, Organization, Project, ReviewTask, VerificationSnapshot
 
 
@@ -203,12 +203,9 @@ def test_maps_error_reasons_do_not_expose_provider_payload(settings, monkeypatch
     "https://www.google.com/maps/place/Project/@20,73,17z/data=!3d19.15!4d72.95",
 ])
 def test_direct_location_links_use_pin_coordinates_without_api(link, settings):
-    from platform_api.external_sources_admin import DirectLocationForm
-
-    settings.GOOGLE_MAPS_API_KEY = ""
-    form = DirectLocationForm({"maps_url": link})
-    assert form.is_valid(), form.errors
-    assert form.cleaned_data["reference"]["location"] == {"latitude": 19.15, "longitude": 72.95}
+    from platform_api.project_locations import resolve_project_location
+    settings.GOOGLE_MAPS_API_KEY=''
+    assert resolve_project_location({'mapsUrl':link})['location']=={'latitude':19.15,'longitude':72.95}
 
 
 @pytest.mark.parametrize("values", [
@@ -221,26 +218,34 @@ def test_direct_location_links_use_pin_coordinates_without_api(link, settings):
     {"maps_url": "https://www.google.com/maps?q=19,72", "latitude": "19", "longitude": "72"},
 ])
 def test_direct_location_rejects_invalid_or_ambiguous_inputs(values):
-    from platform_api.external_sources_admin import DirectLocationForm
-
-    assert not DirectLocationForm(values).is_valid()
+    from platform_api.builder_views import ProjectLocationInput
+    from platform_api.project_locations import resolve_project_location
+    from rest_framework.exceptions import ValidationError
+    payload={('mapsUrl' if key=='maps_url' else key):value for key,value in values.items()}
+    form=ProjectLocationInput(data=payload)
+    if form.is_valid():
+        with pytest.raises(ValidationError): resolve_project_location(form.validated_data)
+    else:
+        assert form.errors
 
 
 @pytest.mark.parametrize("draft", [None, {}, {"selected": {}}, {"manualLocation": {"location": {"latitude": float("nan"), "longitude": 72}}}])
 def test_map_preview_rejects_missing_or_invalid_locations(draft):
-    from platform_api.external_sources_admin import draft_map_url
-
-    assert draft_map_url(draft) == ""
+    from platform_api.project_locations import resolve_project_location
+    from rest_framework.exceptions import ValidationError
+    payload=((draft or {}).get('manualLocation') or (draft or {}).get('selected') or {}).get('location',{})
+    with pytest.raises(ValidationError): resolve_project_location(payload)
 
 
 def test_map_preview_selected_match_uses_only_coordinates():
-    from urllib.parse import parse_qs, urlsplit
-    from platform_api.external_sources_admin import draft_map_url
-
-    preview = draft_map_url({"selected": {"name": "private draft text", "placeId": "private-id", "location": {"latitude": 19.1, "longitude": 72.9}}})
-    assert urlsplit(preview).netloc == "www.openstreetmap.org"
-    assert parse_qs(urlsplit(preview).query)["marker"] == ["19.1,72.9"]
-    assert "private" not in preview
+    from platform_api.external_sources import direct_location
+    from urllib.parse import parse_qs,urlsplit
+    place={'name':'private draft text','placeId':'private-id','location':{'latitude':19.1,'longitude':72.9}}
+    reference=direct_location(**place['location'])
+    assert urlsplit(reference['sourceUrl']).netloc=='www.google.com'
+    assert '19.1' in reference['sourceUrl'] and '72.9' in reference['sourceUrl']
+    assert 'private' not in reference['sourceUrl']
+    assert set(reference['location'])=={'latitude','longitude'}
 
 
 def test_project_transit_maps_select_nearest_across_metro_statuses(monkeypatch):
@@ -490,48 +495,35 @@ def test_manual_pin_route_generation_preserves_review_and_rejects_changed_refere
 @pytest.mark.django_db
 @pytest.mark.parametrize("provider_failure", [False, True])
 def test_commit_pin_generates_directions_and_retry_returns_to_project(client, django_user_model, settings, tmp_path, monkeypatch, provider_failure):
-    from django.core.cache import cache
+    from django.db import transaction
     from django.urls import reverse
     from platform_api import external_sources_admin as sources
-
-    settings.WORKSPACE_DATA_ROOT = tmp_path
-    settings.GOOGLE_MAPS_API_KEY = "test-only"
-    actor = django_user_model.objects.create_superuser(username="pin-route-submit", password="test-only")
-    project = Project.objects.create(organization=Organization.objects.create(legal_name="Pin generation"),
-                                     submitted_name="Pinned project")
-    token = str(uuid4())
-    cache.set(draft_key(project, actor, token), {"projectVersion": project.updated_at.isoformat(),
-        "manualLocation": {"location": {"latitude": 19.15, "longitude": 72.95}}}, 900)
-    station = {"name": "Nearby station", "kind": "railway", "serviceStatus": "operational",
-        "location": {"latitude": 19.16, "longitude": 72.96},
-        "walking": {"status": "available", "distanceMeters": 1000}}
-    provider = Mock(return_value={"groups": [{"stations": [station]}], "errors": []})
-    if provider_failure:
-        provider.side_effect = ValueError("Provider failed")
-    monkeypatch.setattr(sources, "station_routes", provider)
+    from platform_api.external_sources import direct_location
+    from platform_api.project_locations import submit_project_location
+    settings.WORKSPACE_DATA_ROOT=tmp_path;settings.GOOGLE_MAPS_API_KEY='test-only'
+    actor=django_user_model.objects.create_superuser(username='pin-route-submit',password='test-only')
+    project=Project.objects.create(organization=Organization.objects.create(legal_name='Pin generation'),submitted_name='Pinned project')
+    station={'name':'Nearby station','kind':'railway','serviceStatus':'operational','location':{'latitude':19.16,'longitude':72.96},'walking':{'status':'available','distanceMeters':1000}}
+    provider=Mock(return_value={'groups':[{'stations':[station]}],'errors':[]})
+    if provider_failure:provider.side_effect=ValueError('Provider failed')
+    monkeypatch.setattr(sources,'station_routes',provider)
+    with transaction.atomic():submit_project_location(project,direct_location(19.15,72.95),actor)
+    task=ReviewTask.objects.get(project=project)
+    provider.assert_not_called()
     client.force_login(actor)
-    url = reverse("admin:platform_api_project_external_sources", args=[project.pk])
-    response = client.post(url, {"action": "commit", "draft_token": token, "confirm": "on"})
-    assert response.status_code == 302
-    task = ReviewTask.objects.get(project=project)
-    assert ("stationRoutes" in task.resolution) != provider_failure
-    assert task.resolution["reviewState"] == "unreviewed"
-    assert provider.call_count == 1
-    client.post(url, {"action": "commit", "draft_token": token, "confirm": "on"})
-    assert provider.call_count == 1
-    change_url = reverse("admin:platform_api_project_change", args=[project.pk])
-    html = client.get(change_url).content.decode()
-    assert "Generate directions" in html and f'formaction="{url}"' in html
-    provider.side_effect = None
-    response = client.post(url, {"action": "retry_saved_routes", "reference_id": str(task.pk),
-                                 "return_to": "project", "radius": "10000"})
-    assert response.status_code == 302 and response.url == change_url + "#project-transit-heading"
-    assert provider.call_count == 2
-    assert sources.project_transit_maps(project)["views"][1]["station"] == "Nearby station"
-    project.refresh_from_db()
+    url=reverse('admin:platform_api_project_external_sources',args=[project.pk])
+    values={'action':'retry_saved_routes','reference_id':str(task.pk),'return_to':'project','radius':'10000'}
+    response=client.post(url,values)
+    assert response.status_code==(200 if provider_failure else 302)
+    if not provider_failure:assert response.url==reverse('admin:platform_api_project_change',args=[project.pk])+'#project-transit-heading'
+    assert provider.call_count==1
+    provider.side_effect=None
+    assert client.post(url,values).status_code==302
+    assert provider.call_count==2
+    assert sources.project_transit_maps(project)['views'][1]['station']=='Nearby station'
+    project.refresh_from_db();task.refresh_from_db()
     assert project.latitude is None and project.longitude is None
-    task.refresh_from_db()
-    assert task.state == "open" and task.resolution["reviewState"] == "unreviewed"
+    assert task.state=='open' and task.resolution['reviewState']=='unreviewed'
 
 
 @pytest.mark.django_db
@@ -561,18 +553,16 @@ def test_generate_pin_routes_rejects_invalid_requests(client, django_user_model,
 
 
 def test_direct_location_short_link_uses_restricted_resolver(monkeypatch):
-    from platform_api.external_sources_admin import DirectLocationForm
+    from platform_api.project_locations import resolve_project_location
     from platform_api.management.commands import import_google_project_place_decisions as command
-
-    resolver = Mock(return_value={"name": "Project", "location": {"latitude": 19.15, "longitude": 72.95}})
-    monkeypatch.setattr(command, "resolve_share_url", resolver)
-    form = DirectLocationForm({"maps_url": "https://maps.app.goo.gl/project"})
-    assert form.is_valid(), form.errors
-    resolver.assert_called_once_with("https://maps.app.goo.gl/project")
-    assert form.cleaned_data["reference"]["evidenceMethod"] == "manual_maps_link"
-    assert len(form.cleaned_data["reference"]["sourceUrlDigest"]) == 64
-    resolver.side_effect = ValueError("Google Maps share link could not be resolved.")
-    assert not DirectLocationForm({"maps_url": "https://maps.app.goo.gl/project"}).is_valid()
+    from rest_framework.exceptions import ValidationError
+    resolver=Mock(return_value={'name':'Project','location':{'latitude':19.15,'longitude':72.95}})
+    monkeypatch.setattr(command,'resolve_share_url',resolver)
+    reference=resolve_project_location({'mapsUrl':'https://maps.app.goo.gl/project'})
+    resolver.assert_called_once_with('https://maps.app.goo.gl/project')
+    assert reference['evidenceMethod']=='manual_maps_link' and len(reference['sourceUrlDigest'])==64
+    resolver.side_effect=ValueError('Google Maps share link could not be resolved.')
+    with pytest.raises(ValidationError):resolve_project_location({'mapsUrl':'https://maps.app.goo.gl/project'})
 
 
 @pytest.mark.django_db
@@ -590,24 +580,11 @@ def test_direct_location_draft_commit_and_independent_approval(client, django_us
     project = Project.objects.create(organization=Organization.objects.create(legal_name="Direct locations"), submitted_name="Manual project")
     url = reverse("admin:platform_api_project_external_sources", args=[project.pk])
     client.force_login(actor)
-    response = client.get(url)
-    assert b"Direct project location" in response.content and b"Preview direct location" in response.content
-    assert client.post(url, {"action": "direct_location", "latitude": "19.15"}).status_code == 200
-    assert not ReviewTask.objects.exists()
-    response = client.post(url, {"action": "direct_location", "latitude": "19.15", "longitude": "72.95"})
-    assert response.status_code == 302
-    token = parse_qs(urlsplit(response.url).query)["draft"][0]
-    preview = client.get(response.url)
-    assert b"View pin on Google Maps" in preview.content
-    assert b'title="Draft project location map"' in preview.content
-    assert b"Latitude 19.15" not in preview.content
-    assert parse_qs(urlsplit(preview.context["draft_map_url"]).query)["marker"] == ["19.15,72.95"]
-    assert preview["Referrer-Policy"] == "same-origin"
-    assert {"private", "no-store"} <= set(preview["Cache-Control"].split(", "))
-    assert "frame-src https://www.openstreetmap.org" in preview["Content-Security-Policy"]
-    assert "frame-src" not in client.get(reverse("admin:platform_api_project_changelist"))["Content-Security-Policy"]
-    response = client.post(url, {"action": "commit", "draft_token": token, "confirm": "on"})
-    assert response.status_code == 302
+    from django.db import transaction
+    from platform_api.project_locations import submit_project_location
+    from platform_api.external_sources import direct_location
+    with transaction.atomic():
+        submit_project_location(project, direct_location(19.15, 72.95), actor)
     project.refresh_from_db()
     assert project.latitude is None and project.longitude is None
     task = ReviewTask.objects.get(project=project)
@@ -810,12 +787,27 @@ def test_registry_exact_match_and_manual_provenance(monkeypatch):
     assert not form.is_valid() and "source_url" in form.errors
 
 
-def test_draft_key_is_owner_and_project_bound():
-    token = str(uuid4())
-    project, other = SimpleNamespace(pk=uuid4()), SimpleNamespace(pk=uuid4())
-    owner, stranger = SimpleNamespace(pk=1), SimpleNamespace(pk=2)
-    assert draft_key(project, owner, token) != draft_key(project, stranger, token)
-    assert draft_key(project, owner, token) != draft_key(other, owner, token)
+@pytest.mark.django_db
+def test_draft_key_is_owner_and_project_bound(django_user_model, client):
+    from .workspace_helpers import workspace_request
+    from platform_api.models import OrganizationMembership
+    org=Organization.objects.create(legal_name='Source isolation')
+    project=Project.objects.create(organization=org,submitted_name='First',maha_rera_id='P51800000001')
+    other=Project.objects.create(organization=org,submitted_name='Second',maha_rera_id='P51800000002')
+    owner=django_user_model.objects.create_superuser(username='source-owner')
+    stranger=django_user_model.objects.create_user(username='source-stranger',is_staff=True)
+    token=str(uuid4())
+    client.force_login(owner)
+    payload={'action':'amenities','expectedUpdatedAt':project.updated_at.isoformat(),'confirm':True,'requestId':token,'text':'Swimming pool'}
+    first=workspace_request(client,project,'/content',payload,method='post')
+    assert first.status_code==201,first.content
+    assert workspace_request(client,project,'/content',payload,method='post').json()==first.json()
+    client.force_login(stranger)
+    assert workspace_request(client,project,'/content',payload,method='post').status_code==403
+    client.force_login(owner)
+    payload['expectedUpdatedAt']=other.updated_at.isoformat()
+    assert workspace_request(client,other,'/content',payload,method='post').status_code==201
+    assert project.project_amenities.count()==other.project_amenities.count()==1
 
 
 @pytest.mark.django_db
@@ -1225,7 +1217,7 @@ def test_maharera_mapping_and_url_validation(tmp_path):
     path = tmp_path / "nested" / "mapping.json"
     _store_mapping(path, "PR1330002502719", "62474", url)
     _store_mapping(path, "P51700053528", "12345", url.replace("62474", "12345"))
-    assert len(json.loads(path.read_text())) == 2 and not list(path.parent.glob("*.tmp"))
+    assert len(json.loads(path.read_text(encoding="utf-8-sig"))) == 2 and not list(path.parent.glob("*.tmp"))
 
 
 def test_maharera_headless_captcha_never_prompts_or_extracts(monkeypatch):
@@ -1247,7 +1239,7 @@ def test_ported_catalogue_has_dated_authority_candidates(settings, monkeypatch):
     from platform_api.external_sources import metro_catalogue, nearby_catalogue
 
     path = Path(settings.BASE_DIR) / "config" / "mmr-upcoming-metro.json"
-    settings.PROJECT_METRO_CATALOGUE = json.loads(path.read_text())
+    settings.PROJECT_METRO_CATALOGUE = json.loads(path.read_text(encoding="utf-8-sig"))
     monkeypatch.setattr(timezone, "localdate", lambda: date(2026, 9, 16))
     candidates = metro_catalogue()
     assert len(candidates) == 29

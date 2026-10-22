@@ -3,48 +3,15 @@
 {% block extrastyle %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'platform_api/media_tools.css' %}">
 <style>
-  .external-sources {display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; max-width: 1200px;}
-  .external-sources > .media-actions, .external-sources > .errornote {grid-column: 1 / -1; margin-block: 0;}
-  .external-sources section {min-width: 0; margin: 0; padding: 20px; border: 1px solid var(--hairline-color); border-radius: 8px; background: var(--darkened-bg);}
-  .external-sources section > :first-child {margin-top: 0;}
-  .external-sources section > :last-child {margin-bottom: 0;}
-  .external-sources section h2 {margin-bottom: 6px; font-size: 18px; line-height: 1.35;}
-  .external-sources section h3 {font-size: 15px; line-height: 1.4;}
-  .external-sources .maps-panel {order: 10;}
-  .external-sources .draft-panel {order: 20;}
-  .external-sources .registry-panel {order: 30;}
-  .external-sources .routes-panel {order: 40; grid-column: 1 / -1;}
-  .external-sources .saved-routes-panel {order: 50; grid-column: 1 / -1;}
-  .external-sources .references-panel {order: 60; grid-column: 1 / -1;}
-  .external-sources input:not([type=radio]):not([type=checkbox]), .external-sources textarea {max-width: 100%; box-sizing: border-box;}
-  .external-sources form > p {display: grid; gap: 6px;}
-  .external-sources form > p input, .external-sources form > p textarea {width: 100%;}
-  .external-sources table {width: 100%;}
-  .external-sources td, .external-sources th {overflow-wrap: anywhere; vertical-align: top;}
-  .external-sources pre {white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto;}
-  .external-sources .table-scroll {overflow-x: auto;}
-  .external-sources .table-scroll table {min-width: 620px;}
-  .external-sources .candidate {display: block; padding: 12px 0; border-bottom: 1px solid var(--hairline-color); overflow-wrap: anywhere;}
-  .external-sources .media-actions {flex-wrap: wrap;}
-  .external-sources .direct-location-fields {display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; max-width: 600px;}
-  .external-sources .direct-location-fields > div {min-width: 0;}
-  .external-sources .direct-location-fields > div:last-child {grid-column: 1 / -1;}
-  .external-sources .direct-location-fields label {display: block; margin-bottom: 6px;}
-  .external-sources .direct-location-fields input {width: 100%;}
-  .external-sources .direct-location-form {margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--hairline-color);}
-  .external-sources .direct-location-form button {margin-top: 12px;}
-  .external-sources .draft-location-map {display: block; width: 100%; height: auto; min-height: 260px; aspect-ratio: 16 / 9; border: 1px solid var(--hairline-color); border-radius: 6px; box-sizing: border-box; background: var(--body-bg);}
-  @media (max-width: 900px) {
-    .external-sources {grid-template-columns: minmax(0, 1fr);}
-    .external-sources > .media-actions, .external-sources > .errornote,
-    .external-sources .routes-panel, .external-sources .saved-routes-panel,
-    .external-sources .references-panel {grid-column: 1;}
-  }
-  @media (max-width: 480px) {
-    .external-sources section {padding: 16px;}
-    .external-sources .direct-location-fields {grid-template-columns: minmax(0, 1fr);}
-    .external-sources .direct-location-fields > div:last-child {grid-column: 1;}
-  }
+.external-sources {display:grid;gap:20px;max-width:1200px;}
+.external-sources section {min-width:0;padding:20px;border:1px solid var(--hairline-color);border-radius:8px;}
+.external-sources input:not([type=checkbox]):not([type=radio]),.external-sources select {max-width:100%;box-sizing:border-box;}
+.external-sources .media-actions {flex-wrap:wrap;}
+.external-sources table {width:100%;}
+.external-sources td,.external-sources th,.external-sources p {overflow-wrap:anywhere;}
+.external-sources pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;}
+.external-sources .table-scroll {overflow-x:auto;}
+@media(max-width:480px){.external-sources section{padding:16px;}}
 </style>{% endblock %}
 {% block breadcrumbs %}<div class="breadcrumbs">
 <a href="{% url 'admin:index' %}">Home</a> &rsaquo;
@@ -64,49 +31,7 @@
     {% endif %}
   </nav>
   {% if source_error %}<p class="errornote" role="alert">{{ source_error }}</p>{% endif %}
-  <section class="maps-panel" aria-labelledby="maps-heading">
-    <h2 id="maps-heading">Google Maps project match</h2>
-    <p>Google Maps API: {% if maps_configured %}Configured{% else %}<strong>Not configured</strong>{% endif %}</p>
-    <form method="post">{% csrf_token %}
-      <input type="hidden" name="draft_token" value="{{ draft_token }}">
-      {{ search_form.as_p }}
-      <button type="submit" class="default" name="action" value="search" {% if not maps_configured %}disabled{% endif %}>Find project</button>
-    </form>
-    <form method="post" class="direct-location-form">{% csrf_token %}
-      <input type="hidden" name="draft_token" value="{{ draft_token }}">
-      <h3>Direct project location</h3>
-      {{ direct_form.non_field_errors }}
-      <div class="direct-location-fields">
-        <div>{{ direct_form.latitude.label_tag }}{{ direct_form.latitude }}{{ direct_form.latitude.errors }}</div>
-        <div>{{ direct_form.longitude.label_tag }}{{ direct_form.longitude }}{{ direct_form.longitude.errors }}</div>
-        <div><label for="{{ direct_form.maps_url.id_for_label }}">Or Google Maps link:</label>{{ direct_form.maps_url }}{{ direct_form.maps_url.errors }}</div>
-      </div>
-      <button type="submit" name="action" value="direct_location">Preview direct location</button>
-    </form>
-    {% if draft.places %}
-    <form method="post">{% csrf_token %}<input type="hidden" name="draft_token" value="{{ draft_token }}">
-      <fieldset><legend>Project candidates</legend>
-      {% for place in draft.places %}
-        <label class="candidate"><input type="radio" name="place_id" value="{{ place.placeId }}" required {% if draft.selected.placeId == place.placeId %}checked{% endif %}>
-          <strong>{{ place.name }}</strong> &middot; {{ place.address }}<br>
-          Latitude {{ place.location.latitude }} &middot; Longitude {{ place.location.longitude }} &middot;
-          <a href="{{ place.sourceUrl }}" target="_blank" rel="noopener noreferrer">View on Google Maps</a>
-          {% for attribution in place.attributions %}<span>{{ attribution }}</span>{% endfor %}
-        </label>
-      {% endfor %}</fieldset>
-      <p><label for="radius">Station search radius</label> <select id="radius" name="radius">
-        <option value="5000">5 km</option><option value="10000" selected>10 km</option><option value="20000">20 km</option>
-      </select></p>
-      <button type="submit" class="default" name="action" value="select">Use selected match and find routes</button>
-    </form>
-    {% endif %}
-  </section>
-  {% if draft.routes %}
-  <section class="routes-panel" aria-labelledby="routes-heading">
-    <h2 id="routes-heading">Station access from {{ draft.selected.name }}</h2>
-    {% include "admin/platform_api/station_routes.html" with routes=draft.routes %}
-  </section>
-  {% endif %}
+  <section><h2>Project sources and location</h2><p><a class="button" href="{{ workspace_url }}">Edit sources in project workspace</a></p><p>Submit locations and registry evidence in the shared workspace. Independently review submitted references below.</p></section>
   {% if saved_routes %}
   <section class="saved-routes-panel" aria-labelledby="saved-routes-heading">
     <h2 id="saved-routes-heading">Saved station directions</h2>
@@ -121,38 +46,6 @@
   <section class="saved-routes-panel" aria-labelledby="saved-routes-heading">
     <h2 id="saved-routes-heading">Saved station directions</h2>
     <p>No saved station directions.{% if not maps_configured %} Google Maps is not configured in this server process.{% endif %}</p>
-  </section>
-  {% endif %}
-  <section class="registry-panel" aria-labelledby="registry-heading">
-    <h2 id="registry-heading">MahaRERA project record</h2>
-    <p>Approved adapter: {% if registry_configured %}Configured{% else %}Not configured{% endif %} &middot; <a href="{{ registry_search_url }}" target="_blank" rel="noopener noreferrer">Open official project search</a></p>
-    <form method="post">{% csrf_token %}<input type="hidden" name="draft_token" value="{{ draft_token }}">
-      <p><label for="registry-number">Registration number</label> <input id="registry-number" name="registration_number" value="{{ registry_number }}" maxlength="64" required></p>
-      <button type="submit" name="action" value="registry_lookup" {% if not registry_configured %}disabled{% endif %}>Look up registry record</button>
-    </form>
-    <details><summary>Add dated website evidence</summary>
-      <form method="post">{% csrf_token %}<input type="hidden" name="draft_token" value="{{ draft_token }}">
-        {{ registry_form.as_p }}
-        <button type="submit" name="action" value="registry_manual">Save registry evidence to draft</button>
-      </form>
-    </details>
-    {% if registry_json %}<h3>Registry draft</h3><pre>{{ registry_json }}</pre>{% endif %}
-  </section>
-  {% if draft %}
-  <section class="draft-panel" aria-labelledby="draft-heading">
-    <h2 id="draft-heading">External-source draft</h2>
-    <p>Private draft expires after 15 minutes of inactivity. Place IDs, manually supplied coordinates, and registry evidence are submitted for review. Accepted project facts remain unchanged.</p>
-    {% if draft.manualLocation %}
-    <p><strong>Manual location</strong> &middot;
-      <a href="{{ draft.manualLocation.sourceUrl }}" target="_blank" rel="noopener noreferrer">View pin on Google Maps</a></p>
-    {% else %}<p>Google project: <strong>{{ draft.selected.name|default:"Not selected" }}</strong></p>{% endif %}
-    {% if draft_map_url %}<iframe class="draft-location-map" title="Draft project location map" src="{{ draft_map_url }}" loading="lazy" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups"></iframe>{% endif %}
-    <p>MahaRERA: <strong>{{ draft.registry.registrationNumber|default:"Not added" }}</strong></p>
-    <form method="post">{% csrf_token %}<input type="hidden" name="draft_token" value="{{ draft_token }}">
-      <p><label><input type="checkbox" name="confirm"> I confirm these references belong to this project and submit them for review.</label></p>
-      <div class="media-actions"><button type="submit" class="default" name="action" value="commit">Commit source references</button>
-      <button type="submit" name="action" value="discard">Discard draft</button></div>
-    </form>
   </section>
   {% endif %}
   <section class="references-panel" aria-labelledby="references-heading">
@@ -177,10 +70,7 @@
       {% endif %}
       {% if reference.resolution.googlePlaceId %}
       <p><a href="https://www.google.com/maps/search/?api=1&amp;query=Google&amp;query_place_id={{ reference.resolution.googlePlaceId|urlencode }}" target="_blank" rel="noopener noreferrer">View on Google Maps</a> &middot; {{ reference.resolution.reviewState|default:"unreviewed" }}</p>
-      <form method="post">{% csrf_token %}
-        <input type="hidden" name="reference_id" value="{{ reference.pk }}">
-        <button type="submit" name="action" value="refresh_saved" {% if not maps_configured %}disabled{% endif %}>Refresh saved Google location and routes</button>
-      </form>
+
       <form method="post">{% csrf_token %}
         <input type="hidden" name="reference_id" value="{{ reference.pk }}">
         <p><label>Station radius <select name="radius"><option value="5000">5 km</option><option value="10000" selected>10 km</option><option value="20000">20 km</option></select></label></p>

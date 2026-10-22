@@ -8,6 +8,9 @@
 
 {% block object-tools-items %}
   {{ block.super }}
+  {% if has_change_permission %}
+    <li><a href="{% url 'admin-project-workspace' %}?organization={{ original.organization_id }}&amp;project={{ original.pk }}">Upload documents and edit layouts</a></li>
+  {% endif %}
   {% if project_media_dashboard_url %}
     <li><a href="{{ project_media_dashboard_url }}">Media dashboard</a></li>
     {% if has_change_permission %}<li><a href="{% url 'admin:platform_api_project_external_sources' original.pk %}">External sources</a></li>{% endif %}

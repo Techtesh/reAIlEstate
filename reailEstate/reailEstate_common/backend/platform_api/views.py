@@ -774,6 +774,7 @@ class DeveloperProjectCreateView(APIView):
 
 class UploadIntentView(APIView):
     permission_classes = [IsAuthenticated]
+    upload_prefix = "/api/v1"
 
     @transaction.atomic
     def post(self, request, project_id):
@@ -823,7 +824,7 @@ class UploadIntentView(APIView):
             audit(request, "document.intent_created", document, metadata={"mediaType": media_type, "bytes": byte_length})
         return Response({
             "documentId": str(document.id),
-            "uploadAction": f"/api/v1/developer-projects/{project.id}/documents/{document.id}/content",
+            "uploadAction": f"{self.upload_prefix}/developer-projects/{project.id}/documents/{document.id}/content",
             "method": "PUT",
             "requiredHeaders": {"Content-Type": media_type},
             "maximumSize": MAX_UPLOAD_BYTES,

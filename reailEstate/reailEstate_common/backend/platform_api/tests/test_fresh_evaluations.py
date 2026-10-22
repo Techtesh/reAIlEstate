@@ -118,57 +118,46 @@ def test_project_fresh_handles_deleted_dlq_without_touching_successful_or_other_
 
 @pytest.mark.parametrize("action", ["run_layout_evaluation", "queue_floor_layouts", "run_project_evaluations"])
 def test_fresh_confirmation_is_bound_to_choice_and_dispatches_current_profile(source, settings, client, action):
-    plan, actor = source
-    if action != "queue_floor_layouts":
-        plan.plan_scope = "flat"
-        plan.save()
-    old, operation = queue(plan, actor)
-    fail(old, operation)
-    settings.FLOOR_PLAN_DEFAULT_VISION_PROFILE = "other"
-    submitted = {"action": action, "floor_plan_id": str(plan.pk), "retry": "true"}
+    from .workspace_helpers import workspace_request,media_action
+    from uuid import uuid4
+    plan,actor=source
+    if action!='queue_floor_layouts':plan.plan_scope='flat';plan.save()
+    old,operation=queue(plan,actor);fail(old,operation)
+    settings.FLOOR_PLAN_DEFAULT_VISION_PROFILE='other'
     client.force_login(actor)
-    url = reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id])
-    with patch("platform_api.queue_monitor.start_user_queue", return_value=QueueWorker(state="starting")) as launch:
-        warning = client.post(url, submitted, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
-        assert warning.status_code == 409
-        tokens = warning.json()
-        assert "freshConfirmationToken" in tokens
-        wrong = client.post(url, {**submitted, "fresh_evaluation": "true", "retry_confirmation": tokens["confirmationToken"]},
-                            HTTP_X_REQUESTED_WITH="XMLHttpRequest")
-        assert wrong.status_code == 409 and OutboxMessage.objects.count() == 1
-        confirmed = client.post(url, {**submitted, "fresh_evaluation": "true", "retry_confirmation": tokens["freshConfirmationToken"]},
-                                HTTP_X_REQUESTED_WITH="XMLHttpRequest")
-        assert confirmed.status_code == 200 and "redirectUrl" in confirmed.json()
-        assert OutboxMessage.objects.count() == 2
-        fresh = OutboxMessage.objects.exclude(pk=old.pk).get()
-        assert fresh.payload["visionSelection"]["profileId"] is None
-        if action == "run_project_evaluations":
-            launch.assert_called_once_with(actor, project=plan.project)
-        else:
-            launch.assert_not_called()
-    old.refresh_from_db()
-    operation.refresh_from_db()
-    assert old.attempts == 3 and old.dead_lettered_at and operation.state == "failed"
+    # The JSON editor explicitly confirms costs and selects fresh vs saved settings.
+    if action=='queue_floor_layouts':
+        response=media_action(client,plan,'segment',fresh=True)
+    else:
+        body={'planId':str(plan.pk),'expectedUpdatedAt':plan.updated_at.isoformat(),'requestId':str(uuid4()),'confirm':False,'fresh':True}
+        assert workspace_request(client,plan.project,'/media/evaluate',body,method='post').status_code==400
+        assert OutboxMessage.objects.count()==1
+        body['confirm']=True
+        response=workspace_request(client,plan.project,'/media/evaluate',body,method='post')
+    assert response.status_code==202,response.content
+    assert OutboxMessage.objects.count()==2
+    fresh=OutboxMessage.objects.exclude(pk=old.pk).get()
+    assert fresh.payload['visionSelection']['profileId'] is None
+    old.refresh_from_db();operation.refresh_from_db()
+    assert old.attempts==3 and old.dead_lettered_at and operation.state=='failed'
 
 
 def test_fresh_no_js_form_has_signed_choice_and_confirmation_expires(source, client):
-    plan, actor = source
-    old, operation = queue(plan, actor)
-    fail(old, operation)
+    plan,actor=source
+    old,operation=queue(plan,actor);fail(old,operation)
     client.force_login(actor)
-    submitted = QueryDict("action=queue_floor_layouts", mutable=True)
-    submitted["floor_plan_id"] = str(plan.pk)
-    response = client.post(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]), submitted)
-    assert response.status_code == 409
-    html = response.content.decode()
-    assert "Run fresh evaluation" in html and 'name="fresh_evaluation" value="true"' in html
-    warning = evaluation_retry_warning(plan.project, actor, submitted)
-    submitted["fresh_evaluation"] = "true"
-    submitted["retry_confirmation"] = warning["freshConfirmationToken"]
-    assert evaluation_retry_warning(plan.project, actor, submitted) is None
+    submitted=QueryDict('action=queue_floor_layouts',mutable=True);submitted['floor_plan_id']=str(plan.pk)
+    # The retired no-JS form cannot enqueue anything; the existing signed domain
+    # confirmation remains bound to actor, choice and its five-minute lifetime.
+    assert client.post(reverse('admin:platform_api_project_media_dashboard',args=[plan.project_id]),submitted).status_code==405
+    warning=evaluation_retry_warning(plan.project,actor,submitted)
+    submitted['fresh_evaluation']='true';submitted['retry_confirmation']=warning['confirmationToken']
+    assert evaluation_retry_warning(plan.project,actor,submitted) is not None
+    submitted['retry_confirmation']=warning['freshConfirmationToken']
+    assert evaluation_retry_warning(plan.project,actor,submitted) is None
     import time
-    with patch("django.core.signing.time.time", return_value=time.time() + 301):
-        assert evaluation_retry_warning(plan.project, actor, submitted) is not None
+    with patch('django.core.signing.time.time',return_value=time.time()+301):assert evaluation_retry_warning(plan.project,actor,submitted) is not None
+    assert OutboxMessage.objects.count()==1
 
 
 @pytest.mark.parametrize("scope", ["flat", "floor"])

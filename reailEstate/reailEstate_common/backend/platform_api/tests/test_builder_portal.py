@@ -94,7 +94,7 @@ def test_correct_password_without_membership_reports_access_problem(workspace):
     denied = client.post(url, {"username": user.username, "password": "builder-test-only"}, format="json")
     assert denied.status_code == 403
     assert "credentials are correct" in denied.json()["errors"]["detail"]
-    assert "active owner or editor membership" in denied.json()["errors"]["detail"]
+    assert "active owner, admin, or editor membership" in denied.json()["errors"]["detail"]
     invalid = client.post(url, {"username": user.username, "password": "not-the-password"}, format="json")
     assert invalid.status_code == 403 and invalid.json()["errors"]["detail"] == "Invalid credentials."
     assert client.get("/api/v1/auth/me").status_code == 403

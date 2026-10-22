@@ -28,7 +28,10 @@ router.register("review/tasks", ReviewTaskViewSet, basename="review-task")
 router.register("admin/amenities", AmenityAdminViewSet, basename="admin-amenity")
 router.register("admin/feature-flags", FeatureFlagAdminViewSet, basename="admin-feature-flag")
 
+from platform_api.urls_project_workspace import project_workspace_urls
+
 urlpatterns = [
+    path("admin/project-workspace/", include(project_workspace_urls(admin=True))),
     path("", include(router.urls)),
     path(
         "developer-projects/<uuid:project_id>/extraction-output",

@@ -47,20 +47,23 @@ def test_missing_or_unready_image_has_no_broken_tag():
 
 
 def test_project_dashboard_uses_external_carousel_script():
-    source = get_template("admin/platform_api/project_media_dashboard.html").template.source
-    assert "platform_api/project_media_dashboard.js" in source
-    assert "addEventListener" not in source
+    from pathlib import Path
+    from .workspace_helpers import frontend_source
+    source = frontend_source()
+    assert 'function selectImage' in source
+    assert 'Previous image' in source and 'Next image' in source
+    assert not (Path(__file__).parents[1] / 'static/platform_api/project_media_dashboard.js').exists()
 
 
 def test_source_page_picker_includes_image_theater_controls():
-    source = get_template("admin/platform_api/add_source_pages.html").template.source
-    assert 'data-preview-theater' in source
-    assert 'data-preview-theater-open' in source
-    assert 'data-preview-theater-fullscreen' in source
-    assert 'data-preview-theater-close' in source
+    from .workspace_helpers import frontend_source
+    source = frontend_source()
+    assert 'Open original source page in new tab' in source
+    assert 'openInNewTab' in source and 'Maximize2' in source
+    assert 'Crop source editor' in source
 
 def test_project_dashboard_media_tab_order():
-    source = get_template("admin/platform_api/project_media_dashboard.html").template.source
-    sections = ["project-images", "amenities", "floor-plans", "layouts"]
-    positions = [source.index(f'href="?section={section}"') for section in sections]
+    from .workspace_helpers import frontend_source
+    source = frontend_source().split('const tabs:',1)[1].split('const emptyRegion',1)[0]
+    positions = [source.index(f"id: '{section}'") for section in ['project-images','amenities','floor-plans','layouts']]
     assert positions == sorted(positions)
