@@ -16,3 +16,13 @@ AWS ECS and Azure Container Apps Terraform directories are alternative infrastru
 reference templates, not the active application deployment pipeline. They do not
 adopt existing console-created resources automatically. Legacy provider tools remain
 for separately requested infrastructure work; they are not release entrypoints.
+
+Provider notes are kept here with the deployment files:
+
+- [AWS deployment notes](aws/deployment-plan.md)
+- [Azure deployment notes](azure/deployment-plan.md)
+- [Historical Azure validation record](azure/validate-status.json) (no current live validation)
+
+Keep deployment details in these files, using placeholders for resource names and
+other target-specific identities. GitHub environment settings and ignored runtime
+configuration supply the actual values.

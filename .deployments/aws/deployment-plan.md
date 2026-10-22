@@ -1,0 +1,208 @@
+# AWS Deployment Plan
+
+## Current deployment procedure
+
+The detailed ECS/Fargate plan below is retained from commit 6c31245 as an
+alternative to the active EC2 deployment. Its validation and authorization
+statements describe 2026-09-20, not current checks or permission to run commands.
+
+The active EC2 stack runs Admin, Builder and Buyer on loopback ports 8002, 8003
+and 8004, with a loopback gateway on 8080 and Caddy for public HTTPS. It uses
+existing PostgreSQL with verified TLS and an NFS workspace. Require Linux x86-64,
+at least 4 GiB RAM, Docker Compose, Python, curl and OpenSSH.
+
+1. Prepare the host and mount persistent storage before Docker starts. Preserve
+   user/media, output/media and legacy-media with container UID/GID 1000.
+2. Place protected .env, app.env and global-bundle.pem files under ~/ec2.
+   Keep actual database credentials, domain and workspace path on the server.
+3. Create the GitHub environment. Add EC2_HOST, SSH_PRIVATE_KEY and
+   SSH_KNOWN_HOSTS secrets. Verify the host key independently. Configure optional
+   SSH_USER, SSH_PORT and DEPLOY_RUNNER variables as needed, and restrict SSH
+   access to the trusted runner network.
+4. Push reviewed workflow/source changes. Open Actions -> Deploy EC2 service ->
+   Run workflow. Choose the branch/ref and configured GitHub environment.
+5. Select preview for an SSH tunnel, or https once the domain, DNS, allowed
+   hosts/origins and public ports 80/443 are configured.
+6. Leave demo checked to expose clean unreviewed media, PDF cover previews and
+   draft layout details to all viewers, including on the public domain.
+   Uncheck it for approved-media-only visibility.
+7. Review the build and deploy jobs: configuration validation, image builds,
+   checksummed artifact transfer, mount/RAM checks, pending-migration check,
+   service replacement and readiness/login checks. Pending migrations stop
+   deployment; arrange a snapshot and separately reviewed migration procedure.
+8. Open the configured HTTPS domain, or forward the local SSH tunnel to the
+   loopback gateway and browse http://localhost:18080/. Verify project covers,
+   galleries, layouts, Builder login and Admin login.
+
+The workflow does not provision infrastructure, apply schema migrations or start
+the extraction worker. Failed startup can partially replace containers; rerun a
+compatible reviewed prior commit for rollback. Preserve database writes and media.
+See the [complete Actions setup](ec2/README.md) for configuration examples.
+
+Every agent-run AWS/Azure CLI command requires explicit user permission after an
+explanation of its command, target and effect. Historical commands and approvals
+below are documentation, not authorization.
+
+## Historical ECS/Fargate plan
+
+## Status
+
+**Offline artifacts generated and validated; not approved for deployment**
+
+The user requested Terraform scripts without deployment. This plan does not
+authorize AWS authentication, live planning, IAM changes, state-bucket
+creation, image pushes, resource provisioning, database migration, or
+destruction.
+
+## Confirmed Context
+
+| Item | Value |
+|---|---|
+| Environment classification | POC/demo |
+| Expected load | Approximately 25 concurrent users |
+| Cost posture | Cost optimized |
+| Data residency | India |
+| AWS region | Asia Pacific (Mumbai), `ap-south-1` |
+| AWS account | Not selected or authenticated |
+| Infrastructure as code | Terraform |
+| Topology | CloudFront -> ALB -> co-located ECS task -> RDS PostgreSQL |
+
+## Architecture
+
+The AWS POC preserves the same runtime boundaries as the Azure plan:
+
+```text
+CloudFront managed HTTPS
+  -> ALB restricted to CloudFront origins
+     -> one ECS Fargate task
+        +-- Nginx gateway :8080
+        +-- Admin Django service :8002
+        +-- Builder Django service :8003
+        +-- Buyer Django service :8004
+        +-- Extraction/recommendation worker
+        +-- OpenTelemetry Collector
+             |
+             +---- encrypted EFS workspace
+             +---- private RDS PostgreSQL
+             +---- CloudWatch Logs and AWS X-Ray
+```
+
+The one-task topology intentionally keeps the singleton worker from running
+concurrently and allows all containers to communicate over `localhost`.
+
+## Network and Ingress
+
+- One VPC across two availability zones.
+- Two public subnets for the ALB, Fargate task, and EFS mount targets.
+- Two isolated database subnets for RDS.
+- No NAT gateway is required for the POC.
+- Fargate receives a public IP for outbound access, but accepts inbound traffic
+  only from the ALB security group.
+- The ALB accepts port 80 only from the AWS-managed CloudFront
+  origin-facing prefix list and forwards requests only when a generated
+  origin-verification header is present.
+- CloudFront redirects HTTP viewers to HTTPS and uses its managed certificate.
+
+## Data and Secrets
+
+- RDS PostgreSQL 16, `db.t4g.micro`, 20 GiB gp3, encrypted, private, single-AZ,
+  seven-day backup retention, and storage autoscaling to 100 GiB.
+- EFS is encrypted, mounted through an access point with TLS and IAM
+  authorization, transitions cold files to IA after 30 days, and has automatic
+  backups enabled.
+- Django and PostgreSQL passwords are generated by Terraform and stored in
+  Secrets Manager.
+- Terraform state is sensitive and must use a separately created, encrypted,
+  versioned S3 backend with state locking before live planning.
+
+## Images and Workload
+
+- Separate immutable ECR repositories hold the application and gateway images.
+- ECR scanning on push is enabled and lifecycle policies retain ten images.
+- Foundation mode creates shared infrastructure with `deploy_workload=false`.
+- Workload mode requires immutable image tags before creating ECS task
+  definitions and the ECS service.
+- Database migrations run as a one-shot Fargate task.
+- ClamAV and AI extraction are disabled by default.
+
+## Observability
+
+- All containers write to CloudWatch Logs with 30-day retention.
+- Django services export OTLP traces to the co-located AWS Distro for
+  OpenTelemetry collector.
+- The collector exports traces to AWS X-Ray.
+- X-Ray sampling is capped at one request per second plus ten percent.
+
+## Planned AWS Resources
+
+| Quantity | Resource | Initial configuration |
+|---:|---|---|
+| 1 | VPC | `<vpc-cidr>` |
+| 4 | Subnets | Two public and two isolated database subnets |
+| 1 | Internet gateway | Public task and ALB egress |
+| 4 | Security groups | ALB, ECS, RDS, and EFS least-privilege paths |
+| 1 | CloudFront distribution | Managed HTTPS, caching disabled |
+| 1 | Application Load Balancer | CloudFront-only HTTP origin |
+| 2 | ECR repositories | Immutable tags and scan on push |
+| 1 | ECS cluster | Fargate |
+| 1 | ECS service | One six-container task when enabled |
+| 1 | Migration task definition | Created when workload is enabled |
+| 1 | RDS PostgreSQL instance | Private, encrypted, single-AZ |
+| 1 | EFS file system | Encrypted shared workspace |
+| 2 | Secrets Manager secrets | Django and PostgreSQL |
+| 1 | CloudWatch log group | 30-day retention |
+| 1 | X-Ray sampling rule | Cost-controlled tracing |
+
+## Required Validation Before Deployment
+
+1. Install AWS CLI v2.
+2. Authenticate and confirm the exact AWS account ID.
+3. Reconfirm `ap-south-1`.
+4. Review organization Service Control Policies and the caller's IAM
+   permissions.
+5. Check Fargate, elastic network interface, EIP, ALB, RDS, and EFS quotas.
+6. Confirm RDS PostgreSQL 16 and `db.t4g.micro` availability.
+7. Confirm CloudFront, ECR, EFS, RDS, ECS, and ALB availability.
+8. Create or select a versioned, encrypted S3 Terraform backend.
+9. Run a live Terraform plan and confirm zero unintended deletes.
+10. Review recurring and data-transfer cost.
+11. Build both images and scan the pushed ECR artifacts.
+12. Obtain explicit approval before any Terraform apply.
+
+## Offline Validation Proof
+
+Validation completed on 2026-09-20 without AWS credentials:
+
+| Check | Result |
+|---|---|
+| `terraform fmt -check -recursive` | PASS |
+| `terraform init -backend=false` | PASS; AWS provider 6.65.0 and Random provider 3.9.1 locked |
+| `terraform validate -json` | PASS; zero errors and zero warnings |
+| PowerShell parser for all deployment scripts | PASS |
+| Mutating script default behavior | PASS; image build/push and migration scripts performed no action without `-Execute` |
+| Application container build | PASS |
+| Django checks inside the application image | PASS for admin, builder, and buyer |
+| AWS gateway container build | PASS |
+| AWS gateway `nginx -t` | PASS |
+| Credential and unresolved-template scan | PASS; no credentials or Go-style environment templates found |
+
+Live AWS account, IAM, quota, capacity, backend, cost, and Terraform plan checks
+remain intentionally unperformed. AWS CLI is not installed in the current
+environment, and the user requested scripts only.
+
+## Approval Boundary
+
+Authorized:
+
+- Creating and updating files under `.deployments/aws`.
+- Creating this deployment plan.
+- Running local validation that does not authenticate to or modify AWS.
+
+Not authorized:
+
+- Creating or updating AWS resources.
+- Creating an S3 state backend.
+- Creating or changing IAM roles and policies.
+- Pushing images to ECR.
+- Applying Terraform.
+- Running migrations against AWS.
