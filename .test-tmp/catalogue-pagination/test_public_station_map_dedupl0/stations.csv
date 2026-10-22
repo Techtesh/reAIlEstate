@@ -1,6 +1,0 @@
-name,line,latitude,longitude
-Metro one,Line 1,19.1,72.9
-Metro one,Line 1,19.1,72.9
-Conflicting,Line 2,19.2,73
-Conflicting,Line 2,19.3,73
-Invalid,Line 3,nan,73

@@ -1,9 +1,0 @@
-- generic [active] [ref=e1]:
-  - main [ref=e5]:
-    - generic [ref=e6]: Loading projects…
-  - region "Notifications alt+T"
-  - button "Post property free on WhatsApp" [ref=e17]:
-    - generic [ref=e21]:
-      - generic [ref=e22]: Post property free on WhatsApp
-      - generic [ref=e23]: Just send the details or a voice note — we turn it into a listing.
-    - generic [ref=e24]: Post property free
