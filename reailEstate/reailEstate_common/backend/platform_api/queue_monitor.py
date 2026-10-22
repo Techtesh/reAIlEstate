@@ -292,8 +292,8 @@ def queue_snapshot(actor, *, project=None, state=None):
     pending = jobs.filter(published_at__isnull=True, dead_lettered_at__isnull=True)
     rows = list(jobs.filter(pk__in=running))
     rows += list(pending.exclude(pk__in=running).order_by("occurred_at")[:50])
-    rows += list(jobs.filter(published_at__isnull=False).order_by("-published_at")[:25])
     rows += list(jobs.filter(dead_lettered_at__isnull=False).order_by("-dead_lettered_at")[:25])
+    rows += list(jobs.filter(published_at__isnull=False).order_by("-published_at")[:25])
     rows = list({job.pk: job for job in rows}.values())
     if state == "dead_letter":
         rows = [job for job in rows if job.dead_lettered_at and not job.published_at]

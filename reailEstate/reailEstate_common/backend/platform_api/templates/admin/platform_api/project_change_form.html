@@ -3,7 +3,7 @@
 
 {% block extrastyle %}
   {{ block.super }}
-  <link rel="stylesheet" href="{% static 'platform_api/project_form.css' %}?v=20260919-project-layouts">
+  <link rel="stylesheet" href="{% static 'platform_api/project_form.css' %}?v=20261019-map-panel">
 {% endblock %}
 
 {% block object-tools-items %}
@@ -31,6 +31,7 @@
   <div class="project-details-layout">
   {% for fieldset in adminform %}
     {% if forloop.counter == 2 %}<div class="project-details-sidebar">{% endif %}
+    {% if 'project-map-reference' not in fieldset.classes %}
     {% if 'project-address' in fieldset.classes %}
     {% include "admin/platform_api/project_layout_summary.html" %}
     <details class="project-address-disclosure"{% if adminform.form.address.errors or adminform.form.locality.errors %} open{% endif %}>
@@ -38,7 +39,14 @@
     {% endif %}
     {% include "admin/includes/fieldset.html" with heading_level=2 prefix="fieldset" id_prefix=0 id_suffix=forloop.counter0 %}
     {% if 'project-address' in fieldset.classes %}</details>{% endif %}
+    {% endif %}
     {% if forloop.last %}</div>{% endif %}
+  {% endfor %}
+  <div class="project-maps-panel">
+  {% for fieldset in adminform %}
+    {% if 'project-map-reference' in fieldset.classes %}
+      {% include "admin/includes/fieldset.html" with heading_level=2 prefix="fieldset" id_prefix=0 id_suffix=forloop.counter0 %}
+    {% endif %}
   {% endfor %}
   {% if project_transit_maps %}
   <section class="project-transit" aria-labelledby="project-transit-heading">
@@ -93,5 +101,6 @@
   </div>
   </section>
   {% endif %}
+  </div>
   </div>
 {% endblock %}

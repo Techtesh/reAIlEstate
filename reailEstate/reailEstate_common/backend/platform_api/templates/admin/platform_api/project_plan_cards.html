@@ -27,6 +27,7 @@
 <div class="media-tools {% if section == 'layouts' %}layout-details{% else %}media-grid{% endif %}"{% if section == 'floor-plans' %} data-floor-plan-grid{% endif %}>
   {% for card in cards %}
     <article class="media-card{% if card.inactive %} inactive-plan{% endif %}" data-plan-id="{{ card.plan.pk }}"{% if section == 'layouts' %} id="layout-detail-{{ card.plan.pk }}"{% endif %}>
+      <div class="plan-overview">
       {% if card.imageUrl %}<a class="plan-preview" href="{{ card.imageUrl }}" target="_blank" rel="noopener"><img src="{{ card.imageUrl }}" alt="{{ card.plan.display_title }}" loading="lazy"></a>{% elif section == 'layouts' %}<div class="layout-preview-empty">No preview available</div>{% endif %}
       <div class="plan-heading">
       <h2>{{ card.plan.display_title }}</h2>
@@ -45,6 +46,8 @@
       {% if card.imageDescription %}<p>{{ card.imageDescription }}</p>{% endif %}
       <p data-plan-inactive {% if not card.inactive %}hidden{% endif %}><strong>Inactive</strong></p>
       {% if card.plan.crop_remaining %}<p><strong>Crop remaining</strong></p>{% endif %}
+      </div>
+      <div class="plan-metadata">
       {% if can_remove_plans %}
       <form method="post" data-active-form>{% csrf_token %}
         <input type="hidden" name="action" value="set_plan_active">
@@ -65,7 +68,7 @@
           <a class="button" href="{{ card.editCropUrl }}?source_mode=original" title="Choose a new crop from the full source floor plan">Reset crop</a>
           {% endif %}
         {% endif %}
-        {% if can_report and card.manualCropUrl %}<a class="button" href="{{ card.manualCropUrl }}">Create new layouts from floor plan</a>{% endif %}
+        {% if section == 'floor-plans' and can_report and card.manualCropUrl %}<a class="button" href="{{ card.manualCropUrl }}">Create new layouts from floor plan</a>{% endif %}
         {% if can_report and card.plan.plan_scope == 'floor' %}
         <form method="post">{% csrf_token %}
           <input type="hidden" name="action" value="queue_floor_layouts">
@@ -101,6 +104,8 @@
         <button type="submit" class="button">Save price</button>
       </form>
       {% endif %}
+      </div>
+      <div class="plan-evaluation">
       <h3>Extracted room sizes</h3>
       {% if card.evaluation %}<p><strong>{{ card.evaluation.label }}</strong>{% if card.evaluation.error %} — {{ card.evaluation.error }}{% endif %}</p>{% endif %}
       {% if can_remove_plans and card.editExtractionUrl %}<p><a class="button" href="{{ card.editExtractionUrl }}">Manually update room sizes</a></p>{% endif %}
@@ -122,6 +127,8 @@
           <p class="help">Queues extraction for this layout only; processing happens separately. Repeated requests reuse existing work, including completed extraction.</p>
         </form>
       {% endif %}
+      </div>
+      <div class="plan-footer">
       <details><summary>Features</summary><pre>{{ card.features }}</pre></details>
       <details><summary>Raw extraction and provenance</summary><p>Internal name: {{ card.plan.plan_name }}</p><pre>{{ card.rawExtraction }}</pre></details>
       <div class="card-actions">
@@ -158,6 +165,7 @@
           </div>
         </form>
       {% endif %}
+      </div>
     </article>
   {% empty %}<p>No plans are available in this section.</p>{% endfor %}
 </div>

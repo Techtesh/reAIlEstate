@@ -3,6 +3,14 @@
   const root = document.getElementById("queue-monitor");
   if (!root) return;
   const status = document.getElementById("queue-refresh");
+  const actionStatus = document.getElementById("queue-action-status");
+  const showActionStatus = message => {
+    const {scrollX, scrollY} = window;
+    actionStatus.textContent = message;
+    window.scrollTo({left: scrollX, top: scrollY, behavior: "instant"});
+  };
+  let actionPending = false;
+  let revision = 0;
   const time = value => value ? new Date(value).toLocaleString() : "";
   const fill = (id, rows, columns) => {
     const body = document.getElementById(id);
@@ -41,8 +49,29 @@
       const form = document.getElementById("requeue-dead-letter-form").content.firstElementChild.cloneNode(true);
       form.elements.namedItem("message_id").value = job.id;
       form.elements.namedItem("version").value = job.deleteVersion;
-      form.addEventListener("submit", event => {
-        if (!window.confirm(`Requeue this dead-letter job for ${job.project}?`)) event.preventDefault();
+      form.addEventListener("submit", async event => {
+        event.preventDefault();
+        if (actionPending || !window.confirm(`Requeue this dead-letter job for ${job.project}?`)) return;
+        actionPending = true;
+        revision += 1;
+        const button = form.querySelector("button");
+        button.disabled = true;
+        showActionStatus("Requeueing job…");
+        try {
+          const response = await fetch(form.action, {
+            method: "POST", body: new FormData(form), credentials: "same-origin",
+            headers: {Accept: "application/json"}, signal: AbortSignal.timeout(10000),
+          });
+          if (![200, 409].includes(response.status)) throw new Error("Requeue unavailable");
+          const result = await response.json();
+          render(result.snapshot);
+          showActionStatus(result.message);
+        } catch {
+          showActionStatus("Could not confirm requeue. Check the job status before trying again.");
+        } finally {
+          actionPending = false;
+          button.disabled = false;
+        }
       });
       actions.append(form);
     }
@@ -53,6 +82,7 @@
   const stateLabel = job => job.state === "dead_letter" ? "Dead letter" : (
     job.state === "retrying" ? "Failed (retry queued)" : job.state);
   const render = snapshot => {
+    const {scrollX, scrollY} = window;
     for (const counter of root.querySelectorAll("[data-count]")) counter.textContent = snapshot.counts[counter.dataset.count];
     document.getElementById("queue-availability").textContent = `(${snapshot.capacity.available} slots available of ${snapshot.capacity.limit})`;
     fill("queue-workers", snapshot.workers.map(worker => [worker.pid || (worker.state === "queued" ? "Waiting" : "Starting"), worker.group, worker.project, worker.state, time(worker.heartbeatAt)]), 5);
@@ -66,14 +96,17 @@
     fill("queue-recent", snapshot.jobs.filter(job => ["completed", "dead_letter"].includes(job.state))
       .map(job => [job.project, `${job.label} (${job.kind})`, stateLabel(job), time(job.updatedAt), job.attempts, job.error, jobActions(job)]), 7);
     status.textContent = `Updated ${time(snapshot.updatedAt)}`;
+    window.scrollTo({left: scrollX, top: scrollY, behavior: "instant"});
   };
   render(JSON.parse(document.getElementById("queue-initial").textContent));
   const refresh = async () => {
     try {
-      if (!document.hidden) {
+      if (!document.hidden && !actionPending) {
+        const requestedRevision = revision;
         const response = await fetch(root.dataset.statusUrl, {credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(10000)});
         if (!response.ok) throw new Error("Status unavailable");
-        render(await response.json());
+        const snapshot = await response.json();
+        if (requestedRevision === revision && !actionPending) render(snapshot);
       }
     } catch {
       status.textContent = "Connection lost. Showing last known status; reconnecting.";

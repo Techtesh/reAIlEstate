@@ -276,7 +276,8 @@ def test_dead_letter_delete_is_confirmed_audited_and_preserves_operation(client,
     assert AuditEvent.objects.filter(action="queue.dead_letter_deleted", entity_id=job.pk, actor=owner).exists()
 
 
-def test_dead_letter_can_be_requeued_from_monitor(client, django_user_model):
+@pytest.mark.parametrize("as_json", [False, True])
+def test_dead_letter_can_be_requeued_from_monitor(client, django_user_model, as_json):
     from django.urls import reverse
     from platform_api.models import AuditEvent
 
@@ -296,8 +297,12 @@ def test_dead_letter_can_be_requeued_from_monitor(client, django_user_model):
     client.force_login(owner)
     response = client.post(reverse("admin:platform_api_project_jobs"), {
         "action": "requeue_dead_letter", "message_id": str(job.pk), "version": row["deleteVersion"],
-    })
-    assert response.status_code == 302
+    }, HTTP_ACCEPT="application/json" if as_json else "text/html")
+    assert response.status_code == (200 if as_json else 302)
+    if as_json:
+        assert response.json()["message"] == "Dead-letter job requeued."
+        assert response.json()["snapshot"]["jobs"][0]["state"] == "queued"
+        assert "no-store" in response["Cache-Control"]
     job.refresh_from_db()
     operation.refresh_from_db()
     assert job.dead_lettered_at is None and job.attempts == 0 and job.last_error_code == ""
@@ -499,3 +504,34 @@ def test_retry_warning_fallback_escapes_names_and_preserves_form(source, client)
     assert "&lt;script&gt;" in html and 'name="retry_confirmation"' in html
     assert 'name="action" value="run_project_evaluations"' in html
     assert not QueueWorker.objects.exists()
+
+
+def test_snapshot_lists_dead_letters_before_completions(django_user_model):
+    owner = django_user_model.objects.create_superuser(username="queue-order", password=None)
+    completed = make_job(owner)
+    completed.published_at = timezone.now()
+    completed.save()
+    failed = make_job(owner)
+    failed.dead_lettered_at = timezone.now() - timedelta(days=1)
+    failed.save()
+    queued = make_job(owner)
+    assert [row["id"] for row in queue_snapshot(owner)["jobs"]] == [
+        str(queued.pk), str(failed.pk), str(completed.pk)]
+
+
+def test_json_requeue_rejects_stale_version_without_redirect(client, django_user_model):
+    from django.urls import reverse
+
+    owner = django_user_model.objects.create_superuser(username="stale-requeue", password=None)
+    job = make_job(owner)
+    job.dead_lettered_at = timezone.now()
+    job.save()
+    client.force_login(owner)
+    response = client.post(reverse("admin:platform_api_project_jobs"), {
+        "action": "requeue_dead_letter", "message_id": str(job.pk), "version": "stale",
+    }, HTTP_ACCEPT="application/json")
+    assert response.status_code == 409
+    assert "changed" in response.json()["message"]
+    assert response.json()["snapshot"]["jobs"][0]["state"] == "dead_letter"
+    job.refresh_from_db()
+    assert job.dead_lettered_at is not None

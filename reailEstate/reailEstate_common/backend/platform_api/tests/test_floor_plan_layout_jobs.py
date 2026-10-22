@@ -137,9 +137,9 @@ def test_dashboard_crop_actions_use_full_page_for_floor_plans(source, client, sc
     html = response.content.decode()
     crop_url = reverse("admin:platform_api_floorplan_crop_update", args=[plan.pk])
     assert html.count(f'href="{crop_url}?source_mode=original"') == 1
-    assert "Create new layouts from floor plan" in html
     assert "Create new crops from source" not in html
     if scope == "floor":
+        assert "Create new layouts from floor plan" in html
         assert "Fix floor plan crop" in html
         assert "Crop floor plan" not in html
         assert "Reset crop" not in html
@@ -147,6 +147,7 @@ def test_dashboard_crop_actions_use_full_page_for_floor_plans(source, client, sc
         assert html.count('value="queue_floor_layouts"') == 1
         assert ">Extract individual layouts</button>" in html
     else:
+        assert "Create new layouts from floor plan" not in html
         assert "Update this unit crop" in html
         assert "Reset crop" in html
         assert f'href="{crop_url}"' in html

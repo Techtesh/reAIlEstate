@@ -786,10 +786,13 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                    "published_fact_set_version", "verification_status", "processing_attested", "verification_checked_at"),
     }), (None, {
         "classes": ("project-details-grid", "project-resources"),
-        "fields": ("google_location_reference", "media_dashboard_link", "extraction_outputs"),
+        "fields": ("media_dashboard_link", "extraction_outputs"),
     }), (None, {
         "classes": ("project-details-grid", "project-address"),
         "fields": ("address", "locality"),
+    }), (None, {
+        "classes": ("project-details-grid", "project-map-reference"),
+        "fields": ("google_location_reference",),
     }))
 
     ordering = ("submitted_name", "id")
@@ -1013,6 +1016,7 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
         return HttpResponseRedirect(target)
 
     def jobs_view(self, request):
+        from django.http import JsonResponse
         from django.core.exceptions import ValidationError
         from .queue_monitor import delete_dead_letter, queue_snapshot, requeue_dead_letter
         if request.method == "POST":
@@ -1027,12 +1031,18 @@ class ProjectAdmin(ExternalSourcesAdminMixin, ProjectLayoutHealthAdminMixin, Lay
                     delete_dead_letter(request.user, request.POST.get("message_id"), request.POST.get("version"),
                                       confirmed=request.POST.get("confirm_delete") == "yes")
             except ValidationError as exc:
-                messages.error(request, " ".join(exc.messages))
+                message, level = " ".join(exc.messages), messages.ERROR
             except WorkAlreadyClaimed:
-                messages.warning(request, "A worker has claimed this job. Reload before changing it.")
+                message, level = "A worker has claimed this job. Reload before changing it.", messages.WARNING
             else:
-                messages.success(request, "Dead-letter job requeued." if action == "requeue_dead_letter" else
-                                 "Dead-letter job deleted. Project data and audit history were retained.")
+                message, level = ("Dead-letter job requeued." if action == "requeue_dead_letter" else
+                                  "Dead-letter job deleted. Project data and audit history were retained."), messages.SUCCESS
+            if request.headers.get("Accept") == "application/json":
+                response = JsonResponse({"message": message, "snapshot": queue_snapshot(request.user)},
+                                        status=200 if level == messages.SUCCESS else 409)
+                response["Cache-Control"] = "private, no-store"
+                return response
+            messages.add_message(request, level, message)
             return HttpResponseRedirect(reverse("admin:platform_api_project_jobs"))
         response = TemplateResponse(request, "admin/platform_api/queue_monitor.html", {
             **self.admin_site.each_context(request), "opts": self.model._meta,

@@ -20,7 +20,8 @@
 }
 #project_form .project-metadata { grid-area: metadata; }
 #project_form .project-details-sidebar { grid-area: sidebar; min-width: 0; }
-#project_form .project-resources { grid-area: resources; grid-template-columns: minmax(0, 1fr); grid-template-areas: "google" "media" "outputs"; }
+#project_form .project-resources { grid-area: resources; grid-template-columns: minmax(0, 1fr); grid-template-areas: "media" "outputs"; }
+#project_form .project-map-reference { grid-template-columns: minmax(0, 1fr); grid-template-areas: "google"; }
 #project_form .project-address { grid-template-columns: minmax(0, 1fr); grid-template-areas: "locality" "address"; }
 #project_form .project-amenities { grid-template-columns: minmax(0, 1fr); grid-template-areas: "manual"; margin-top: 18px; padding: 16px; border: 1px solid var(--hairline-color); border-radius: 6px; background: var(--darkened-bg); }
 #project_form .project-amenities .field-manual_amenities { grid-area: manual; }
@@ -43,7 +44,7 @@
 #project_form .project-layout-preview { display: block; width: fit-content; margin-bottom: 6px; }
 #project_form .project-layout-preview img { display: block; width: 64px; height: 64px; max-width: 100%; object-fit: contain; background: var(--body-bg); }
 #project_form .project-layout-meta { display: block; margin-top: 4px; font-size: 11px; font-weight: normal; color: var(--body-quiet-color); }
-#project_form .project-transit { grid-area: transit; min-width: 0; }
+#project_form .project-maps-panel { grid-area: transit; min-width: 0; }
 #project_form .project-transit-tools { min-width: 0; padding-block: 8px; overflow-wrap: anywhere; }
 #project_form .project-details-grid > .form-row { min-width: 0; padding: 9px 0; overflow: visible; }
 #project_form .project-details-grid > .field-organization { grid-area: organization; }
@@ -107,7 +108,7 @@
   #project_form .project-details-layout > * { width: 100%; box-sizing: border-box; }
   #project_form .project-metadata { order: 0; }
   #project_form .project-details-sidebar { order: 1; }
-  #project_form .project-transit { order: 2; }
+  #project_form .project-maps-panel { order: 2; }
   #project_form .project-transit-tools { order: 3; }
   #project_form .project-address { order: 4; }
   #project_form .project-details-grid { display: block; }

@@ -196,10 +196,14 @@ def test_project_details_responsive_layout(client, source, monkeypatch, tmp_path
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width
                 metadata = page.locator(".project-metadata").bounding_box()
                 resources = page.locator(".project-resources").bounding_box()
+                maps = page.locator(".project-maps-panel").bounding_box()
+                reference = page.locator(".project-maps-panel .field-google_location_reference").bounding_box()
                 transit = page.locator(".project-transit").bounding_box()
                 address = page.locator(".project-address-disclosure").bounding_box()
                 layouts = page.locator(".project-layout-summary").bounding_box()
-                assert metadata and resources and transit and address and layouts
+                assert metadata and resources and maps and reference and transit and address and layouts
+                assert page.locator(".project-details-sidebar .field-google_location_reference").count() == 0
+                assert reference["y"] + reference["height"] <= transit["y"] + 1
                 assert not page.locator("#id_address").is_visible()
                 assert page.locator(".project-layout-table tbody tr").count() == 12
                 assert page.locator(".project-layout-scroll").evaluate("element => element.scrollHeight > element.clientHeight")
@@ -207,7 +211,7 @@ def test_project_details_responsive_layout(client, source, monkeypatch, tmp_path
                 assert address["y"] >= layouts["y"] + layouts["height"] - 1
                 if width > 900:
                     assert transit["x"] > resources["x"]
-                    assert abs(transit["y"] - resources["y"]) < 2
+                    assert abs(maps["y"] - resources["y"]) < 2
                     assert transit["width"] > resources["width"]
                 else:
                     assert transit["y"] >= address["y"] + address["height"] - 1
