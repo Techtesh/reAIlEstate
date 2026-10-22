@@ -5855,12 +5855,6 @@
     "ast_hash": "dfd4d063c7e669494a34e2cb2eb43ed5",
     "semantic_hash": ""
   },
-  ".playwright-cli/page-2026-10-02T11-53-59-975Z.yml": {
-    "mtime": 1790942039.9767363,
-    "seen": 1791458919.3759668,
-    "ast_hash": "fe5b01d723020206570d80f76601f09f",
-    "semantic_hash": ""
-  },
   "AGENTS.md": {
     "mtime": 1791456822.973634,
     "seen": 1791458919.3759685,
@@ -6246,9 +6240,9 @@
     "semantic_hash": ""
   },
   ".deployments/aws/scripts/Test-Ec2Configuration.ps1": {
-    "mtime": 1792658062.089858,
-    "seen": 1792658138.6924675,
-    "ast_hash": "bde3417fa4ba43c67d158905e29f6a67",
+    "mtime": 1792662598.41722,
+    "seen": 1792662654.4506361,
+    "ast_hash": "2df26a14d97d3fd0c025123a1fc41e99",
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/README.md": {
@@ -6282,9 +6276,9 @@
     "semantic_hash": ""
   },
   "todo.md": {
-    "mtime": 1792658054.6797957,
-    "seen": 1792658138.7650502,
-    "ast_hash": "2b3581001d73e80d43308e05db42bbed",
+    "mtime": 1792662651.544387,
+    "seen": 1792662654.5173602,
+    "ast_hash": "712e70d73dc60f3e99ab5b8d87920d46",
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/deploy-release.sh": {

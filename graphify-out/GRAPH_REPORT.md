@@ -1,7 +1,7 @@
 # Graph Report - Workspace-publish  (2026-10-22)
 
 ## Corpus Check
-- 992 files · ~4,028,736 words
+- 992 files · ~4,028,948 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 54 file(s) not represented in the graph (top: (none) 17, .css 11, .woff2 8)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `2f200a01`
+- Built from commit: `e6a1bfcb`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -2099,7 +2099,7 @@ Nodes (4): Answer, Outcome, Q: Explain how login flow works here across all 3 po
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `fetch()` connect `external_sources.py` to `4) Rules (generation + audit)`, `json`, `4) Rules (generation + audit)`, `OpenAI Docs`, `4) Rules (generation + audit)`, `workers.py`, `4) Rules (generation + audit)`, `/understand-figma — Figma 수집 & 구조 분석 (기반) 설계`, `4) Rules (generation + audit)`, `FigmaSource`?**
-  _High betweenness centrality (0.168) - this node is a cross-community bridge._
+  _High betweenness centrality (0.166) - this node is a cross-community bridge._
 - **Are the 178 inferred relationships involving `Project` (e.g. with `FloorPlanAdmin` and `ProjectAdmin`) actually correct?**
   _`Project` has 178 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `name`, `type`, `version` to the rest of the system?**
@@ -2107,7 +2107,7 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `LayoutCropDraft` be split into smaller, more focused modules?**
   _Cohesion score 0.07226890756302522 - nodes in this community are weakly interconnected._
 - **Why does `/understand-figma Foundation — Implementation Plan` connect `FigmaSource` to `mergeDesignGraph`, `File Structure`, `schema.ts`, `external_sources.py`?**
-  _High betweenness centrality (0.132) - this node is a cross-community bridge._
+  _High betweenness centrality (0.131) - this node is a cross-community bridge._
 - **Are the 160 inferred relationships involving `OutboxMessage` (e.g. with `ProjectAdmin` and `reserve_ready_jobs()`) actually correct?**
   _`OutboxMessage` has 160 INFERRED edges - model-reasoned connections that need verification._
 - **Should `platform_api/admin.py` be split into smaller, more focused modules?**

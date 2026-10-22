@@ -6252,9 +6252,9 @@
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/README.md": {
-    "mtime": 1792658106.2619312,
-    "seen": 1792658138.7571595,
-    "ast_hash": "f5fda93a2df364adc0e58bd62bc0b3a4",
+    "mtime": 1792658730.6533248,
+    "seen": 1792658846.628764,
+    "ast_hash": "7baa300fe05ebcc644e4ee36c7185d38",
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/compose.yml": {
@@ -6285,6 +6285,42 @@
     "mtime": 1792658054.6797957,
     "seen": 1792658138.7650502,
     "ast_hash": "2b3581001d73e80d43308e05db42bbed",
+    "semantic_hash": ""
+  },
+  ".deployments/aws/ec2/deploy-release.sh": {
+    "mtime": 1792658614.1347759,
+    "seen": 1792658846.567156,
+    "ast_hash": "3f3f457a8b6b3bbb7f3d3c83d0029e87",
+    "semantic_hash": ""
+  },
+  ".deployments/aws/ec2/package.sh": {
+    "mtime": 1792658614.1347759,
+    "seen": 1792658846.5672681,
+    "ast_hash": "a0fc2bab926eaa48c1774a76d3a90fba",
+    "semantic_hash": ""
+  },
+  ".deployments/aws/ec2/test-package.sh": {
+    "mtime": 1792658730.6503296,
+    "seen": 1792658846.5674767,
+    "ast_hash": "b6ce1a50c850cdf847b6b8cd312732e5",
+    "semantic_hash": ""
+  },
+  ".deployments/aws/scripts/Deploy-Ec2Release.ps1": {
+    "mtime": 1792658820.2907703,
+    "seen": 1792658846.5676882,
+    "ast_hash": "ed8e85d00468995b62834b71379bf4b9",
+    "semantic_hash": ""
+  },
+  ".github/workflows/aws-ec2-release.yml": {
+    "mtime": 1792658803.5664892,
+    "seen": 1792658846.6290884,
+    "ast_hash": "04e740e03a8d247de517afdac3c95b46",
+    "semantic_hash": ""
+  },
+  "graphify-out/memory/query_20261022_083837_6acb4971_explain_with_a_flow_chart_how__with_individual_fun.md": {
+    "mtime": 1792658317.8604937,
+    "seen": 1792658846.6323981,
+    "ast_hash": "35888a1c9e2cba3d21419a2d0e42d66a",
     "semantic_hash": ""
   }
 }

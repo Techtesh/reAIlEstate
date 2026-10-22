@@ -94694,7 +94694,7 @@
       "file_type": "code",
       "norm_label": "assert-configuration()",
       "source_file": ".deployments/aws/scripts/Test-Ec2Configuration.ps1",
-      "source_location": "L9"
+      "source_location": "L29"
     },
     {
       "id": "todo",
@@ -294845,7 +294845,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": ".deployments/aws/scripts/Test-Ec2Configuration.ps1",
-      "source_location": "L9",
+      "source_location": "L29",
       "weight": 1.0
     },
     {
@@ -364533,5 +364533,5 @@
       "source_file": "reailEstate/compose.services.yml"
     }
   ],
-  "built_at_commit": "2f200a01f202bbe5a748ee0a59929fe534d15232"
+  "built_at_commit": "e6a1bfcbcd0be73c9491d45ab5e4ec557120d69b"
 }

@@ -3,9 +3,29 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Common.ps1')
 Assert-ExternalCommand -Name docker
 $ec2 = (Resolve-Path (Join-Path $PSScriptRoot '../ec2')).Path
-$json = & docker compose --profile "*" --env-file (Join-Path $ec2 '.env.example') -f (Join-Path $ec2 'compose.yml') config --no-env-resolution --format json
-Assert-LastExitCode -Operation 'Parsing EC2 Compose configuration'
-$config = ($json -join "`n") | ConvertFrom-Json -AsHashtable
+# Some Compose versions still require env_file paths to exist with
+# --no-env-resolution. Validate an isolated fixture, never the operator's secrets.
+$fixture = [IO.Directory]::CreateTempSubdirectory('realestate-compose-check-').FullName
+try {
+    foreach ($name in @('compose.yml', '.env.example')) {
+        Copy-Item -LiteralPath (Join-Path $ec2 $name) -Destination (Join-Path $fixture $name)
+    }
+    Copy-Item -LiteralPath (Join-Path $ec2 'app.env.example') -Destination (Join-Path $fixture 'app.env')
+    $stderr = Join-Path $fixture 'compose.stderr'
+    $json = & docker compose --profile "*" --env-file (Join-Path $fixture '.env.example') -f (Join-Path $fixture 'compose.yml') config --no-env-resolution --format json 2> $stderr
+    if ($LASTEXITCODE -ne 0) {
+        $detail = Get-Content -LiteralPath $stderr -Raw
+        throw "Parsing EC2 Compose configuration failed with exit code $LASTEXITCODE. Docker Compose: $detail"
+    }
+    $config = ($json -join "`n") | ConvertFrom-Json -AsHashtable
+}
+finally {
+    foreach ($name in @('compose.yml', '.env.example', 'app.env', 'compose.stderr')) {
+        $file = Join-Path $fixture $name
+        if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
+    }
+    [IO.Directory]::Delete($fixture)
+}
 function Assert-Configuration([bool] $Condition, [string] $Message) {
     if (-not $Condition) { throw $Message }
 }

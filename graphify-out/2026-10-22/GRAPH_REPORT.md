@@ -1,12 +1,12 @@
 # Graph Report - Workspace-publish  (2026-10-22)
 
 ## Corpus Check
-- 987 files · ~4,027,006 words
+- 992 files · ~4,028,736 words
 - Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 56 file(s) not represented in the graph (top: (none) 17, .css 11, .woff2 8)
+- Unclassified: 54 file(s) not represented in the graph (top: (none) 17, .css 11, .woff2 8)
 
 ## Summary
-- 9247 nodes · 21946 edges · 497 communities (405 shown, 92 thin omitted)
+- 9263 nodes · 21958 edges · 475 communities (398 shown, 77 thin omitted)
 - Extraction: 90% EXTRACTED · 10% INFERRED · 0% AMBIGUOUS · INFERRED: 2241 edges (avg confidence: 0.94)
 - Token cost: 0 input · 0 output
 
@@ -16,47 +16,47 @@
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- Project
+- LayoutCropDraft
 - platform_api/admin.py
-- ref_vitest
+- store.ts
+- RecommendationSnapshotSerializer
 - views.py
-- audit
-- EvidenceDocument
+- WorkAlreadyClaimed
 - staleness.ts
 - src/types.ts
 - configs/index.ts
-- AuditEvent
-- floor_plan_extractor.py
+- test_layout_bulk_admin.py
+- workers.py
 - GraphNode
 - GraphView.tsx
-- ThemeControl.tsx
+- App
 - frontend/src/App.tsx
-- Browse.tsx
+- buyer.ts
 - extract-import-map.mjs
-- builder_media.py
+- hashlib
 - external_sources_admin.py
-- builder_views.py
-- test_external_sources.py
-- layout_pages.py
+- builder_media.py
+- ReviewTask
+- test_source_documents.py
 - test_layout_names.py
 - FlagValidationError
-- OpenAIFloorPlanVisionProvider
-- organization_roles_views.py
-- Dashboard Graph Layout Scaling — Design
+- test_ai_plan_classification.py
+- organization_roles.py
+- Graph Layout Scaling Implementation Plan
 - api.py
-- PluginRegistry
+- TreeSitterPlugin
 - realestate_common/geometry.py
-- /understand-figma — Figma Ingestion & Structure (Foundation) Design
+- FigmaSource
 - BuilderMediaWorkspace
-- integrations.py
-- create_flag
-- test_floor_plan_vision.py
+- test_service_boundaries.py
+- test_layout_evaluation_queue.py
+- test_project_layout_health.py
 - dashboard/src/App.tsx
-- commute_locations_views.py
+- direct_location
 - merge-batch-graphs.py
 - symbol-evidence.ts
-- api
-- BuilderMediaAction
+- Operation
+- test_layout_evaluation_status.py
 - KnowledgeGraphView.tsx
 - schema.ts
 - core/src/index.ts
@@ -65,62 +65,62 @@
 - Command
 - StructuralAnalysis
 - take_screenshot.py
-- re
-- floor_plan_vision.py
 - File Structure
+- floor_plan_vision.py
+- figma/index.ts
 - PrecheckedFloorPlanVisionProvider
 - Admin base site template
-- FloorPlanAsset
+- test_layout_crop_update.py
 - /understand-figma — Figma 수집 & 구조 분석 (기반) 설계
 - freshness.ts
-- test_builder_portal.py
+- test_builder_locations.py
 - travel.py
-- Launch Review: Scope and Decisions
+- test_process_outbox_command.py
 - dashboard/package.json
 - CSharpExtractor
 - dashboard/vite.config.ts
 - _file_node
-- TreeSitterPlugin
+- ComparisonShare
 - BuilderPortal.tsx
 - refresh_google_project_places.py
-- models.py
+- FloorPlan
 - test_ingestion_queue.py
 - test_recommendation_layouts.py
 - 4) Rules (generation + audit)
 - validate-incremental-symbols.mjs
-- findChild
-- Contributing to Understand Anything
 - TreeSitterNode
+- Contributing to Understand Anything
+- ruby-extractor.ts
 - 4) Rules (generation + audit)
 - .understand-anything/package.json
 - Theme System Design
-- guestShortlist.ts
+- BuyerApp
 - 4) Rules (generation + audit)
 - Migration Service
 - understand-anything-plugin/src/index.ts
 - .understandignore Implementation Plan
 - Business Domain Knowledge Extraction — Design Spec
-- ProjectGallery.tsx
+- ProjectMap.tsx
 - prepare-incremental.mjs
 - kotlin-extractor.ts
 - Token Reduction Design
 - parse-knowledge-base.py
 - 4) Rules (generation + audit)
 - 4) Rules (generation + audit)
-- ref_node_module
+- ref_vitest
 - large-repo-benchmark.mjs
 - test_merge_batch_graphs.py
 - test_extract_structure_outcomes.test.mjs
 - Nav.astro
 - scala-extractor.ts
-- KnowledgeGraph
+- dependencies
 - ThemeContext.tsx
 - generate-large-graph.mjs
 - frameworks/index.ts
 - Draft Cart Icon Partial
 - SVG Icon Sprite
 - 6. Developer organizations and projects
-- LanguageConfig
+- mergeDesignGraph
 - Document ingestion and project outputs
 - 4) Rules (generation + audit)
 - test_feature_flags.py
@@ -128,22 +128,22 @@
 - Ananta
 - Leisure deck
 - Adityraj Avenue
-- OrganizationMembership
+- Project
 - DocumentProgress
 - scripts
 - Playwright Interactive Skill
-- FeatureFlagAdmin
+- create_flag
 - Bulk Layout Removal Protocol
 - Precision in Every Detail interior finishes brochure
-- test_vision_fallback.py
+- django_contrib_auth_models
 - figma-scan.mjs
 - Low-Level Design (LLD)
 - /understand-knowledge — Personal Knowledge Base Plugin Design
 - .understand-anything/README.md
 - update_layout_crop Service Contract
-- math
+- pytest
 - Vite Logo
-- TypeScriptExtractor
+- test_floor_plan_activity.py
 - Layered Platform Illustration
 - Project Implementation Instructions
 - README.es-ES.md
@@ -169,10 +169,10 @@
 - 4) Rules (generation + audit)
 - extract-domain-context.py
 - /understand-knowledge Implementation Plan
-- Language-Agnostic Support Implementation Plan
-- Project change form template
+- LanguageRegistry
+- Frontend README
 - languages/types.ts
-- Standards and implementation review
+- ProjectAdmin
 - Universal File Type Support — Implementation Plan
 - TestIncrementalBatchExisting
 - platform-table-consistency.test.mjs
@@ -187,20 +187,20 @@
 - Phase 2 -- Pedagogical Tour Design
 - dependencies
 - Component 1 — `compute-batches.mjs`
-- extractors/index.ts
-- merge-recover-imports.test.mjs
-- locales/index.ts
+- Understand Anything — Phase 2 (Intelligence) Implementation Plan
+- Benchmark Unsupported-Outcome Semantics
+- I18nContext.tsx
 - compilerOptions
 - viewer.mjs
 - compilerOptions
-- findChildren
+- vite-staleness.test.ts
 - runBenchmark
 - test_api.py
 - 4) Rules (generation + audit)
-- pricing_layouts
+- test_layout_pricing.py
 - Understand Anything: Universal File Type Support
 - IsTestPathTests
-- pytest
+- test_queue_monitor.py
 - DomainGraphView.tsx
 - OnboardingOverlay.tsx
 - viewer/package.json
@@ -210,7 +210,7 @@
 - Agent Skill: Principal UI/UX Architect & Motion Choreographer (Awwwards-Tier)
 - User Flows
 - test_feature_flag_adapters.py
-- go-extractor.ts
+- Mumbai New-Construction Discovery Platform — Product Requirements
 - Business Domain Knowledge Extraction — Implementation Plan
 - Understand Anything — Design & Implementation Plan
 - install.ps1
@@ -227,10 +227,11 @@
 - compilerOptions
 - Frontend Design Skill
 - Understand Anything — Phase 1 Implementation Plan
-- ProviderUnavailable
-- PythonExtractor
+- staleness.test.ts
+- test_viewer.test.mjs
+- test_guest_recommendations.py
 - exports
-- Phase 2 -- Semantic Analysis
+- devDependencies
 - Component 2 — `skills/understand/SKILL.md` changes
 - MMR Real Estate Maintainer Guide
 - High-Level Design (HLD)
@@ -244,42 +245,41 @@
 - homepage/package.json
 - compute-batches.mjs
 - Rust Language Prompt Snippet
-- services.py
+- test_services.py
 - OpenAI Docs
 - Playwright CLI Skill
 - OutboxMessage
-- Organization
+- save_extraction
 - Understand Anything
 - Homepage Implementation Plan
 - FeatureFlagSerializer
 - routes
 - Conversation-Language Auto-Detection for `/understand`
-- ref_node_fs
+- ref_node_url
 - compilerOptions
 - Architecture Analyzer
-- File Analyzer
+- .code
 - Next.js Project Structure
 - devDependencies
 - safe_request_error
 - benchmark-layout.mjs
 - MMR Homefinder Workflows
 - Screenshot Capture
-- native_room
+- 日本語出力ガイドライン (Japanese)
 - Component 3 — `agents/file-analyzer.md` changes
 - Command
 - Security, Privacy, and Threat Model
 - MVP Backlog and Requirements Traceability
 - 繁體中文輸出指南 (Chinese Traditional)
-- GoogleProjectMaps
-- Project Documentation Index
+- Q: explain with a flow chart how (with individual function calls) how a builder/admin can (1)add a project (2)upload a document (3)how a document is parsed into component floor plans and layouts (3b) can we replace parts of this flow with a rag based flow (3c) how are media files handelled
+- project_scoring.py
 - prompting-guide.md
 - Upgrading to GPT-5.5
-- language-lesson.ts
+- test-package.sh
 - resolve-latest-model-info.js
-- layer-detector.ts
-- TestMultiPart
+- package.sh
 - Graph Reviewer
-- amenity_matching.py
+- realestate_common/layout_titles.py
 - merge-knowledge-graph.py
 - Mumbai New-Construction Discovery Platform
 - fetchCodexManual
@@ -289,7 +289,7 @@
 - Semantic Batching and Output Chunking Design
 - Multi-Platform Skill Support — Simplified Design
 - benchmark-large-repo.mjs
-- _edge
+- test_merge_subdomain_graphs.py
 - Instructions
 - Component 4 — `merge-batch-graphs.py` (verify-only)
 - NormalizeDirectionTests
@@ -328,14 +328,14 @@
 - tree-sitter-dart-wasm/package.json
 - tree-sitter-swift-wasm/package.json
 - Q: here i would like another layer of pre check get qwen 3.8 from http://127.0.0.1:11435 a local ai box set specifically for dev
-- FlatSeparationFailed
+- floor_plan_segmentation_service.py
 - PlatformRoleAdmin
 - crop_from_page.js
 - layout_crop_update.js
 - Task 9: Build and smoke test
 - Task 7: C1c + C2 — Update SKILL.md Phase 2 orchestration
 - Azure POC deployment
-- sample_reports.py
+- json
 - deliverBenchmarkReports
 - createStderrInspector
 - Q: Add a fresh evaluation option to the previous evaluation failed warning
@@ -344,7 +344,6 @@
 - FastAPI Project Structure
 - Flask Project Structure
 - Gin Project Structure
-- Project Scanner
 - Rails Project Structure
 - React Project Structure
 - Spring Boot Project Structure
@@ -360,7 +359,6 @@
 - Swift Language Prompt Snippet
 - TypeScript Language Prompt Snippet
 - EC2 deployment using the migrated RDS and EFS
-- TestFindMarkdownCaseInsensitive
 - Codex Guidelines (Karpathy Rules)
 - take_screenshot.ps1
 - Code of Conduct
@@ -387,10 +385,9 @@
 - graph-freshness.integration.test.ts
 - CodeViewer.tsx
 - display
-- test-load-test.cjs
+- ref_node_fs
 - aws/scripts/Common.ps1
 - azure/scripts/Common.ps1
-- ConfirmedInput
 - RagFactExtractor
 - .oxlintrc.json
 - Out of scope (tracked for follow-up)
@@ -400,7 +397,6 @@
 - Task 4: C3 — Remove language/framework addendums from file-analyzer batches
 - Homepage Feature Update Implementation Plan
 - test_admin_navigation.py
-- os
 - PULL_REQUEST_TEMPLATE.md
 - homepage/tsconfig.json
 - devDependencies
@@ -431,7 +427,6 @@
 - dashboard/tsconfig.json
 - json-schema.ts
 - canonicalSha256
-- 5. Catalog
 - Q: Integrity error on other floors, please check
 - frontend/tsconfig.json
 - AGENTS.md
@@ -440,42 +435,24 @@
 - ImageNavigationAdminMixin
 - OrganizationViewSet
 - theme-init.js
-- BuilderPictureAction
-- DeveloperProjectCreateView
-- project_outputs.py
+- external_sources.py
 - FloorPlanAgent
 - Руководство по выводу на русском языке (Russian)
 - Q: here i would like another layer of pre check get qwen 3.8 from http://127.0.0.1:11435 a local ai box set specifically for dev
 - load-test.js
-- UnavailableProjectEnrichment
-- OrganizationRoleForm
 - resolveCacheDir
 - Q: Give me a run down of this project
 - Q: tell me how the login flow works for all 3 portals
 - Q: Explain how login flow works here across all 3 portals
-- FloorPlanSerializer
-- IngestionRunSerializer
-- fixture
-- layout.worker.ts
 - ProjectPageSizeChangeList
-- FlatSeparationForm
-- Command
-- Command
 - Command
 - private_artifacts
-- CropTestSite
-- kubernetes.ts
 - AssetAIGenerationFilter
 - AssetCategoryFilter
-- PlanSegmentationMethodFilter
 - GoogleMatchFilter
 - MahaRERAFilter
 - LocalMaintenanceLockMiddleware
-- github-actions.ts
-- go.ts
-- rust.ts
-- yaml.ts
-- start.sh
+- deploy-release.sh script
 - Command
 
 ## God Nodes (most connected - your core abstractions)
@@ -497,10 +474,10 @@
   .agents/skills/openai-docs/SKILL.md → reailEstate/reailEstate_common/backend/platform_api/project_enrichment.py
 - `JQ-XSS-004: `.load()` MUST be treated as an HTML+script injection surface` --references--> `fetch()`  [INFERRED]
   .agents/skills/security-best-practices/references/javascript-jquery-web-frontend-security.md → reailEstate/reailEstate_common/backend/platform_api/project_enrichment.py
-- `5) Practical scanning heuristics (how to “hunt”)` --references--> `fetch()`  [INFERRED]
-  .agents/skills/security-best-practices/references/javascript-typescript-react-web-frontend-security.md → reailEstate/reailEstate_common/backend/platform_api/project_enrichment.py
-- `2.1 Untrusted input (treat as attacker-controlled unless proven otherwise)` --references--> `fetch()`  [INFERRED]
-  .agents/skills/security-best-practices/references/javascript-typescript-vue-web-frontend-security.md → reailEstate/reailEstate_common/backend/platform_api/project_enrichment.py
+- `NEXT-PROXY-001: Proxy/Middleware must not introduce header smuggling or unsafe header forwarding` --references--> `fetch()`  [INFERRED]
+  .agents/skills/security-best-practices/references/javascript-typescript-nextjs-web-server-security.md → reailEstate/reailEstate_common/backend/platform_api/project_enrichment.py
+- `NEXT-SSRF-001: Outbound requests using user-influenced URLs MUST be restricted` --references--> `fetch()`  [INFERRED]
+  .agents/skills/security-best-practices/references/javascript-typescript-nextjs-web-server-security.md → reailEstate/reailEstate_common/backend/platform_api/project_enrichment.py
 
 ## Import Cycles
 - None detected.
@@ -511,155 +488,155 @@
 - **Layout Draft Cart Workflow** — reailestate_reailestate_common_backend_platform_api_templates_admin_platform_api_add_source_pages_add_source_pages, reailestate_reailestate_common_backend_platform_api_templates_admin_platform_api_crop_from_page_crop_from_page, reailestate_reailestate_common_backend_platform_api_templates_admin_platform_api_floor_plan_manual_crops_floor_plan_manual_crops, reailestate_reailestate_common_backend_platform_api_templates_admin_platform_api_layout_cart_layout_cart [INFERRED 0.95]
 - **Perforated Monolith Runtime Services** — reailestate_compose_services_admin_service, reailestate_compose_services_builder_service, reailestate_compose_services_buyer_service, reailestate_compose_services_worker_service, reailestate_compose_services_postgres_service [INFERRED 0.95]
 
-## Communities (497 total, 92 thin omitted)
+## Communities (475 total, 77 thin omitted)
 
-### Community 0 - "Project"
+### Community 0 - "LayoutCropDraft"
 Cohesion: 0.07
-Nodes (58): ProjectAdmin, CropCartAdminMixin, attach_drafts(), discard_drafts(), _ids(), stage_crops(), stage_page_crops(), map_link() (+50 more)
+Nodes (58): CropCartAdminMixin, attach_drafts(), discard_drafts(), _ids(), stage_crops(), stage_source_pages(), checked_document(), original_page_bounds() (+50 more)
 
 ### Community 1 - "platform_api/admin.py"
-Cohesion: 0.03
-Nodes (53): EvidenceDocumentAdmin, LayoutPriceForm, ManualCropForm, PlanRemovalConfirmationForm, ProjectMergeForm, google_match_annotations(), authorize_plan_removal(), normalize_plan_ids() (+45 more)
-
-### Community 2 - "ref_vitest"
 Cohesion: 0.04
-Nodes (45): downloadBlob(), escapeXml(), ExportMenu(), STRUCTURAL_VISIBLE_TYPES, DESIGN_TYPES, EXPECTED_STRUCTURAL_TYPES, KNOWLEDGE_TYPES, KnowledgeType (+37 more)
+Nodes (39): service_frontend(), service_urlpatterns(), LayoutPriceForm, ManualCropForm, PlanRemovalConfirmationForm, PlanSegmentationMethodFilter, project_price_label(), authorize_plan_removal() (+31 more)
 
-### Community 3 - "views.py"
-Cohesion: 0.04
-Nodes (50): service_frontend(), service_urlpatterns(), ProfileShare, EvidenceDocumentSerializer, ReviewTaskSerializer, AccountDeleteView, AuditEventAdminView, BuyerAmenityListView (+42 more)
+### Community 2 - "store.ts"
+Cohesion: 0.06
+Nodes (33): downloadBlob(), escapeXml(), ExportMenu(), ALL_COMPLEXITIES, ALL_EDGE_CATEGORIES, ALL_NODE_TYPES, buildGraphIndexes(), Complexity (+25 more)
 
-### Community 4 - "audit"
-Cohesion: 0.07
-Nodes (20): check_output_access(), RequirementProfileSerializer, audit(), ConsentViewSet, _etag_response(), _idempotent_response(), _is_project_member(), _is_reviewer() (+12 more)
+### Community 3 - "RecommendationSnapshotSerializer"
+Cohesion: 0.32
+Nodes (3): RecommendationSnapshotSerializer, RecommendationRequestViewSet, _validate_guest_sections()
 
-### Community 5 - "EvidenceDocument"
+### Community 4 - "views.py"
 Cohesion: 0.03
-Nodes (80): move_document(), job_cancelled(), job_project(), reserve_ready_jobs(), run_automatic_queue(), run_reserved_job(), scan_builder_document(), extract_project_knowledge() (+72 more)
+Nodes (65): create_manual_layout_crops(), ProfileShare, check_output_access(), IngestionOutputDownloadView, ProjectExtractionOutputView, FloorPlanSerializer, IngestionRunSerializer, RequirementProfileSerializer (+57 more)
+
+### Community 5 - "WorkAlreadyClaimed"
+Cohesion: 0.08
+Nodes (32): job_cancelled(), job_project(), reserve_ready_jobs(), run_automatic_queue(), run_reserved_job(), WorkAlreadyClaimed, Command, tracked_job() (+24 more)
 
 ### Community 6 - "staleness.ts"
-Cohesion: 0.12
-Nodes (23): createProjectGitSnapshot(), evaluateGraphFreshness(), getChangedFiles(), getGraphFreshness(), getGraphFreshnessBatch(), GitCommandError, GraphFreshnessRelation, GraphFreshnessUnknownReason (+15 more)
+Cohesion: 0.17
+Nodes (19): createProjectGitSnapshot(), evaluateGraphFreshness(), getGraphFreshness(), getGraphFreshnessBatch(), GitCommandError, GraphFreshnessInput, GraphFreshnessRelation, GraphFreshnessUnknownReason (+11 more)
 
 ### Community 7 - "src/types.ts"
-Cohesion: 0.06
-Nodes (32): Custom Parsers (12), FileAnalysisMeta, FileMeta, KIND_TO_NODE_TYPE, NonCodeFileAnalysisMeta, NonCodeFileMeta, DockerfileParser, EnvParser (+24 more)
+Cohesion: 0.05
+Nodes (42): Task 1: Add design types to the shared type definitions, Benchmark Unsupported Outcomes Implementation Plan, Global Constraints, Task 1: Classify unsupported capabilities without false failures, Custom Parsers (12), FileAnalysisMeta, FileMeta, KIND_TO_NODE_TYPE (+34 more)
 
 ### Community 8 - "configs/index.ts"
 Cohesion: 0.05
-Nodes (29): batchConfig, cConfig, csharpConfig, cssConfig, dartConfig, dockerComposeConfig, dockerfileConfig, envConfig (+21 more)
+Nodes (40): Task 4: Add Non-Code Language Configs (26 configs), batchConfig, cConfig, cppConfig, csharpConfig, cssConfig, csvConfig, dartConfig (+32 more)
 
-### Community 9 - "AuditEvent"
-Cohesion: 0.04
-Nodes (59): derived_layout_ids(), set_plan_active_locked(), BulkRemovalResult, remove_floor_plans(), set_floor_plan_removed(), _set_floor_plan_removed_locked(), visible_plan_assets(), AuditEvent (+51 more)
+### Community 9 - "test_layout_bulk_admin.py"
+Cohesion: 0.07
+Nodes (33): BulkRemovalResult, _locked_removal_plans(), normalize_plan_ids(), _pending_batch_jobs(), _removal_transaction(), remove_floor_plans(), _row_locks(), _set_floor_plan_removed_locked() (+25 more)
 
-### Community 10 - "floor_plan_extractor.py"
-Cohesion: 0.18
-Nodes (9): FloorPlanImageExtractor, classify_plan_scope(), test_scope_rules(), bound_image(), CropCandidate, extract_docx_images(), extract_source_image(), open_image() (+1 more)
+### Community 10 - "workers.py"
+Cohesion: 0.03
+Nodes (74): AmenityMatch, _distance_at_most_one(), find_amenities(), _fold(), has_amenity_terms(), _tokens(), move_document(), scan_builder_document() (+66 more)
 
 ### Community 11 - "GraphNode"
-Cohesion: 0.07
-Nodes (26): Task 2: Enhanced Search Engine with Fuzzy Matching, Task 7: Dashboard Search Enhancement + Store Integration, Dependency Graph, Task 1: /understand-diff Skill — PR/Diff Analysis, Task 2: /understand-explain Skill — Deep-Dive on Files, Task 3: /understand-onboard Skill — Onboarding Guide Generation, Task 4: Plugin Registry + Loader (Core), Task 5: Plugin Configuration + Discovery (+18 more)
+Cohesion: 0.04
+Nodes (53): Task 2: Enhanced Search Engine with Fuzzy Matching, Task 7: Dashboard Search Enhancement + Store Integration, Task 1: Tour Generation Engine (Core), Task 5: Language Lesson Prompt Builder (Core), Dependency Graph, Task 1: /understand-diff Skill — PR/Diff Analysis, Task 2: /understand-explain Skill — Deep-Dive on Files, Task 3: /understand-onboard Skill — Onboarding Guide Generation (+45 more)
 
 ### Community 12 - "GraphView.tsx"
-Cohesion: 0.04
-Nodes (79): Execution Handoff, File Map, Graph Layout Scaling Implementation Plan, Self-Review, Task 11: Layer-detail Stage 1, Task 12: Layer-detail Stage 2 + edge expansion, Task 13: Auto-expand triggers (zoom + search/focus/tour), Task 14: Container visual overlays — search hit, diff, focused-via-child (+71 more)
+Cohesion: 0.05
+Nodes (62): Self-Review, Task 11: Layer-detail Stage 1, Task 9: Switch overview-level layout to ELK, 3.7 Dev mode strict failures, 5.1 New component: `ContainerNode`, 5.2 Spec, 5.3 Color coding, 5.4 State styles (+54 more)
 
-### Community 13 - "ThemeControl.tsx"
-Cohesion: 0.32
-Nodes (7): applyTheme(), initializeTheme(), setTheme(), storedPreference(), subscribeTheme(), themePreference, ThemeControl()
+### Community 13 - "App"
+Cohesion: 0.25
+Nodes (4): App(), resolveInitialToken(), TokenGate(), TokenGateProps
 
 ### Community 14 - "frontend/src/App.tsx"
-Cohesion: 0.07
-Nodes (33): App(), AppRoute(), Privacy(), allocatedWeightPoints(), CommutePlace, Component, Draft, draftSchema (+25 more)
+Cohesion: 0.09
+Nodes (30): ApiError, collection(), onSessionExpired(), sessionListeners, sessionRequests, App(), AppRoute(), Privacy() (+22 more)
 
-### Community 15 - "Browse.tsx"
+### Community 15 - "buyer.ts"
 Cohesion: 0.08
-Nodes (46): Browse(), BrowseProps, BrowseSession(), CatalogueProps, Comparison(), Details(), MatchedLayouts(), Matches() (+38 more)
+Nodes (53): apiPath(), Browse(), BrowseProps, BrowseSession(), CatalogueProps, Comparison(), Details(), MatchedLayouts() (+45 more)
 
 ### Community 16 - "extract-import-map.mjs"
 Cohesion: 0.08
 Nodes (61): addSwiftModuleFile(), applyTsAlias(), buildPackageIndex(), buildResolutionContext(), buildSuffixIndex(), buildSwiftModuleIndex(), comparePaths(), compareScalaPackageMembers() (+53 more)
 
-### Community 17 - "builder_media.py"
+### Community 17 - "hashlib"
 Cohesion: 0.03
-Nodes (84): BuilderMediaView, check_plan(), commit_revision(), prepare_revision(), prepare_saved_revision(), stage_revision(), private_assets(), stage_source_pages() (+76 more)
+Nodes (49): builder_can_manage(), check_plan(), commit_revision(), prepare_revision(), prepare_saved_revision(), stage_revision(), materialize_page_source(), prepare_page_source() (+41 more)
 
 ### Community 18 - "external_sources_admin.py"
 Cohesion: 0.13
-Nodes (29): apply_google_reference(), apply_manual_reference(), _check_google_version(), commit_references(), draft_map_url(), enrich_google_reference(), ExternalSourcesAdminMixin, _google_reference() (+21 more)
+Nodes (25): apply_google_reference(), apply_manual_reference(), _check_google_version(), commit_references(), draft_key(), draft_map_url(), enrich_google_reference(), ExternalSourcesAdminMixin (+17 more)
 
-### Community 19 - "builder_views.py"
-Cohesion: 0.09
-Nodes (26): builder_memberships(), project_location_data(), resolve_project_location(), submit_project_location(), BuilderAssetView, BuilderDraftPreviewView, BuilderPageView, scoped_project() (+18 more)
+### Community 19 - "builder_media.py"
+Cohesion: 0.03
+Nodes (68): builder_memberships(), project_location_data(), resolve_project_location(), submit_project_location(), BuilderActionsView, BuilderAssetView, BuilderCropView, BuilderDraftActionView (+60 more)
 
-### Community 20 - "test_external_sources.py"
+### Community 20 - "ReviewTask"
 Cohesion: 0.10
-Nodes (35): DirectLocationForm, draft_key(), project_transit_maps(), test_commit_pin_generates_directions_and_retry_returns_to_project(), test_commit_stores_references_not_google_content_or_verified_facts(), test_connector_browser_views_and_public_extraction(), test_direct_location_draft_commit_and_independent_approval(), test_direct_location_links_use_pin_coordinates_without_api() (+27 more)
+Nodes (43): DirectLocationForm, project_transit_maps(), station_choice_key(), GoogleProjectMaps, ReviewTask, test_commit_pin_generates_directions_and_retry_returns_to_project(), test_commit_stores_references_not_google_content_or_verified_facts(), test_connector_browser_views_and_public_extraction() (+35 more)
 
-### Community 21 - "layout_pages.py"
-Cohesion: 0.32
-Nodes (5): document_page_count(), validate_document_page(), test_actual_page_count_exceeds_partial_knowledge_chunk_maximum(), test_count_delegates_to_verified_source_helper(), test_count_rejects_corruption_even_when_chunks_exist()
+### Community 21 - "test_source_documents.py"
+Cohesion: 0.12
+Nodes (12): document_page_count(), validate_document_page(), source_pdf(), test_actual_page_count_exceeds_partial_knowledge_chunk_maximum(), test_both_import_paths_read_count_and_render(), test_count_delegates_to_verified_source_helper(), test_count_rejects_corruption_even_when_chunks_exist(), test_facade_renderer_method_remains_patchable() (+4 more)
 
 ### Community 22 - "test_layout_names.py"
-Cohesion: 0.10
-Nodes (34): save_layout_name(), CamelCaseJSONRenderer, _camelize(), concurrent_change(), test_active_toggle_ajax_rejects_unauthorized_changes(), test_active_toggle_ajax_returns_versions_and_inherited_inactivity(), test_active_toggle_is_audited_and_rejects_stale_version(), test_agent_upsert_preserves_saved_alias() (+26 more)
+Cohesion: 0.11
+Nodes (32): save_layout_name(), CamelCaseJSONRenderer, _camelize(), concurrent_change(), test_active_toggle_ajax_rejects_unauthorized_changes(), test_active_toggle_ajax_returns_versions_and_inherited_inactivity(), test_active_toggle_is_audited_and_rejects_stale_version(), test_agent_upsert_preserves_saved_alias() (+24 more)
 
 ### Community 23 - "FlagValidationError"
-Cohesion: 0.12
-Nodes (14): FeatureFlagForm, Meta, _audit(), _authorize(), FeatureFlagUnavailable, _insert(), sync_defaults(), update_flag() (+6 more)
+Cohesion: 0.11
+Nodes (15): FeatureFlagForm, Meta, _audit(), _authorize(), FeatureFlagConflict, FeatureFlagUnavailable, _insert(), sync_defaults() (+7 more)
 
-### Community 24 - "OpenAIFloorPlanVisionProvider"
-Cohesion: 0.13
-Nodes (8): _finite_float(), OpenAIFloorPlanVisionProvider, request_hook(), response_hook(), _reject_constant(), _unique_object(), _validate_response(), test_unit_regions_compatibility_uses_full_floor_evaluator()
-
-### Community 25 - "organization_roles_views.py"
+### Community 24 - "test_ai_plan_classification.py"
 Cohesion: 0.10
-Nodes (15): CropInput, CropRegion, MediaTarget, PictureInput, ProjectLocationInput, StrictInput, active_owners(), assign_role_members() (+7 more)
+Nodes (23): OpenAIFloorPlanVisionProvider, request_hook(), response_hook(), evaluate_layout_crop(), _evaluation_stopped(), classify(), layout_result(), test_all_layout_prompts_include_unlabeled_foyers_passages_and_feet_inches() (+15 more)
 
-### Community 26 - "Dashboard Graph Layout Scaling — Design"
-Cohesion: 0.05
-Nodes (41): Task 3: Dagre Auto-Layout for Graph View, Task 8: Dashboard — Vertical Layout for Knowledge Graphs, Task 10: Switch DomainGraphView to ELK, 2.1 Folder strategy (default), 2.2 Community fallback (Louvain), 2.3 Edge cases, 2.4 Function signature, §2. Container Derivation (Layer-Detail Only) (+33 more)
+### Community 25 - "organization_roles.py"
+Cohesion: 0.13
+Nodes (12): active_owners(), assign_role_members(), is_owner(), require_owner(), require_role_manager(), MemberInput, OrganizationRoleMembersView, OrganizationRolesView (+4 more)
+
+### Community 26 - "Graph Layout Scaling Implementation Plan"
+Cohesion: 0.04
+Nodes (57): Task 3: Dagre Auto-Layout for Graph View, Task 8: Dashboard — Vertical Layout for Knowledge Graphs, Execution Handoff, File Map, Graph Layout Scaling Implementation Plan, Task 10: Switch DomainGraphView to ELK, Task 12: Layer-detail Stage 2 + edge expansion, Task 13: Auto-expand triggers (zoom + search/focus/tour) (+49 more)
 
 ### Community 27 - "api.py"
-Cohesion: 0.15
+Cohesion: 0.17
 Nodes (3): NoStoreResponseMixin, FeatureFlagPagination, FeatureFlagPermission
 
-### Community 28 - "PluginRegistry"
-Cohesion: 0.05
-Nodes (31): Task 4: Add Non-Code Language Configs (26 configs), File Structure, Implementation Notes, Language-Specific Extractor Architecture Implementation Plan, Task 10: Create C/C++ extractor, Task 11: Create C# extractor, Task 12: Create extractor index and wire into TreeSitterPlugin, Task 13: Create bundled extract-structure.mjs script (+23 more)
+### Community 28 - "TreeSitterPlugin"
+Cohesion: 0.08
+Nodes (25): File Structure, Language-Specific Extractor Architecture Implementation Plan, Task 10: Create C/C++ extractor, Task 11: Create C# extractor, Task 12: Create extractor index and wire into TreeSitterPlugin, Task 13: Create bundled extract-structure.mjs script, Task 14: Rewrite file-analyzer.md Phase 1 to use bundled script, Task 15: Final integration verification and cleanup (+17 more)
 
 ### Community 29 - "realestate_common/geometry.py"
-Cohesion: 0.24
-Nodes (11): test_automatic_region_validation_still_rejects_excessive_overlap(), _colored_regions(), _content_mask(), _dominant_markers(), floor_applicability(), _radial_seeds(), _red_markers(), _regions_from_seeds() (+3 more)
+Cohesion: 0.28
+Nodes (10): test_automatic_region_validation_still_rejects_excessive_overlap(), _colored_regions(), _content_mask(), _dominant_markers(), _radial_seeds(), _red_markers(), _regions_from_seeds(), segment_units_script() (+2 more)
 
-### Community 30 - "/understand-figma — Figma Ingestion & Structure (Foundation) Design"
-Cohesion: 0.09
-Nodes (21): Agent Pipeline, Backward Compatibility, Backward Compatibility, Coexistence & Security, Behavior, Coexistence, File Structure, Goals, Incremental Mode (+13 more)
+### Community 30 - "FigmaSource"
+Cohesion: 0.07
+Nodes (27): Execution Handoff, Open Questions / Future (not in this plan), Scope Check, /understand-figma Foundation — Implementation Plan, Agent Pipeline, Backward Compatibility, Backward Compatibility, Coexistence & Security, Behavior (+19 more)
 
 ### Community 31 - "BuilderMediaWorkspace"
-Cohesion: 0.09
-Nodes (46): ActionValues, BuilderMediaWorkspace(), action(), addLayoutRegion(), beginRectangle(), cancelRectangle(), changeActivity(), confirmAction() (+38 more)
+Cohesion: 0.08
+Nodes (49): JQ-ATTR-001: Untrusted values MUST NOT be written into dangerous attributes without validation/allowlisting, VUE-XSS-004: Prevent URL injection in bindings and navigations, Phase 0 — Pre-flight, ActionValues, BuilderMediaWorkspace(), action(), addLayoutRegion(), beginRectangle() (+41 more)
 
-### Community 32 - "integrations.py"
-Cohesion: 0.05
-Nodes (25): ClamAvCommandScanner, DocumentExtractor, DocumentScanner, get_document_scanner(), MahaReraProvider, MahaReraResult, RejectingScanner, RoutingProvider (+17 more)
+### Community 32 - "test_service_boundaries.py"
+Cohesion: 0.06
+Nodes (13): ClamAvCommandScanner, get_document_scanner(), RejectingScanner, builder_client(), test_admin_service_exposes_admin_page_read_routes(), test_builder_service_operation_status_is_owner_scoped(), test_builder_service_session_bootstrap_login_and_logout(), test_clamav_endpoint_is_disabled_by_default() (+5 more)
 
-### Community 33 - "create_flag"
-Cohesion: 0.31
-Nodes (7): create_flag(), disable_flag(), FeatureFlagConflict, test_compare_and_swap_guard_and_audit_failure_rollback(), test_management_versions_audit_and_disable_preserve_row(), test_stale_and_immutable_mutations_do_not_save_or_audit(), test_unknown_rows_read_only_and_other_environment_untouched()
+### Community 33 - "test_layout_evaluation_queue.py"
+Cohesion: 0.07
+Nodes (44): work_lock(), queue_single_layout(), InboxMessage, inference(), analyze(), layout(), sibling(), test_bad_boundary_is_terminal_and_spends_only_one_attempt() (+36 more)
 
-### Community 34 - "test_floor_plan_vision.py"
-Cohesion: 0.13
-Nodes (31): list_floor_plan_vision_profiles(), InvalidProviderResponse, single_provider(), test_azure_entra_credential_is_reused_until_closed(), test_azure_token_failure_is_safe_and_closes_credential(), test_cloud_requires_auth_reference(), test_cloud_uses_key_and_json_schema_never_entra(), test_enabled_flag_is_no_longer_supported() (+23 more)
+### Community 34 - "test_project_layout_health.py"
+Cohesion: 0.11
+Nodes (18): boundary_review_layouts(), NeedsBoundaryReviewFilter, project_boundary_layouts(), project_boundary_review_counts(), project_layout_health_context(), ProjectLayoutHealthAdminMixin, with_project_layout_health(), HealthAdmin (+10 more)
 
 ### Community 35 - "dashboard/src/App.tsx"
-Cohesion: 0.06
-Nodes (75): Task 16: WarningBanner copy for layout issues + Computing layout overlay, Task 13: Sidebar thumbnail + design badges (`NodeInfo.tsx`), Dashboard Changes, 대시보드 변경, App(), CodeViewer, DashboardContent(), KeyboardShortcutsHelp (+67 more)
+Cohesion: 0.07
+Nodes (64): Task 13: Sidebar thumbnail + design badges (`NodeInfo.tsx`), Dashboard Changes, 대시보드 변경, CodeViewer, DashboardContent(), KeyboardShortcutsHelp, LearnPanel, OnboardingOverlay (+56 more)
 
-### Community 36 - "commute_locations_views.py"
-Cohesion: 0.14
-Nodes (7): CommuteLocationError, resolve_location(), search_locations(), CommuteLocationResolveView, CommuteLocationSearchView, CommuteLocationThrottle, PrivateCommuteLocationView
+### Community 36 - "direct_location"
+Cohesion: 0.13
+Nodes (12): CommuteLocationError, resolve_location(), search_locations(), CommuteLocationResolveView, CommuteLocationSearchView, CommuteLocationThrottle, PrivateCommuteLocationView, direct_location() (+4 more)
 
 ### Community 37 - "merge-batch-graphs.py"
 Cohesion: 0.07
@@ -669,129 +646,129 @@ Nodes (25): _add_unique(), _basename(), batch_sort_key(), build_whole_file_node_
 Cohesion: 0.11
 Nodes (43): classExpression(), declarationKey(), declarationName(), identifier(), literal(), unescaped(), unwrap(), COVERAGE_LANGUAGES (+35 more)
 
-### Community 39 - "api"
-Cohesion: 0.14
-Nodes (32): api(), ApiError, collection(), json(), sessionListeners, sessionRequests, BuyerApp(), bootstrap() (+24 more)
+### Community 39 - "Operation"
+Cohesion: 0.24
+Nodes (16): `GET /api/v1/developer-projects/{projectId}/vision-profiles`, _check_job_cancelled(), Operation, evaluation_retry_warning(), label(), fresh_evaluation_plans(), queue_fresh_project_evaluations(), fail() (+8 more)
 
-### Community 40 - "BuilderMediaAction"
-Cohesion: 0.20
-Nodes (10): BuilderActionsView, BuilderCropView, BuilderDraftActionView, BuilderEvaluateView, BuilderMediaAction, BuilderPagesView, check_version(), scoped_document() (+2 more)
+### Community 40 - "test_layout_evaluation_status.py"
+Cohesion: 0.17
+Nodes (12): layout_evaluation_states(), run_single_layout(), source(), test_completed_old_checksum_is_not_shown_as_current_extraction(), crop_job(), test_cancelled_job_never_restarts(), test_card_template_shows_pending_and_friendly_title(), test_empty_dimensions_distinguish_operation_states() (+4 more)
 
 ### Community 41 - "KnowledgeGraphView.tsx"
 Cohesion: 0.11
-Nodes (27): createForceLayoutWorker(), EDGE_STYLES, EMPTY_EDGE_COUNTS, EMPTY_POSITION_MAP, getNodeDimensions(), KnowledgeGraphViewInner(), LayoutState, nodeTypes (+19 more)
+Nodes (28): createForceLayoutWorker(), EDGE_STYLES, EMPTY_EDGE_COUNTS, EMPTY_POSITION_MAP, getNodeDimensions(), KnowledgeGraphViewInner(), LayoutState, nodeTypes (+20 more)
 
 ### Community 42 - "schema.ts"
-Cohesion: 0.04
-Nodes (62): Task 1: Tour Generation Engine (Core), Task 5: Language Lesson Prompt Builder (Core), Dashboard Robustness Implementation Plan, Task 1: Add GraphIssue type and sanitizeGraph (Tier 1), Task 2: Add auto-fix maps and autoFixGraph (Tier 2), Task 3: Rewrite validateGraph to be permissive (Tier 3 + 4), Task 4: Update existing tests for new permissive behavior, Task 5: Create WarningBanner dashboard component (+54 more)
+Cohesion: 0.07
+Nodes (34): Dashboard Robustness Implementation Plan, Task 1: Add GraphIssue type and sanitizeGraph (Tier 1), Task 2: Add auto-fix maps and autoFixGraph (Tier 2), Task 3: Rewrite validateGraph to be permissive (Tier 3 + 4), Task 4: Update existing tests for new permissive behavior, Task 5: Create WarningBanner dashboard component, Task 6: Wire WarningBanner into App.tsx, Task 7: Final verification (+26 more)
 
 ### Community 43 - "core/src/index.ts"
-Cohesion: 0.07
-Nodes (48): buildFileAnalysisPrompt(), buildProjectSummaryPrompt(), extractJson(), LLMFileAnalysis, LLMProjectSummary, parseFileAnalysisResponse(), parseProjectSummaryResponse(), VALID_COMPLEXITIES (+40 more)
+Cohesion: 0.05
+Nodes (72): Implementation Notes, BASE_CONCEPT_PATTERNS, buildConceptPatterns(), buildLanguageLessonPrompt(), detectLanguageConcepts(), extractJson(), getLanguageDisplayName(), LanguageLessonResult (+64 more)
 
 ### Community 44 - "frontend/package.json"
-Cohesion: 0.05
-Nodes (40): dependencies, @fontsource/dm-serif-display, @fontsource/manrope, leaflet, lucide-react, @playwright/test, react, react-dom (+32 more)
+Cohesion: 0.10
+Nodes (20): react, react-dom, @types/node, @types/react, @types/react-dom, typescript, vite, @vitejs/plugin-react (+12 more)
 
 ### Community 45 - "test_project_maps.py"
-Cohesion: 0.11
-Nodes (22): metro_catalogue(), nearby_catalogue(), Command, map_stations(), add(), requested_connections(), Kind, StationCandidate (+14 more)
+Cohesion: 0.12
+Nodes (19): Command, map_stations(), add(), requested_connections(), Kind, StationCandidate, _location(), project_map_location() (+11 more)
 
 ### Community 46 - "Command"
-Cohesion: 0.07
-Nodes (21): _CleanTestScanner, Command, Command, categorize_samples(), _category(), _file_digest(), _maha_rera_ids(), prioritize_project_sources() (+13 more)
+Cohesion: 0.08
+Nodes (20): Command, Command, categorize_samples(), _category(), _file_digest(), _maha_rera_ids(), prioritize_project_sources(), _project_key() (+12 more)
 
 ### Community 47 - "StructuralAnalysis"
-Cohesion: 0.14
-Nodes (28): Tier 1: Sanitize Silently, Rules, Output Format, childrenForFieldName(), collectDescendants(), containerBaseName(), declarationKind(), extractAssociatedTypeName() (+20 more)
+Cohesion: 0.13
+Nodes (29): Tier 1: Sanitize Silently, Backward Compatibility, Rules, Output Format, childrenForFieldName(), collectDescendants(), containerBaseName(), declarationKind() (+21 more)
 
 ### Community 48 - "take_screenshot.py"
-Cohesion: 0.11
-Nodes (34): activate_app(), capture_linux(), capture_macos(), default_dir(), default_filename(), ensure_macos_permissions(), ensure_parent(), list_macos_windows() (+26 more)
+Cohesion: 0.14
+Nodes (30): activate_app(), capture_linux(), capture_macos(), default_dir(), default_filename(), ensure_macos_permissions(), ensure_parent(), list_macos_windows() (+22 more)
 
-### Community 49 - "re"
-Cohesion: 0.16
-Nodes (8): direct_location(), route_link(), route_uses_places(), MapsRedirectHandler, resolve_share_url(), validate_maps_url(), test_google_route_distinguishes_no_route_and_failure(), test_share_url_rejects_unsafe_initial_or_redirect_targets()
+### Community 49 - "File Structure"
+Cohesion: 0.14
+Nodes (12): File Structure, Task 10: `/understand-figma` skill orchestration (`SKILL.md`), Task 11: Pre-fetch screen thumbnails into `figmaMeta.thumbnailUrl`, Task 12: Dashboard node colors for design node types, Task 14: Full integration verification, Task 15: Incremental skip via Figma file `version`, Task 2: Extend the Zod schema (accept design types, normalize aliases, promote instance_of), Task 3: Figma source adapter (`FigmaSource` interface + `FigmaApiSource`) (+4 more)
 
 ### Community 50 - "floor_plan_vision.py"
-Cohesion: 0.04
-Nodes (53): PlatformApiConfig, eligible_layouts(), EvaluationMode, EvaluationOutcome, queue_layout_batch(), FloorPlanFlatSeparationAISkill, FloorPlanPageSelector, SelectedFloorPlanPage (+45 more)
+Cohesion: 0.03
+Nodes (102): load_vision_profiles(), PlatformApiConfig, eligible_layouts(), EvaluationMode, EvaluationOutcome, queue_layout_batch(), rule_selection(), RuleBasedPlanProvider (+94 more)
 
-### Community 51 - "File Structure"
-Cohesion: 0.06
-Nodes (43): Execution Handoff, File Structure, Open Questions / Future (not in this plan), Scope Check, Self-Review (performed), Task 10: `/understand-figma` skill orchestration (`SKILL.md`), Task 11: Pre-fetch screen thumbnails into `figmaMeta.thumbnailUrl`, Task 12: Dashboard node colors for design node types (+35 more)
+### Community 51 - "figma/index.ts"
+Cohesion: 0.17
+Nodes (18): Task 4: Deterministic document parser (`parseDocument`), Task 5: Token extraction (`extractTokens`), mkNode(), parseDocument(), collectInstances(), handlePageChild(), extractTokens(), walk() (+10 more)
 
 ### Community 52 - "PrecheckedFloorPlanVisionProvider"
 Cohesion: 0.27
 Nodes (3): PrecheckedFloorPlanVisionProvider, test_dev_precheck_allows_layout_to_primary(), test_dev_precheck_rejects_non_layout_before_primary()
 
 ### Community 53 - "Admin base site template"
-Cohesion: 0.12
-Nodes (17): Interactive crop selection, Layout crop update template, Layout extraction correction template, Extracted room correction, Project change list template, Project media dashboard template, Project media workflow, Canonical project merge (+9 more)
+Cohesion: 0.14
+Nodes (15): Interactive crop selection, Layout crop update template, Layout extraction correction template, Extracted room correction, Project change list template, Project media dashboard template, Canonical project merge, Project merge template (+7 more)
 
-### Community 54 - "FloorPlanAsset"
-Cohesion: 0.07
-Nodes (62): commit_saved_draft(), stage_crop_update(), LayoutCropUpdateAdminMixin, LayoutCropUpdateForm, _private(), _check_version(), _checked_preview(), crop_edit_preview() (+54 more)
+### Community 54 - "test_layout_crop_update.py"
+Cohesion: 0.06
+Nodes (64): commit_saved_draft(), stage_crop_update(), LayoutCropUpdateAdminMixin, LayoutCropUpdateForm, _private(), _check_version(), _checked_preview(), crop_edit_preview() (+56 more)
 
 ### Community 55 - "/understand-figma — Figma 수집 & 구조 분석 (기반) 설계"
-Cohesion: 0.15
-Nodes (12): /understand-figma — Figma 수집 & 구조 분석 (기반) 설계, 개요, 공존, 로드맵 (B · C · D · E), 목표 (Goals), 범위 분해 (왜 기반 우선인가), 보안, 비목표 (Non-Goals) (+4 more)
+Cohesion: 0.09
+Nodes (22): /understand-figma — Figma 수집 & 구조 분석 (기반) 설계, 개요, 공존, 동작, 레이어 & 투어, 로드맵 (B · C · D · E), 목표 (Goals), 범위 분해 (왜 기반 우선인가) (+14 more)
 
 ### Community 56 - "freshness.ts"
 Cohesion: 0.08
 Nodes (41): Dashboard(), dataUrl(), Props, buildFreshnessBanner(), changedFilesSentence(), dirtySummary(), FreshnessBannerContent, GraphEntry (+33 more)
 
-### Community 57 - "test_builder_portal.py"
-Cohesion: 0.12
-Nodes (26): save_location(), test_builder_proposal_requires_independent_reviewer_and_supersedes_old_proposals(), test_create_project_with_location_and_optional_omission(), test_invalid_location_is_atomic_and_does_not_echo_private_input(), test_location_resolution_only_after_object_access_and_version_check(), test_location_saved_as_private_review_proposal_not_project_fact(), test_short_links_reuse_existing_resolver_and_fail_without_mutation(), make_layout() (+18 more)
+### Community 57 - "test_builder_locations.py"
+Cohesion: 0.18
+Nodes (16): save_location(), test_builder_proposal_requires_independent_reviewer_and_supersedes_old_proposals(), test_create_project_with_location_and_optional_omission(), test_invalid_location_is_atomic_and_does_not_echo_private_input(), test_location_resolution_only_after_object_access_and_version_check(), test_location_saved_as_private_review_proposal_not_project_fact(), test_short_links_reuse_existing_resolver_and_fail_without_mutation(), project_url() (+8 more)
 
 ### Community 58 - "travel.py"
-Cohesion: 0.19
+Cohesion: 0.17
 Nodes (14): RouteResult, UnavailableRoutingProvider, test_local_provider_rejects_missing_coordinates(), test_local_travel_preview_is_cached(), ApproximateLocalRoutingProvider, _arrival_bucket(), commute_scores(), _coordinates() (+6 more)
 
-### Community 59 - "Launch Review: Scope and Decisions"
-Cohesion: 0.11
-Nodes (17): 1. Review baseline, 2. Launch target, 3. Documentation output, Architecture and domain conclusions, Current project picture, Decisions required before the detailed review, Demo-launch decision, High — organization verification is not enforced before developer submission (+9 more)
+### Community 59 - "test_process_outbox_command.py"
+Cohesion: 0.21
+Nodes (10): Command, isolated_worker_session(), mock_queue(), run_command(), test_command_parser_accepts_existing_and_media_selectors(), test_existing_selectors_keep_worker_semantics(), test_media_batch_retains_limit_ceiling(), test_media_empty_batch_does_not_fall_back_to_unfiltered_worker() (+2 more)
 
 ### Community 60 - "dashboard/package.json"
-Cohesion: 0.08
+Cohesion: 0.07
 Nodes (25): graphology, graphology-communities-louvain, react, react-dom, @types/react, @types/react-dom, typescript, @understand-anything/core (+17 more)
 
 ### Community 61 - "CSharpExtractor"
-Cohesion: 0.25
-Nodes (6): CSharpExtractor, extractParams(), extractReturnType(), extractUsingSource(), hasModifier(), lastComponent()
+Cohesion: 0.28
+Nodes (5): CSharpExtractor, extractParams(), extractReturnType(), hasModifier(), lastComponent()
 
 ### Community 62 - "dashboard/vite.config.ts"
-Cohesion: 0.07
-Nodes (28): GraphFreshnessInput, GraphFreshnessResult, commitAll(), git(), graphDirectory(), HttpResult, servers, startDashboardServer() (+20 more)
+Cohesion: 0.11
+Nodes (20): GraphFreshnessResult, startDashboardServer(), config, createDashboardDataMiddleware(), DashboardDataMiddleware, DashboardFreshnessReport, DashboardViteConfig, detectLanguage() (+12 more)
 
 ### Community 63 - "_file_node"
 Cohesion: 0.09
-Nodes (3): _file_node(), LinkTestsTests, MergeEdgeDirectionTests
+Nodes (3): _file_node(), LinkTestsTests, TestMultiPart
 
-### Community 64 - "TreeSitterPlugin"
-Cohesion: 0.26
-Nodes (4): 2. GenericTreeSitterPlugin, Migration, WASM Grammar Loading, TreeSitterPlugin
+### Community 64 - "ComparisonShare"
+Cohesion: 0.16
+Nodes (7): ComparisonShare, ComparisonShareSerializer, ConsentSerializer, AccountDeleteView, AccountExportView, ComparisonShareViewSet, ConsentViewSet
 
 ### Community 65 - "BuilderPortal.tsx"
-Cohesion: 0.11
-Nodes (40): cancelSessionRequests(), BuilderLayout, Account, Address, BuilderPortal(), bootstrap(), logout(), BuilderWorkspace() (+32 more)
+Cohesion: 0.09
+Nodes (56): api(), cancelSessionRequests(), json(), Login(), BuilderLayout, Account, Address, BuilderLogin() (+48 more)
 
 ### Community 66 - "refresh_google_project_places.py"
 Cohesion: 0.08
-Nodes (25): drain_route_batches(), has_route_duration(), RouteBatchResult, Command, run_batch(), google_references(), has_available_route(), _captcha_handoff() (+17 more)
+Nodes (27): drain_route_batches(), has_route_duration(), RouteBatchResult, Command, run_batch(), google_references(), has_available_route(), _captcha_handoff() (+19 more)
 
-### Community 67 - "models.py"
-Cohesion: 0.06
-Nodes (47): 2.3 EvidenceDocument and ProjectFact, `GET /api/v1/developer-projects/{projectId}/vision-profiles`, project_price_label(), builder_can_manage(), _persist_project_facts(), FloorPlanCandidate, provider_metadata(), annotate_project_prices() (+39 more)
+### Community 67 - "FloorPlan"
+Cohesion: 0.04
+Nodes (82): 2.3 EvidenceDocument and ProjectFact, _persist_project_facts(), derived_layout_ids(), set_plan_active_locked(), _locked_source(), _archive(), _persist(), _reconcile_reviews() (+74 more)
 
 ### Community 68 - "test_ingestion_queue.py"
-Cohesion: 0.11
-Nodes (39): AgentWorkflowRun, ExtractionJob, IngestionRun, queue_document_reanalysis(), records(), test_project_picture_document_selection_and_default(), assert_no_pipeline_calls(), assert_selection() (+31 more)
+Cohesion: 0.15
+Nodes (32): ExtractionJob, assert_no_pipeline_calls(), assert_selection(), assert_validation(), client(), document_factory(), create(), document_url() (+24 more)
 
 ### Community 69 - "test_recommendation_layouts.py"
-Cohesion: 0.15
-Nodes (29): ProjectMetric, TravelEstimate, score_recommendations(), fixture_project(), requirements(), test_guest_matches_shared_scoring_without_persisting_buyer_or_routes(), test_guest_post_requires_csrf(), test_guest_validation_and_unavailable_routing() (+21 more)
+Cohesion: 0.26
+Nodes (19): ProjectMetric, score_recommendations(), another(), home(), profile(), strict(), test_all_in_budget_uses_matching_layout_not_cheapest_other_configuration(), test_approved_child_layouts_match_the_canonical_project_after_merge() (+11 more)
 
 ### Community 70 - "4) Rules (generation + audit)"
 Cohesion: 0.05
@@ -801,17 +778,17 @@ Nodes (41): 0) Safety, boundaries, and anti-abuse constraints (MUST FOLLOW), 1.1
 Cohesion: 0.11
 Nodes (35): compare(), graph(), parse(), classify(), installers, matrix, oldSource, shells (+27 more)
 
-### Community 72 - "findChild"
-Cohesion: 0.13
-Nodes (17): findChild(), collectClassBody(), constructorName(), DartExtractor, extractFunctionName(), extractParamName(), extractParams(), extractReturnType() (+9 more)
+### Community 72 - "TreeSitterNode"
+Cohesion: 0.05
+Nodes (52): Task 1: Create LanguageExtractor interface and shared utilities, findChild(), findChildren(), getStringValue(), hasChildOfType(), traverse(), CppExtractor, extractFuncDeclName() (+44 more)
 
 ### Community 73 - "Contributing to Understand Anything"
 Cohesion: 0.05
 Nodes (39): 1. Create a Branch, 2. Make Changes, 3. Test Your Changes, 4. Commit Your Changes, 5. Push and Create Pull Request, Adding a New Language, 🐛 Bug Reports, 🤝 Code Review Process (+31 more)
 
-### Community 74 - "TreeSitterNode"
-Cohesion: 0.15
-Nodes (12): extractParams(), extractReturnType(), extractScopedIdentifierPath(), hasModifier(), JavaExtractor, lastComponent(), ATTR_METHODS, extractAttrProperties() (+4 more)
+### Community 74 - "ruby-extractor.ts"
+Cohesion: 0.24
+Nodes (6): ATTR_METHODS, extractAttrProperties(), extractParams(), getStringContent(), IMPORT_METHODS, RubyExtractor
 
 ### Community 75 - "4) Rules (generation + audit)"
 Cohesion: 0.05
@@ -825,9 +802,9 @@ Nodes (37): bugs, url, description, devDependencies, ajv, eslint, @eslint/js, gl
 Cohesion: 0.05
 Nodes (37): 1.1 Preset Definitions, 1.2 Glass Effects, 1.3 Scrollbar & Glow Colors, 1.4 Node-Type & Diff Colors, 1.5 Accent Swatches, 1.6 Border & Glass Derivation, 1. Theme Presets & Color System, 2.1 File Structure (+29 more)
 
-### Community 78 - "guestShortlist.ts"
-Cohesion: 0.16
-Nodes (19): Snapshot, clear(), componentSchema, cookie(), decodeGuestTrial(), deleteGuestTrial(), encodeGuestTrial(), guestCookieName (+11 more)
+### Community 78 - "BuyerApp"
+Cohesion: 0.11
+Nodes (35): BuyerApp(), bootstrap(), clearPrivateState(), handleError(), loadProfile(), persist(), saveAndExit(), saveDestinations() (+27 more)
 
 ### Community 79 - "4) Rules (generation + audit)"
 Cohesion: 0.05
@@ -838,8 +815,8 @@ Cohesion: 0.32
 Nodes (8): Admin Web Service, Builder Web Service, Buyer Web Service, Compose Deployment Stack, Migration Service, PostgreSQL Service, Extraction Dispatcher Worker, Local Service Lifecycle
 
 ### Community 81 - "understand-anything-plugin/src/index.ts"
-Cohesion: 0.09
-Nodes (28): Dependency Graph, Task 10: Integration Polish — Sample Data, Build Verification, README Update, Task 1: Zod Schema Validation for Graph Loading, Task 4: Staleness Detection + Incremental Updates, Task 5: Layer Auto-Detection, Task 6: Skill Package Scaffolding + `/understand-chat` Command, Task 8: Dashboard Chat Panel, Task 9: Dashboard Layer Visualization (+20 more)
+Cohesion: 0.13
+Nodes (19): Task 8: Dashboard Chat Panel, buildChatContext(), ChatContext, formatContextForPrompt(), buildDiffContext(), DiffContext, formatDiffAnalysis(), buildExplainContext() (+11 more)
 
 ### Community 82 - ".understandignore Implementation Plan"
 Cohesion: 0.06
@@ -849,17 +826,17 @@ Nodes (33): Agents & skills, Core package, File Structure, Task 1: Add `ignore` 
 Cohesion: 0.06
 Nodes (34): Agent Structure, Architecture: Separate File, Shared Schema (Approach C), Business Domain Knowledge Extraction — Design Spec, Dashboard Resilience, Domain Analyzer Agent, Domain Cluster Rendering, Domain Node Structure, Domain-Specific Validation Rules (+26 more)
 
-### Community 84 - "ProjectGallery.tsx"
-Cohesion: 0.17
-Nodes (19): apiPath(), onSessionExpired(), calculatedRoomArea(), Configuration, configurationArea(), configurationPrice(), defaults, lowestPrice() (+11 more)
+### Community 84 - "ProjectMap.tsx"
+Cohesion: 0.10
+Nodes (21): coordinates(), MapConnection, MapLine, MapStation, Shortlist, GalleryItem, Controls(), FocusRequest (+13 more)
 
 ### Community 85 - "prepare-incremental.mjs"
 Cohesion: 0.13
 Nodes (32): analyzeInventoryChanges(), atomicWriteJson(), buildCurrentFingerprints(), clearIncrementalScratch(), comparePaths(), contentOnlyFingerprint(), __dirname, GENERATED_ROOTS (+24 more)
 
 ### Community 86 - "kotlin-extractor.ts"
-Cohesion: 0.23
-Nodes (11): collectClassBody(), collectPrimaryConstructorProperties(), extractDeclarationName(), extractParams(), extractPropertyName(), extractReturnType(), extractVisibility(), isExported() (+3 more)
+Cohesion: 0.29
+Nodes (9): collectClassBody(), collectPrimaryConstructorProperties(), extractDeclarationName(), extractParams(), extractPropertyName(), extractReturnType(), extractVisibility(), isExported() (+1 more)
 
 ### Community 87 - "Token Reduction Design"
 Cohesion: 0.06
@@ -875,19 +852,19 @@ Nodes (31): 0) Safety, boundaries, and anti-abuse constraints (MUST FOLLOW), 1.1
 
 ### Community 90 - "4) Rules (generation + audit)"
 Cohesion: 0.04
-Nodes (44): 0) Safety, boundaries, and anti-abuse constraints (MUST FOLLOW), 1.1 Generation mode (default), 1.2 Passive review mode (always on while editing), 1.3 Active audit mode (explicit scan request), 1) Operating modes, 2.1 Untrusted input (treat as attacker-controlled unless proven otherwise), 2.2 State-changing request, 2.3 Required audit finding format (+36 more)
+Nodes (45): 0) Safety, boundaries, and anti-abuse constraints (MUST FOLLOW), 1.1 Generation mode (default), 1.2 Passive review mode (always on while editing), 1.3 Active audit mode (explicit scan request), 1) Operating modes, 2.1 Untrusted input (treat as attacker-controlled unless proven otherwise), 2.2 State-changing request, 2.3 Required audit finding format (+37 more)
 
-### Community 91 - "ref_node_module"
-Cohesion: 0.06
-Nodes (31): Task 6: Build GenericTreeSitterPlugin, parse(), require, parse(), require, parse(), require, parse() (+23 more)
+### Community 91 - "ref_vitest"
+Cohesion: 0.05
+Nodes (41): Task 6: Build GenericTreeSitterPlugin, builtinExtractors, parse(), require, parse(), require, parse(), require (+33 more)
 
 ### Community 92 - "large-repo-benchmark.mjs"
 Cohesion: 0.09
 Nodes (29): addRootAliases(), BATCH_SCRIPT, canonicalizePhysicalPath(), __dirname, duration(), extendedWindowsPath(), GIT_METADATA_MAX_BUFFER, gitMetadata() (+21 more)
 
 ### Community 93 - "test_merge_batch_graphs.py"
-Cohesion: 0.09
-Nodes (7): _load(), TestLowercaseWikiStillWorks, _load_module(), MergeIntegrationTests, TestIncrementalEdgeCandidates, _whole_file_node(), WholeFileImportIndexTests
+Cohesion: 0.05
+Nodes (11): _fs_is_case_sensitive(), _load(), TestFindMarkdownCaseInsensitive, TestLowercaseWikiStillWorks, _load_module(), MergeEdgeDirectionTests, MergeIntegrationTests, TestIncrementalEdgeCandidates (+3 more)
 
 ### Community 94 - "test_extract_structure_outcomes.test.mjs"
 Cohesion: 0.14
@@ -898,12 +875,12 @@ Cohesion: 0.06
 Nodes (19): features, configuredMotherSiteUrl, currentYear, btn, snippet, configuredMotherSiteUrl, desktopQuery, header (+11 more)
 
 ### Community 96 - "scala-extractor.ts"
-Cohesion: 0.17
+Cohesion: 0.20
 Nodes (12): collectClassParameterProperties(), extractAccessModifier(), extractDeclarationName(), extractFieldName(), extractParams(), extractReturnType(), FIELD_DEFINITION_KINDS, FUNCTION_DEFINITION_KINDS (+4 more)
 
-### Community 97 - "KnowledgeGraph"
+### Community 97 - "dependencies"
 Cohesion: 0.15
-Nodes (8): Files NOT Changed, Task 6: Update GraphBuilder — Support New Node Types, GraphBuilder, buildTourGenerationPrompt(), generateHeuristicTour(), parseTourGenerationResponse(), sampleGraph, KnowledgeGraph
+Nodes (13): dependencies, @fontsource/dm-serif-display, @fontsource/manrope, leaflet, lucide-react, @playwright/test, react, react-dom (+5 more)
 
 ### Community 98 - "ThemeContext.tsx"
 Cohesion: 0.17
@@ -914,8 +891,8 @@ Cohesion: 0.09
 Nodes (26): applyMessy(), args, complexities, edgeCount, edges, edgeTypes, frameworks, generateEdges() (+18 more)
 
 ### Community 100 - "frameworks/index.ts"
-Cohesion: 0.13
-Nodes (13): FrameworkRegistry, djangoConfig, expressConfig, fastapiConfig, flaskConfig, ginConfig, builtinFrameworkConfigs, nextjsConfig (+5 more)
+Cohesion: 0.14
+Nodes (12): FrameworkRegistry, djangoConfig, expressConfig, fastapiConfig, flaskConfig, ginConfig, nextjsConfig, railsConfig (+4 more)
 
 ### Community 101 - "Draft Cart Icon Partial"
 Cohesion: 0.40
@@ -926,12 +903,12 @@ Cohesion: 0.33
 Nodes (9): Bluesky Icon, Developer Documentation, Discord Icon, Documentation Icon, GitHub Icon, Social Profile Icon, Social Platform Links, SVG Icon Sprite (+1 more)
 
 ### Community 103 - "6. Developer organizations and projects"
-Cohesion: 0.06
-Nodes (35): 10. Status and health, 11. Security headers, 1. Conventions, 2. Buyer requirements, 3. Places and travel, 4. Recommendations, 6. Developer organizations and projects, 7. Evidence and review (+27 more)
+Cohesion: 0.05
+Nodes (42): 10. Status and health, 11. Security headers, 1. Conventions, 2. Buyer requirements, 3. Places and travel, 4. Recommendations, 5. Catalog, 6. Developer organizations and projects (+34 more)
 
-### Community 104 - "LanguageConfig"
-Cohesion: 0.16
-Nodes (7): cppConfig, csvConfig, kotlinConfig, pythonConfig, typescriptConfig, LanguageRegistry, LanguageConfig
+### Community 104 - "mergeDesignGraph"
+Cohesion: 0.17
+Nodes (11): Self-Review (performed), Task 6: Merge manifest + analysis into a `kind:"design"` graph (`mergeDesignGraph`), DS_TYPES, mergeDesignGraph(), Phase 0 — Pre-flight, Phase 1 — FETCH & PARSE (deterministic), Phase 2 — ANALYZE (LLM enrichment), Phase 3 — MERGE (+3 more)
 
 ### Community 105 - "Document ingestion and project outputs"
 Cohesion: 0.10
@@ -939,11 +916,11 @@ Nodes (21): Response, screenCaptureGranted(), Status, Bounds, rank(), Response, 
 
 ### Community 106 - "4) Rules (generation + audit)"
 Cohesion: 0.04
-Nodes (46): 0) Safety, boundaries, and anti-abuse constraints (MUST FOLLOW), 1.1 Generation mode (default), 1.2 Passive review mode (always on while editing), 1.3 Active audit mode (explicit scan request), 1) Operating modes, 2.1 Untrusted input (treat as attacker-controlled unless proven otherwise), 2.2 State-changing request, 2.3 Required audit finding format (+38 more)
+Nodes (48): 0) Safety, boundaries, and anti-abuse constraints (MUST FOLLOW), 1.1 Generation mode (default), 1.2 Passive review mode (always on while editing), 1.3 Active audit mode (explicit scan request), 1) Operating modes, 2.1 Untrusted input (treat as attacker-controlled unless proven otherwise), 2.2 State-changing request, 2.3 Required audit finding format (+40 more)
 
 ### Community 107 - "test_feature_flags.py"
 Cohesion: 0.11
-Nodes (24): Decision, FeatureContext, FeatureDecisions, is_enabled(), _object_id(), snapshot(), normalize_id(), validate_configuration() (+16 more)
+Nodes (25): Decision, FeatureContext, FeatureDecisions, is_enabled(), _object_id(), snapshot(), normalize_id(), validate_configuration() (+17 more)
 
 ### Community 108 - "finalize-incremental.mjs"
 Cohesion: 0.15
@@ -961,9 +938,9 @@ Nodes (7): Arrival deck, Indoor amenities including health club, fitness centre,
 Cohesion: 0.29
 Nodes (7): Adityraj Avenue, Luxury bedroom interior, 1 and 2 BHK residences, Real estate brochure spread, AC lobby, video door phone, parking tower, and electric vehicle charging, 21-storey residential tower, Vikhroli, Mumbai
 
-### Community 112 - "OrganizationMembership"
-Cohesion: 0.11
-Nodes (21): BuilderMembershipInline, OrganizationMembership, OrganizationRole, Role, Status, toggle(), role_url(), roles_workspace() (+13 more)
+### Community 112 - "Project"
+Cohesion: 0.07
+Nodes (42): BuilderMembershipInline, Organization, OrganizationMembership, OrganizationRole, Project, Role, Status, VerificationState (+34 more)
 
 ### Community 114 - "scripts"
 Cohesion: 0.12
@@ -973,9 +950,9 @@ Nodes (16): scripts, build, build:builder, build:buyer, build:services, dev, dev
 Cohesion: 0.07
 Nodes (27): Bootstrap (Run Once), Checklists, Choose Session Mode, Cleanup, Common Failure Modes, Core Workflow, Desktop Web Context, Dev Server (+19 more)
 
-### Community 116 - "FeatureFlagAdmin"
-Cohesion: 0.20
-Nodes (8): FeatureFlagAdmin, can_manage(), admin_request(), test_model_admin_create_uses_current_env_and_shared_mutation(), test_model_admin_fields_form_and_audited_save(), test_model_admin_rejects_forged_and_malformed_fields(), test_model_admin_stale_form_and_race_cannot_overwrite(), test_model_admin_unknown_and_inactive_rows_read_only_delete_denied()
+### Community 116 - "create_flag"
+Cohesion: 0.15
+Nodes (13): FeatureFlagAdmin, can_manage(), create_flag(), disable_flag(), admin_request(), test_model_admin_create_uses_current_env_and_shared_mutation(), test_model_admin_fields_form_and_audited_save(), test_model_admin_rejects_forged_and_malformed_fields() (+5 more)
 
 ### Community 117 - "Bulk Layout Removal Protocol"
 Cohesion: 0.33
@@ -985,9 +962,9 @@ Nodes (5): Project Layout Boundary Health, Bulk Layout Removal Protocol, remove_
 Cohesion: 0.33
 Nodes (6): Eco-friendly high-quality paint for walls and ceilings, Glass railing for the living room balcony, Gypsum-finished internal walls, Modern furnished living room and dining area, Precision in Every Detail interior finishes brochure, Sliding windows with engineered frames
 
-### Community 119 - "test_vision_fallback.py"
-Cohesion: 0.14
-Nodes (13): load_vision_profiles(), adapters(), catalog(), test_actual_sdk_timeout_is_configured(), test_application_errors_do_not_fall_back(), test_bad_files_fail_safely(), test_cancellation_stops_before_next_provider(), test_exhausted_chain_records_each_attempt_once() (+5 more)
+### Community 119 - "django_contrib_auth_models"
+Cohesion: 0.18
+Nodes (4): authenticated_client(), test_commute_lookups_require_authentication_and_session_csrf(), test_resolve_accepts_coordinates_and_full_google_pin_links(), test_resolve_rejects_invalid_or_ambiguous_input()
 
 ### Community 120 - "figma-scan.mjs"
 Cohesion: 0.07
@@ -998,8 +975,8 @@ Cohesion: 0.07
 Nodes (27): 10. Configuration, 11. Authorization matrix, 12. Background job contracts, 13. Observability, 1. Codebase layout, 2.1 BuyerRequirementProfile, 2.2 Project, 2. Domain aggregates (+19 more)
 
 ### Community 122 - "/understand-knowledge — Personal Knowledge Base Plugin Design"
-Cohesion: 0.08
-Nodes (25): Agent Definitions, Agent Pipeline, Auto-Detection Logic, Behavior, Coexistence with `/understand`, Dashboard Changes, Edge Visual Styling, File Structure (+17 more)
+Cohesion: 0.06
+Nodes (30): Agent Definitions, Agent Pipeline, Auto-Detection Logic, Behavior, Coexistence with `/understand`, Dashboard Changes, Edge Visual Styling, File Structure (+22 more)
 
 ### Community 123 - ".understand-anything/README.md"
 Cohesion: 0.08
@@ -1009,17 +986,17 @@ Nodes (25): 1. Install the plugin, 2. Analyze your codebase, 3. Explore the dash
 Cohesion: 0.40
 Nodes (4): Existing Unit Crop Editor, Signed Crop Editor State, update_layout_crop Service Contract, Evaluation Retry Confirmation Template
 
-### Community 125 - "math"
-Cohesion: 0.26
-Nodes (10): test_metric_conversion_and_area_use_unrounded_values(), test_unknown_invalid_partial_and_legacy_readings_never_become_zero_or_guessed_feet(), calculate_room_areas(), dimension_warning(), _length_in_feet(), normalize_room_measurements(), _printed_unit(), room_area_sqft() (+2 more)
+### Community 125 - "pytest"
+Cohesion: 0.15
+Nodes (24): corrected_dimension_metadata(), corrected_dimensions(), native_room(), test_dual_units_prefer_printed_feet_regardless_of_order(), test_feet_inches_notation_is_parsed_by_backend(), test_malformed_unit_metadata_is_bounded_and_does_not_crash(), test_metric_conversion_and_area_use_unrounded_values(), test_metric_printed_pair_beats_estimated_feet_and_inference_warns() (+16 more)
 
 ### Community 126 - "Vite Logo"
 Cohesion: 0.50
 Nodes (5): Adaptive Light and Dark Contrast, Enclosing Parentheses, Purple Lightning Mark, Vite Frontend Tooling, Vite Logo
 
-### Community 127 - "TypeScriptExtractor"
-Cohesion: 0.33
-Nodes (5): Task 2: Move TS/JS extraction logic into TypeScriptExtractor, extractImportSpecifiers(), extractParams(), extractReturnType(), TypeScriptExtractor
+### Community 127 - "test_floor_plan_activity.py"
+Cohesion: 0.38
+Nodes (10): asset(), layout(), test_deactivation_does_not_change_foreign_project_or_inactive_layouts(), test_deactivation_follows_ancestry_but_not_sibling_floor_or_other_page(), test_deactivation_persists_children_and_reactivation_is_parent_only(), test_deactivation_prefers_explicit_plan_id_over_shared_asset(), test_deactivation_rejects_stale_parent_without_changing_children(), test_manual_page_crops_with_a_sole_floor_follow_deactivation() (+2 more)
 
 ### Community 128 - "Layered Platform Illustration"
 Cohesion: 0.67
@@ -1066,8 +1043,8 @@ Cohesion: 0.08
 Nodes (25): 1. 安裝外掛程式, 2. 分析你的程式碼庫, 3. 開啟資料看板, 4. 深度使用, Claude Code（原生）, Copilot CLI, Cursor, Kiro CLI / IDE (+17 more)
 
 ### Community 139 - "core/package.json"
-Cohesion: 0.08
-Nodes (25): @types/node, typescript, vitest, @vitest/coverage-v8, zod, main, name, type (+17 more)
+Cohesion: 0.07
+Nodes (26): @types/node, typescript, vitest, @vitest/coverage-v8, zod, main, name, type (+18 more)
 
 ### Community 140 - "Frontend and UX Specification"
 Cohesion: 0.07
@@ -1102,28 +1079,28 @@ Cohesion: 0.15
 Nodes (10): detect_entry_points(), extract_file_signatures(), extract_metadata(), is_ignored(), main(), parse_gitignore(), resolve_ua_dir(), scan_file_tree() (+2 more)
 
 ### Community 152 - "/understand-knowledge Implementation Plan"
-Cohesion: 0.09
-Nodes (22): Task 2: LearnPanel Component + Tour Store State (Dashboard), Task 5: Dashboard Store — Add Domain State, Core package changes, Dashboard changes, File Structure, Skill & agent definitions, Task 10: Dashboard — Knowledge-Aware ProjectOverview, Task 11: Create Agent Definitions (+14 more)
+Cohesion: 0.08
+Nodes (23): Task 2: LearnPanel Component + Tour Store State (Dashboard), Task 5: Dashboard Store — Add Domain State, Core package changes, Dashboard changes, File Structure, Skill & agent definitions, Task 10: Dashboard — Knowledge-Aware ProjectOverview, Task 11: Create Agent Definitions (+15 more)
 
-### Community 153 - "Language-Agnostic Support Implementation Plan"
-Cohesion: 0.12
-Nodes (15): Language-Agnostic Support Implementation Plan, Task 10: Create language prompt snippet files, Task 11: Make base prompts language-neutral with injection points, Task 12: Implement prompt injection logic in skill source, Task 13: Update old tree-sitter-plugin test to use GenericTreeSitterPlugin, Task 14: Build and lint verification, Task 15: Update CLAUDE.md and documentation, Task 1: Create LanguageConfig types and Zod schema (+7 more)
+### Community 153 - "LanguageRegistry"
+Cohesion: 0.10
+Nodes (16): Language-Agnostic Support Implementation Plan, Task 10: Create language prompt snippet files, Task 11: Make base prompts language-neutral with injection points, Task 12: Implement prompt injection logic in skill source, Task 13: Update old tree-sitter-plugin test to use GenericTreeSitterPlugin, Task 14: Build and lint verification, Task 15: Update CLAUDE.md and documentation, Task 1: Create LanguageConfig types and Zod schema (+8 more)
 
-### Community 154 - "Project change form template"
-Cohesion: 0.50
-Nodes (4): Project change form template, Nearby transit views, Project layout summary template, Layout prices and carpet areas
+### Community 154 - "Frontend README"
+Cohesion: 0.18
+Nodes (11): Project change form template, Nearby transit views, Project layout summary template, Layout prices and carpet areas, Project media workflow, Frontend HTML entry point, MMR Homefinder single-page application, Builder workspace (+3 more)
 
 ### Community 155 - "languages/types.ts"
-Cohesion: 0.23
-Nodes (10): builtinLanguageConfigs, makefileConfig, scalaConfig, FilePatternConfig, FilePatternConfigSchema, FrameworkConfigSchema, LanguageConfigSchema, StrictLanguageConfigSchema (+2 more)
+Cohesion: 0.19
+Nodes (12): builtinLanguageConfigs, kubernetesConfig, pythonConfig, typescriptConfig, builtinFrameworkConfigs, FilePatternConfig, FilePatternConfigSchema, FrameworkConfigSchema (+4 more)
 
-### Community 156 - "Standards and implementation review"
-Cohesion: 0.25
-Nodes (6): Blocker — project retirement and manual-amenity save paths are mis-scoped, Blocker — the project admin change page returns HTTP 500, High — uncommitted changes are not a releasable unit, Medium — buyer bundle size, Medium — frontend maintainability warnings, Standards and implementation review
+### Community 156 - "ProjectAdmin"
+Cohesion: 0.11
+Nodes (4): ProjectAdmin, ProjectMergeForm, map_link(), Blocker — project retirement and manual-amenity save paths are mis-scoped
 
 ### Community 157 - "Universal File Type Support — Implementation Plan"
 Cohesion: 0.05
-Nodes (40): Summary of All Tasks, Task 10: Update Agent Prompts — Architecture Analyzer, Task 11: Update Agent Prompts — Tour Builder, Task 12: Update Agent Prompts — Graph Reviewer, Task 13: Add Language Context Snippets, Task 14: Update SKILL.md — Main Pipeline, Task 15: Dashboard — Add Node Type Colors to Theme Presets, Task 16: Dashboard — Update CustomNode Component (+32 more)
+Nodes (39): Summary of All Tasks, Task 10: Update Agent Prompts — Architecture Analyzer, Task 11: Update Agent Prompts — Tour Builder, Task 12: Update Agent Prompts — Graph Reviewer, Task 13: Add Language Context Snippets, Task 14: Update SKILL.md — Main Pipeline, Task 15: Dashboard — Add Node Type Colors to Theme Presets, Task 16: Dashboard — Update CustomNode Component (+31 more)
 
 ### Community 159 - "platform-table-consistency.test.mjs"
 Cohesion: 0.14
@@ -1131,7 +1108,7 @@ Nodes (7): __dirname, installPs1, installSh, ps1Rows, readme, repoRoot, shRows
 
 ### Community 160 - "4) Rules (generation + audit)"
 Cohesion: 0.06
-Nodes (35): 0) Safety, boundaries, and anti-abuse constraints (MUST FOLLOW), 1.1 Generation mode (default), 1.2 Passive review mode (always on while editing), 1.3 Active audit mode (explicit scan request), 1) Operating modes, 2.1 Untrusted input (treat as attacker-controlled unless proven otherwise), 2.2 State-changing action (frontend perspective), 2.3 Required audit finding format (+27 more)
+Nodes (34): 0) Safety, boundaries, and anti-abuse constraints (MUST FOLLOW), 1.1 Generation mode (default), 1.2 Passive review mode (always on while editing), 1.3 Active audit mode (explicit scan request), 1) Operating modes, 2.1 Untrusted input (treat as attacker-controlled unless proven otherwise), 2.2 State-changing action (frontend perspective), 2.3 Required audit finding format (+26 more)
 
 ### Community 161 - "Semantic Batching and Output Chunking Implementation Plan"
 Cohesion: 0.10
@@ -1151,11 +1128,11 @@ Nodes (17): __dirname, main(), pluginRoot, require, analyzeFileWithOutcomes(), b
 
 ### Community 166 - "4) Rules (generation + audit)"
 Cohesion: 0.05
-Nodes (36): 0) Safety, boundaries, and anti-abuse constraints (MUST FOLLOW), 1.1 Generation mode (default), 1.2 Passive review mode (always on while editing), 1.3 Active audit mode (explicit scan request), 1) Operating modes, 2.1 Untrusted input (treat as attacker-controlled unless proven otherwise), 2.2 State-changing request (frontend perspective), 2.3 Required audit finding format (+28 more)
+Nodes (37): 0) Safety, boundaries, and anti-abuse constraints (MUST FOLLOW), 1.1 Generation mode (default), 1.2 Passive review mode (always on while editing), 1.3 Active audit mode (explicit scan request), 1) Operating modes, 2.1 Untrusted input (treat as attacker-controlled unless proven otherwise), 2.2 State-changing request (frontend perspective), 2.3 Required audit finding format (+29 more)
 
 ### Community 167 - "persistence/index.ts"
-Cohesion: 0.24
-Nodes (18): Task 2: Add Domain Graph Persistence, Change Map, DEFAULT_CONFIG, ensureDir(), loadConfig(), loadDomainGraph(), loadFingerprints(), loadGraph() (+10 more)
+Cohesion: 0.19
+Nodes (20): Task 2: Add Domain Graph Persistence, Change Map, DEFAULT_CONFIG, ensureDir(), loadConfig(), loadDomainGraph(), loadFingerprints(), loadGraph() (+12 more)
 
 ### Community 168 - "Phase 2 -- Pedagogical Tour Design"
 Cohesion: 0.10
@@ -1169,61 +1146,61 @@ Nodes (20): dependencies, fuse.js, ignore, tree-sitter-c-sharp, tree-sitter-cpp,
 Cohesion: 0.29
 Nodes (7): Algorithm, `--changed-files` mode, Component 1 — `compute-batches.mjs`, Dependencies, Louvain implementation, Output schema (`batches.json`), Prototype-first implementation
 
-### Community 171 - "extractors/index.ts"
-Cohesion: 0.13
-Nodes (17): Task 1: Create LanguageExtractor interface and shared utilities, getStringValue(), hasChildOfType(), traverse(), CppExtractor, extractFuncDeclName(), extractParams(), extractReturnType() (+9 more)
+### Community 171 - "Understand Anything — Phase 2 (Intelligence) Implementation Plan"
+Cohesion: 0.20
+Nodes (9): Dependency Graph, Task 10: Integration Polish — Sample Data, Build Verification, README Update, Task 1: Zod Schema Validation for Graph Loading, Task 4: Staleness Detection + Incremental Updates, Task 5: Layer Auto-Detection, Task 6: Skill Package Scaffolding + `/understand-chat` Command, Task 9: Dashboard Layer Visualization, Understand Anything — Phase 2 (Intelligence) Implementation Plan (+1 more)
 
-### Community 172 - "merge-recover-imports.test.mjs"
-Cohesion: 0.22
-Nodes (5): __dirname, fileNode(), MERGE_SCRIPT, PYTHON, wholeFileNode()
+### Community 172 - "Benchmark Unsupported-Outcome Semantics"
+Cohesion: 0.20
+Nodes (9): 1. Capability-aware use of the existing skipped path (selected), 2. Add explicit unsupported counters to a new schema version, 3. Exclude unsupported extensions during scanning, Approaches considered, Benchmark Unsupported-Outcome Semantics, Context, Publication, Selected behavior (+1 more)
 
-### Community 173 - "locales/index.ts"
-Cohesion: 0.14
-Nodes (13): I18nContextValue, I18nProvider(), en, getLocale(), Locale, LocaleKey, locales, resolveLocaleKey() (+5 more)
+### Community 173 - "I18nContext.tsx"
+Cohesion: 0.15
+Nodes (14): I18nContext, I18nContextValue, I18nProvider(), en, getLocale(), Locale, LocaleKey, locales (+6 more)
 
 ### Community 174 - "compilerOptions"
 Cohesion: 0.10
 Nodes (19): compilerOptions, allowImportingTsExtensions, isolatedModules, jsx, lib, module, moduleDetection, moduleResolution (+11 more)
 
 ### Community 175 - "viewer.mjs"
-Cohesion: 0.16
-Nodes (18): args, CONTENT_TYPES, detectLanguage(), DIST_DIR, graphDir, graphFilePathSet(), listen(), normalizeGraphPath() (+10 more)
+Cohesion: 0.12
+Nodes (19): args, CONTENT_TYPES, detectLanguage(), DIST_DIR, graphDir, graphFilePathSet(), listen(), normalizeGraphPath() (+11 more)
 
 ### Community 176 - "compilerOptions"
 Cohesion: 0.10
 Nodes (19): compilerOptions, allowArbitraryExtensions, allowImportingTsExtensions, erasableSyntaxOnly, jsx, lib, module, moduleDetection (+11 more)
 
-### Community 177 - "findChildren"
-Cohesion: 0.23
-Nodes (8): findChildren(), extractParams(), extractReturnType(), extractScopedPath(), isPublic(), RustExtractor, parse(), require
+### Community 177 - "vite-staleness.test.ts"
+Cohesion: 0.24
+Nodes (6): commitAll(), git(), graphDirectory(), HttpResult, servers, writeGraph()
 
 ### Community 178 - "runBenchmark"
 Cohesion: 0.11
 Nodes (17): aggregateStageWarnings(), aggregateStructureResources(), BenchmarkStageError, buildBenchmarkIntegrity(), distribution(), environmentMetadata(), fileSizeOrZero(), hasFailedIntegrity() (+9 more)
 
 ### Community 179 - "test_api.py"
-Cohesion: 0.12
-Nodes (24): Meta, ProjectAdminForm, ProjectMediaPictureForm, ProjectPictureWidget, Amenity, Building, Consent, HomeConfiguration (+16 more)
+Cohesion: 0.13
+Nodes (22): Meta, ProjectAdminForm, ProjectMediaPictureForm, ProjectPictureWidget, Building, Consent, HomeConfiguration, test_buyer_amenities_and_collections_use_wire_contract() (+14 more)
 
 ### Community 180 - "4) Rules (generation + audit)"
 Cohesion: 0.06
-Nodes (31): 0) Safety, boundaries, and anti-abuse constraints (MUST FOLLOW), 1.1 Generation mode (default), 1.2 Passive review mode (always on while editing), 1.3 Active audit mode (explicit scan request), 1) Operating modes, 2.1 Untrusted input (treat as attacker-controlled unless proven otherwise), 2.2 High-risk “sinks” in jQuery contexts, 2.3 Required audit finding format (+23 more)
+Nodes (30): 0) Safety, boundaries, and anti-abuse constraints (MUST FOLLOW), 1.1 Generation mode (default), 1.2 Passive review mode (always on while editing), 1.3 Active audit mode (explicit scan request), 1) Operating modes, 2.1 Untrusted input (treat as attacker-controlled unless proven otherwise), 2.2 High-risk “sinks” in jQuery contexts, 2.3 Required audit finding format (+22 more)
 
-### Community 181 - "pricing_layouts"
-Cohesion: 0.10
-Nodes (13): gallery_layout_ids(), _configuration_name(), matching_layouts(), project_layout_configurations(), layout_summary(), _positive(), score_layouts(), pricing_layouts() (+5 more)
+### Community 181 - "test_layout_pricing.py"
+Cohesion: 0.13
+Nodes (16): _configuration_name(), project_layout_configurations(), layout_summary(), _positive(), score_layouts(), test_budget_scoring_uses_layout_prices_without_legacy_fallback(), test_catalogue_detail_gallery_and_budget_filter_use_layout_price(), test_configuration_rows_keep_four_layouts_with_two_bhk_types_and_duplicate_aliases() (+8 more)
 
 ### Community 182 - "Understand Anything: Universal File Type Support"
-Cohesion: 0.11
-Nodes (17): Agent Pipeline Changes, Architecture Analyzer, Backward Compatibility, Cross-Type Reference Resolution, Dashboard Visualization, Extended StructuralAnalysis, File Analyzer, Generalized AnalyzerPlugin Interface (+9 more)
+Cohesion: 0.12
+Nodes (16): Agent Pipeline Changes, Architecture Analyzer, Cross-Type Reference Resolution, Dashboard Visualization, Extended StructuralAnalysis, File Analyzer, Generalized AnalyzerPlugin Interface, Goals (+8 more)
 
-### Community 184 - "pytest"
-Cohesion: 0.08
-Nodes (46): Command, QueueWorker, delete_dead_letter(), _dispatch_waiting_queues(), _launch_worker(), owned_jobs(), project_jobs(), queue_snapshot() (+38 more)
+### Community 184 - "test_queue_monitor.py"
+Cohesion: 0.11
+Nodes (38): QueueWorker, delete_dead_letter(), dispatch_waiting_queues(), _dispatch_waiting_queues(), _launch_worker(), owned_jobs(), project_jobs(), queue_snapshot() (+30 more)
 
 ### Community 185 - "DomainGraphView.tsx"
-Cohesion: 0.16
-Nodes (15): DomainClusterData, DomainClusterFlowNode, DomainClusterNode(), buildDomainDetail(), buildDomainOverview(), BuiltGraph, DomainGraphViewInner(), getDomainMeta() (+7 more)
+Cohesion: 0.17
+Nodes (16): DomainClusterData, DomainClusterFlowNode, DomainClusterNode(), buildDomainDetail(), buildDomainOverview(), BuiltGraph, DomainGraphViewInner(), getDomainMeta() (+8 more)
 
 ### Community 186 - "OnboardingOverlay.tsx"
 Cohesion: 0.11
@@ -1238,12 +1215,12 @@ Cohesion: 0.21
 Nodes (7): load_graph(), load_pending_structural_edges(), main(), merge_graphs(), _num(), resolve_ua_dir(), write_merge_report()
 
 ### Community 189 - "/understand"
-Cohesion: 0.10
-Nodes (19): Default path (no `--review`): inline deterministic validation, Error Handling, Full analysis path, Incremental deterministic save gate, Incremental update path, Options, Phase 0.5 — Ignore Configuration (full analysis only), Phase 0 — Pre-flight (+11 more)
+Cohesion: 0.11
+Nodes (18): Default path (no `--review`): inline deterministic validation, Error Handling, Full analysis path, Incremental deterministic save gate, Incremental update path, Options, Phase 0.5 — Ignore Configuration (full analysis only), Phase 1.5 — BATCH (+10 more)
 
 ### Community 190 - "Azure Deployment Plan"
 Cohesion: 0.07
-Nodes (28): 7. Validation Proof, AI Extraction, Approval Boundary, Authentication and Validation Context, Azure Deployment Plan, Confirmed Deployment Context, Data and Secrets, Deliberate POC constraints (+20 more)
+Nodes (27): 7. Validation Proof, AI Extraction, Approval Boundary, Authentication and Validation Context, Azure Deployment Plan, Confirmed Deployment Context, Data and Secrets, Deliberate POC constraints (+19 more)
 
 ### Community 191 - "Agent Skill: Principal UI/UX Architect & Motion Choreographer (Awwwards-Tier)"
 Cohesion: 0.11
@@ -1257,13 +1234,13 @@ Nodes (17): 10. Administrator operational flow, 11. Status models, 1. Buyer onbo
 Cohesion: 0.12
 Nodes (15): FeatureFlagAdminViewSet, FlagAPIError, parse_if_match(), api_request(), test_api_create_patch_if_match_disable_and_delete_contract(), test_api_environment_isolation_and_unknown_rows_read_only(), test_api_permissions_require_more_than_staff(), test_api_rejects_invalid_configuration() (+7 more)
 
-### Community 194 - "go-extractor.ts"
-Cohesion: 0.22
-Nodes (7): extractParams(), extractReceiverType(), extractResultType(), GoExtractor, isExported(), parse(), require
+### Community 194 - "Mumbai New-Construction Discovery Platform — Product Requirements"
+Cohesion: 0.20
+Nodes (9): 1. Product vision, 2. Problem statement, 3. Personas, 4. Goals, 5. Non-goals for MVP, 7. Quality attributes, 8. Success metrics, 9. Dependencies and open decisions (+1 more)
 
 ### Community 195 - "Business Domain Knowledge Extraction — Implementation Plan"
-Cohesion: 0.10
-Nodes (19): Business Domain Knowledge Extraction — Implementation Plan, Modified Files, New Files, Summary of All Files, Task 10: Dashboard — Domain-Aware NodeInfo Sidebar, Task 11: Dashboard — Update GraphView NODE_TYPE_TO_CATEGORY, Task 12: Create Domain Analyzer Agent, Task 13: Create /understand-domain Skill (+11 more)
+Cohesion: 0.12
+Nodes (16): Business Domain Knowledge Extraction — Implementation Plan, Modified Files, New Files, Summary of All Files, Task 10: Dashboard — Domain-Aware NodeInfo Sidebar, Task 11: Dashboard — Update GraphView NODE_TYPE_TO_CATEGORY, Task 12: Create Domain Analyzer Agent, Task 13: Create /understand-domain Skill (+8 more)
 
 ### Community 196 - "Understand Anything — Design & Implementation Plan"
 Cohesion: 0.12
@@ -1294,8 +1271,8 @@ Cohesion: 0.12
 Nodes (16): compilerOptions, declaration, declarationMap, esModuleInterop, forceConsistentCasingInFileNames, lib, module, moduleResolution (+8 more)
 
 ### Community 203 - "6. Feature requests"
-Cohesion: 0.07
-Nodes (26): 1. Product vision, 2. Problem statement, 3. Personas, 4. Goals, 5. Non-goals for MVP, 6. Feature requests, 7. Quality attributes, 8. Success metrics (+18 more)
+Cohesion: 0.12
+Nodes (17): 6. Feature requests, FR-01 Buyer authentication and consent — P0, FR-02 Dual-mode requirement onboarding — P0, FR-03 Frequent-place and commute preferences — P0, FR-04 Home configuration and space preferences — P0, FR-05 Amenity substitution model — P0, FR-06 Budget and affordability — P0, FR-07 Project and developer onboarding — P0 (+9 more)
 
 ### Community 204 - "Data Model and Data Governance"
 Cohesion: 0.12
@@ -1306,8 +1283,8 @@ Cohesion: 0.08
 Nodes (25): 10. SLOs and alerts, 11. Rollback, 12. Required runbooks, 1. Delivery principles, 2. Proposed phases, 3. Work breakdown / feature epics, 4. Definition of ready, 5. Definition of done (+17 more)
 
 ### Community 206 - "Design"
-Cohesion: 0.15
-Nodes (12): App.tsx Changes, Dashboard UI: WarningBanner Component, Design, Design: Dashboard Robustness — Permissive Graph Loading, Files Changed, Goals, Problem, Return Type (+4 more)
+Cohesion: 0.14
+Nodes (13): App.tsx Changes, Dashboard UI: WarningBanner Component, Design, Design: Dashboard Robustness — Permissive Graph Loading, Files Changed, Files NOT Changed, Goals, Problem (+5 more)
 
 ### Community 207 - "test_verified_assets.py"
 Cohesion: 0.24
@@ -1325,21 +1302,25 @@ Nodes (15): Author, Automatic Activation, Explicit Activation, Frontend Design S
 Cohesion: 0.12
 Nodes (15): Build the core package, Install dependencies, Start the dashboard dev server, Task 10: Integration — Wire Everything Together + README, Task 1: Project Scaffolding — Monorepo Root, Task 2: Core Package — Scaffolding & Knowledge Graph Types, Task 3: Core Package — JSON Persistence, Task 4: Core Package — Tree-sitter Analyzer Plugin (+7 more)
 
-### Community 212 - "ProviderUnavailable"
-Cohesion: 0.14
-Nodes (9): FallbackFloorPlanVisionProvider, UnavailableFloorPlanVisionProvider, ProviderUnavailable, UnavailableExtractor, test_sdk_failure_is_safe_and_closes_clients(), test_failed_precheck_does_not_block_remaining_chain(), with_gate(), test_precheck_rejection_records_actual_winner() (+1 more)
+### Community 211 - "staleness.test.ts"
+Cohesion: 0.25
+Nodes (5): getChangedFiles(), isStale(), mergeGraphUpdate(), parseChangedFiles(), mockedExecFileSync
 
-### Community 213 - "PythonExtractor"
-Cohesion: 0.29
-Nodes (4): extractParams(), extractReturnType(), PythonExtractor, unwrapDecorated()
+### Community 212 - "test_viewer.test.mjs"
+Cohesion: 0.32
+Nodes (6): fixtureGraph(), git(), REPO_ROOT, setupProject(), VIEWER_BIN, VIEWER_DIST
+
+### Community 213 - "test_guest_recommendations.py"
+Cohesion: 0.43
+Nodes (6): fixture_project(), requirements(), test_guest_matches_shared_scoring_without_persisting_buyer_or_routes(), test_guest_post_requires_csrf(), test_guest_validation_and_unavailable_routing(), layout()
 
 ### Community 214 - "exports"
 Cohesion: 0.12
 Nodes (16): exports, ./figma, ./languages, ./schema, ./search, ./types, default, types (+8 more)
 
-### Community 215 - "Phase 2 -- Semantic Analysis"
-Cohesion: 0.29
-Nodes (7): Edges for code files:, Edges for non-code files:, Node type mapping by fileCategory:, Phase 2 -- Semantic Analysis, Step 1 -- Create File Node, Step 2 -- Create Function and Class Nodes, Step 3 -- Create Edges
+### Community 215 - "devDependencies"
+Cohesion: 0.25
+Nodes (8): devDependencies, oxlint, @types/node, @types/react, @types/react-dom, typescript, vite, @vitejs/plugin-react
 
 ### Community 216 - "Component 2 — `skills/understand/SKILL.md` changes"
 Cohesion: 0.40
@@ -1347,7 +1328,7 @@ Nodes (5): Add — Phase 1.5 section (after Phase 1), Component 2 — `skills/un
 
 ### Community 217 - "MMR Real Estate Maintainer Guide"
 Cohesion: 0.10
-Nodes (19): Core Domain Invariants, MMR Real Estate Maintainer Guide, Django Modular Monolith, Transactional Outbox Architecture, Perforated Monolith Layout, Real Estate Services, External Sources Review Template, Floor Plan Segmentation Template (+11 more)
+Nodes (20): Current assumptions, Decisions required before implementation, Documents, Project Documentation Index, Recommended reading order, Scope control, Core Domain Invariants, MMR Real Estate Maintainer Guide (+12 more)
 
 ### Community 218 - "High-Level Design (HLD)"
 Cohesion: 0.12
@@ -1378,8 +1359,8 @@ Cohesion: 0.13
 Nodes (14): 1. Nav Bar, 2. Hero (full viewport), 3. Dashboard Showcase, 4. Feature Cards (3 columns), 5. Install CTA, 6. Footer, Colors (matching dashboard), Effects (+6 more)
 
 ### Community 225 - "file"
-Cohesion: 0.15
-Nodes (13): Configuration (5), Data & Schema (6), Documentation (3), Infrastructure & DevOps (7), Markup (2), Shell & Scripts (3), Supported File Types (26 new), file() (+5 more)
+Cohesion: 0.12
+Nodes (16): Configuration (5), Data & Schema (6), Documentation (3), Infrastructure & DevOps (7), Markup (2), Shell & Scripts (3), Supported File Types (26 new), Node type mapping by fileCategory: (+8 more)
 
 ### Community 226 - "homepage/package.json"
 Cohesion: 0.13
@@ -1393,9 +1374,9 @@ Nodes (13): buildBatchOfMap(), buildNonCodeBatches(), comparePaths(), countBased
 Cohesion: 0.13
 Nodes (13): Common Frameworks, Example Language Notes, File Patterns, Import Patterns, Key Concepts, Rust Language Prompt Snippet, Common Frameworks, Example Language Notes (+5 more)
 
-### Community 229 - "services.py"
-Cohesion: 0.12
-Nodes (23): visible_plan_facts(), RecommendationItem, RecommendationSnapshot, RequirementVersion, _amenity_score(), score_project(), completion_for(), compute_project_metrics() (+15 more)
+### Community 229 - "test_services.py"
+Cohesion: 0.15
+Nodes (23): RecommendationItem, RecommendationSnapshot, RequirementProfile, RequirementVersion, completion_for(), compute_recommendations(), _project_configuration_data(), ScoringConfiguration (+15 more)
 
 ### Community 230 - "OpenAI Docs"
 Cohesion: 0.14
@@ -1406,12 +1387,12 @@ Cohesion: 0.14
 Nodes (13): Core workflow, Debug a UI flow with traces, Form fill and submit, Guardrails, Multi-tab work, Playwright CLI Skill, Prerequisite check (required), Quick start (+5 more)
 
 ### Community 232 - "OutboxMessage"
-Cohesion: 0.04
-Nodes (123): _authorize(), evaluate_floor_plan_layouts(), _locked_source(), _operation(), queue_floor_plan_layouts(), _selection(), _stopped(), _validate_source() (+115 more)
+Cohesion: 0.09
+Nodes (44): _authorize(), evaluate_floor_plan_layouts(), _operation(), queue_floor_plan_layouts(), _selection(), _stopped(), _validate_source(), _cancel_jobs() (+36 more)
 
-### Community 233 - "Organization"
-Cohesion: 0.14
-Nodes (10): Organization, VerificationState, queued(), page_source(), google_reference(), test_materialize_project_amenities_uses_only_recognized_taxonomy(), test_project_admin_columns_preserve_fields_and_links(), test_project_admin_columns_preserve_validation_and_saving() (+2 more)
+### Community 233 - "save_extraction"
+Cohesion: 0.33
+Nodes (5): extraction_values(), ExtractionForm, LayoutExtractionAdminMixin, room_initial(), save_extraction()
 
 ### Community 234 - "Understand Anything"
 Cohesion: 0.14
@@ -1426,28 +1407,28 @@ Cohesion: 0.29
 Nodes (3): FeatureFlagSerializer, Meta, test_serializer_alone_cannot_bypass_versions_or_shared_permissions()
 
 ### Community 237 - "routes"
-Cohesion: 0.15
-Nodes (14): New Edge Types (8), New Node Types (8), Schema Extensions, Schema Validation Auto-Fix Aliases, Executing the Script, Phase 1 -- Structural Analysis Script, Preparing the Script Input, Script Output Format (+6 more)
+Cohesion: 0.20
+Nodes (11): New Edge Types (8), New Node Types (8), Schema Extensions, Schema Validation Auto-Fix Aliases, Edges for code files:, Edges for non-code files:, Step 3 -- Create Edges, Edge Types (26 total) (+3 more)
 
 ### Community 238 - "Conversation-Language Auto-Detection for `/understand`"
 Cohesion: 0.14
 Nodes (13): Approach (chosen), Confirmation gate (only when `$DETECTED_LANG` ≠ `en`), Conversation-Language Auto-Detection for `/understand`, Detailed Design, Edge cases, Files Touched, Goal, Non-Goals (+5 more)
 
-### Community 239 - "ref_node_fs"
-Cohesion: 0.03
-Nodes (61): __dirname, hooksConfig, hookScript, repoRoot, __dirname, FIXTURES, SCRIPT, __dirname (+53 more)
+### Community 239 - "ref_node_url"
+Cohesion: 0.04
+Nodes (28): __dirname, hooksConfig, hookScript, repoRoot, __dirname, FIXTURES, SCRIPT, __dirname (+20 more)
 
 ### Community 240 - "compilerOptions"
 Cohesion: 0.14
 Nodes (13): compilerOptions, declaration, declarationMap, esModuleInterop, forceConsistentCasingInFileNames, lib, module, moduleResolution (+5 more)
 
 ### Community 241 - "Architecture Analyzer"
-Cohesion: 0.14
-Nodes (13): Architecture Analyzer, Critical Constraints, Layer ID Format, Output Format, Phase 2 -- Semantic Layer Assignment, Step 1 -- Evaluate Directory Groups as Layer Candidates, Step 2 -- Analyze Dependency Direction, Step 3 -- Consider Non-Code Layers (+5 more)
+Cohesion: 0.10
+Nodes (19): Architecture Analyzer, Critical Constraints, Executing the Script, Layer ID Format, Output Format, Phase 1 -- Structural Analysis Script, Phase 2 -- Semantic Layer Assignment, Preparing the Script Input (+11 more)
 
-### Community 242 - "File Analyzer"
-Cohesion: 0.15
-Nodes (12): Critical Constraints, Cross-batch context (neighborMap), Edge Signal Quick Reference, File Analyzer, Node Types and ID Conventions, Output File Naming — STRICT, Phase 1 -- Structural Extraction (Bundled Script), Step 1 — Prepare the input JSON (+4 more)
+### Community 242 - ".code"
+Cohesion: 0.09
+Nodes (21): Critical Constraints, Cross-batch context (neighborMap), Edge Signal Quick Reference, File Analyzer, Node Types and ID Conventions, Output File Naming — STRICT, Phase 1 -- Structural Extraction (Bundled Script), Step 1 — Prepare the input JSON (+13 more)
 
 ### Community 243 - "Next.js Project Structure"
 Cohesion: 0.29
@@ -1473,9 +1454,9 @@ Nodes (20): 10. Deployment workflows, 11. Change workflow, 1. First-time local s
 Cohesion: 0.15
 Nodes (12): Direct OS commands (fallbacks), Error handling, Linux, Linux prerequisites and selection logic, macOS, macOS and Linux (Python helper), macOS permission preflight (reduce repeated prompts), Multi-display behavior (+4 more)
 
-### Community 249 - "native_room"
-Cohesion: 0.23
-Nodes (12): native_room(), test_dual_units_prefer_printed_feet_regardless_of_order(), test_feet_inches_notation_is_parsed_by_backend(), test_malformed_unit_metadata_is_bounded_and_does_not_crash(), test_metric_printed_pair_beats_estimated_feet_and_inference_warns(), test_missing_measurements_have_no_calculated_total(), test_natural_language_apostrophes_are_not_foot_markers(), test_per_room_labels_override_legend_without_global_unit_assumptions() (+4 more)
+### Community 249 - "日本語出力ガイドライン (Japanese)"
+Cohesion: 0.33
+Nodes (5): サマリーのスタイル, タグの命名規則, レイヤー名, 技術用語, 日本語出力ガイドライン (Japanese)
 
 ### Community 250 - "Component 3 — `agents/file-analyzer.md` changes"
 Cohesion: 0.50
@@ -1497,13 +1478,9 @@ Nodes (13): 1. MVP release slices, 2. Story backlog, 3. Traceability matrix, 4. 
 Cohesion: 0.33
 Nodes (5): 層級名稱, 技術術語, 摘要風格, 標籤約定, 繁體中文輸出指南 (Chinese Traditional)
 
-### Community 255 - "GoogleProjectMaps"
-Cohesion: 0.23
-Nodes (5): GoogleProjectMaps, Command, distance_meters(), test_no_google_key_fails_closed(), test_station_routes_include_csv_candidates_and_endpoint_modes()
-
-### Community 256 - "Project Documentation Index"
-Cohesion: 0.33
-Nodes (6): Current assumptions, Decisions required before implementation, Documents, Project Documentation Index, Recommended reading order, Scope control
+### Community 255 - "Q: explain with a flow chart how (with individual function calls) how a builder/admin can (1)add a project (2)upload a document (3)how a document is parsed into component floor plans and layouts (3b) can we replace parts of this flow with a rag based flow (3c) how are media files handelled"
+Cohesion: 0.40
+Nodes (4): Answer, Outcome, Q: explain with a flow chart how (with individual function calls) how a builder/admin can (1)add a project (2)upload a document (3)how a document is parsed into component floor plans and layouts (3b) can we replace parts of this flow with a rag based flow (3c) how are media files handelled, Source Nodes
 
 ### Community 257 - "prompting-guide.md"
 Cohesion: 0.17
@@ -1513,32 +1490,24 @@ Nodes (11): Add an explicit retrieval budget, Creative drafting guardrails, Form
 Cohesion: 0.17
 Nodes (11): `blocked`, Compatibility checklist, Freshness check, `model string + light prompt rewrite`, `model string only`, Scope boundaries, Upgrade outcomes, Upgrade posture (+3 more)
 
-### Community 259 - "language-lesson.ts"
-Cohesion: 0.27
-Nodes (10): BASE_CONCEPT_PATTERNS, buildConceptPatterns(), buildLanguageLessonPrompt(), detectLanguageConcepts(), extractJson(), getLanguageDisplayName(), LanguageLessonResult, parseLanguageLessonResponse() (+2 more)
-
 ### Community 260 - "resolve-latest-model-info.js"
 Cohesion: 0.29
 Nodes (11): absoluteUrl(), extractLatestModelInfo(), fs, main(), modelToSkillSlug(), normalizeInfo(), parseArgs(), parseFlatInfo() (+3 more)
-
-### Community 261 - "layer-detector.ts"
-Cohesion: 0.29
-Nodes (8): applyLLMLayers(), buildLayerDetectionPrompt(), detectLayers(), LAYER_PATTERNS, LLMLayerResponse, matchFileToLayer(), parseLayerDetectionResponse(), toLayerId()
 
 ### Community 263 - "Graph Reviewer"
 Cohesion: 0.17
 Nodes (11): Critical Constraints, Executing the Script, Graph Reviewer, Phase 1 — Validation Script, Phase 2 -- Review and Decision, Script Output Format, Script Requirements, Severity Classification (for the script to apply) (+3 more)
 
-### Community 264 - "amenity_matching.py"
-Cohesion: 0.16
-Nodes (14): AmenityMatch, _distance_at_most_one(), find_amenities(), _fold(), has_amenity_terms(), _tokens(), codes(), test_acme_and_ace_amenity_aliases() (+6 more)
+### Community 264 - "realestate_common/layout_titles.py"
+Cohesion: 0.22
+Nodes (5): test_alias_input_trims_and_accepts_limit_and_blank(), clean_layout_name(), layout_display_title(), _safe_text(), validate_layout_display_name()
 
 ### Community 265 - "merge-knowledge-graph.py"
 Cohesion: 0.26
 Nodes (7): _find_markdown_case_insensitive(), main(), merge(), normalize_edge_type(), normalize_entity_name(), normalize_node_type(), resolve_ua_dir()
 
 ### Community 266 - "Mumbai New-Construction Discovery Platform"
-Cohesion: 0.18
+Cohesion: 0.20
 Nodes (10): Agent handoff (updated 2026-10-07), Architecture and ownership, Buyer intent and recommendations, Current user flows, Error and recovery flows, Local operation, status, and workarounds, Mumbai New-Construction Discovery Platform, Participants (+2 more)
 
 ### Community 267 - "fetchCodexManual"
@@ -1569,8 +1538,8 @@ Nodes (10): Change 1: Move Pipeline Agents Into Skill, Change 2: New Registered 
 Cohesion: 0.25
 Nodes (8): main(), BenchmarkArtifactCleanupError, cleanupBenchmarkArtifacts(), CliUsageError, helpText(), parseArgs(), parseConcurrency(), takeValue()
 
-### Community 274 - "_edge"
-Cohesion: 0.32
+### Community 274 - "test_merge_subdomain_graphs.py"
+Cohesion: 0.30
 Nodes (6): _edge(), _graph(), _load_module(), _node(), TestCrossRunRecovery, TestStructuralEdgeDrops
 
 ### Community 275 - "Instructions"
@@ -1597,6 +1566,10 @@ Nodes (8): ImportedHelperExitError, metrics, resolvedScript, [scriptPath, ...scr
 Cohesion: 0.27
 Nodes (9): __dirname, expectInvalid(), expectValid(), regularStage(), schema, schemaPath, validateReport, validReport() (+1 more)
 
+### Community 283 - "ProjectListSerializer"
+Cohesion: 0.12
+Nodes (6): visible_plan_facts(), ProjectDetailSerializer, ProjectListSerializer, ProjectPreviewSerializer, ProjectViewSet, SharedComparisonView
+
 ### Community 285 - "builder.spec.ts"
 Cohesion: 0.15
 Nodes (8): evidence, FixtureEvaluation, FixtureRoom, initialLayout, initialProject, sourceSha256, test, @playwright/test
@@ -1618,8 +1591,8 @@ Cohesion: 0.20
 Nodes (9): 1. PYTHON-DRIVEN TRUE RANDOMIZATION (BREAKING THE LOOP), 2. AIDA STRUCTURE & SPACING, 3. HERO ARCHITECTURE & THE 2-LINE IRON RULE, 4. THE GAPLESS BENTO GRID, 5. ADVANCED GSAP MOTION & HOVER PHYSICS, 6. COMPONENT ARSENAL & CREATIVITY, 7. CONTENT, ASSETS & STRICT BANS, 8. MANDATORY PRE-FLIGHT <design_plan> (+1 more)
 
 ### Community 292 - "register"
-Cohesion: 0.18
-Nodes (5): IngestionRunAdmin, OrganizationAdmin, ProjectMergeAdmin, StationCandidateAdmin, WorkspaceUserAdmin
+Cohesion: 0.12
+Nodes (6): EvidenceDocumentAdmin, IngestionRunAdmin, OrganizationAdmin, ProjectMergeAdmin, StationCandidateAdmin, WorkspaceUserAdmin
 
 ### Community 293 - "Implementation Patterns"
 Cohesion: 0.22
@@ -1658,12 +1631,12 @@ Cohesion: 0.25
 Nodes (7): Critical Constraints, Domain Analyzer Agent, Input, Output Schema, Task, Three-Level Hierarchy, Writing Results
 
 ### Community 302 - "What You Know"
-Cohesion: 0.20
-Nodes (9): Domain Graph Specifics, Edge Types (29 total in 7 categories), Graph Locations, Graph Structure, How to Help Users, Layers, Node Types (16 total: 5 code + 8 non-code + 3 domain), Tours (+1 more)
+Cohesion: 0.22
+Nodes (8): Domain Graph Specifics, Edge Types (29 total in 7 categories), Graph Locations, Graph Structure, How to Help Users, Layers, Tours, What You Know
 
 ### Community 303 - "platform_api/serializers.py"
-Cohesion: 0.06
-Nodes (32): ComparisonShare, NotificationSubscription, Shortlist, ShortlistProject, VerificationSnapshot, AmenitySerializer, ComparisonShareSerializer, ConsentSerializer (+24 more)
+Cohesion: 0.07
+Nodes (26): NotificationSubscription, Shortlist, AmenitySerializer, EvidenceDocumentSerializer, FactCandidateSerializer, HomeConfigurationSerializer, Meta, NotificationSubscriptionSerializer (+18 more)
 
 ### Community 304 - "Aesthetic Playbook"
 Cohesion: 0.25
@@ -1697,9 +1670,9 @@ Nodes (7): description, files, license, main, name, type, version
 Cohesion: 0.40
 Nodes (4): Answer, Outcome, Q: here i would like another layer of pre check get qwen 3.8 from http://127.0.0.1:11435 a local ai box set specifically for dev, Source Nodes
 
-### Community 313 - "FlatSeparationFailed"
-Cohesion: 0.18
-Nodes (3): FlatSeparationFailed, Command, Command
+### Community 313 - "floor_plan_segmentation_service.py"
+Cohesion: 0.09
+Nodes (11): FlatSeparationForm, FloorPlanFlatSeparationAISkill, available_flat_separation_ai_profiles(), FlatSeparationFailed, _page_text(), separate_floor_plan_units(), Command, SourcePageForm (+3 more)
 
 ### Community 315 - "crop_from_page.js"
 Cohesion: 0.43
@@ -1718,12 +1691,12 @@ Cohesion: 0.29
 Nodes (7): Step 1: Update Phase 1 to note importMap is now in scan-result.json, Step 2: Change batch size and concurrency in Phase 2, Step 3: Add batchImportData construction to the dispatch block, Step 4: Update incremental update path, Step 5: Verify all Phase 2 changes, Step 6: Commit, Task 7: C1c + C2 — Update SKILL.md Phase 2 orchestration
 
 ### Community 320 - "Azure POC deployment"
-Cohesion: 0.25
+Cohesion: 0.20
 Nodes (8): Azure POC deployment, Files, Future deployment sequence, Offline validation, POC security and reliability boundaries, Prerequisites, Routing, Safety status
 
-### Community 321 - "sample_reports.py"
-Cohesion: 0.24
-Nodes (7): ProjectExtractionOutputView, field(), aggregate_outputs(), collect(), build_group_report(), _unique(), test_aggregate_outputs_retains_conflicts_and_additional_evidence()
+### Community 321 - "json"
+Cohesion: 0.07
+Nodes (24): extract_one(), initialize_worker(), google_match_annotations(), _digest(), fingerprints(), record_fingerprints(), Command, _CleanTestScanner (+16 more)
 
 ### Community 322 - "deliverBenchmarkReports"
 Cohesion: 0.33
@@ -1756,10 +1729,6 @@ Nodes (6): Architectural Layers for Flask, Canonical File Roles, Edge Patterns t
 ### Community 329 - "Gin Project Structure"
 Cohesion: 0.29
 Nodes (6): Architectural Layers for Gin, Canonical File Roles, Edge Patterns to Look For, Gin (Go) Framework Addendum, Gin Project Structure, Notable Patterns to Capture in languageLesson
-
-### Community 330 - "Project Scanner"
-Cohesion: 0.20
-Nodes (9): Critical Constraints, Phase 1 -- Discovery (bundled scan + LLM narrative), Phase 2 -- Description and Final Assembly, Project Scanner, Step A (LLM) -- Read manifests and README for narrative fields, Step B (bundled `scan-project.mjs`) -- File enumeration + language + category + lines, Step C -- Import Resolution (bundled `extract-import-map.mjs`), Task (+1 more)
 
 ### Community 331 - "Rails Project Structure"
 Cohesion: 0.29
@@ -1818,8 +1787,8 @@ Cohesion: 0.29
 Nodes (6): Common Frameworks, Example Language Notes, File Patterns, Import Patterns, Key Concepts, TypeScript Language Prompt Snippet
 
 ### Community 345 - "EC2 deployment using the migrated RDS and EFS"
-Cohesion: 0.11
-Nodes (17): Build and transfer images from local PowerShell, Capacity and budget, Configure on EC2, EC2 deployment using the migrated RDS and EFS, Existing resources, Launch rehearsal, Offline checks, Prerequisites and networking (+9 more)
+Cohesion: 0.09
+Nodes (20): Build and transfer images from local PowerShell, Build, download and deploy, Capacity and budget, Configure on EC2, EC2 deployment using the migrated RDS and EFS, Existing resources, GitHub build pipeline and one-command deployment, Launch rehearsal (+12 more)
 
 ### Community 347 - "Codex Guidelines (Karpathy Rules)"
 Cohesion: 0.33
@@ -1911,19 +1880,19 @@ Nodes (5): Edge Patterns, Key Concepts, Notable File Patterns, Summary Style, YA
 
 ### Community 369 - "factory"
 Cohesion: 0.08
-Nodes (21): English Output Guidelines, Layer Names, Summary Style, Tag Conventions, Technical Terms, サマリーのスタイル, タグの命名規則, レイヤー名 (+13 more)
+Nodes (19): English Output Guidelines, Layer Names, Summary Style, Tag Conventions, Technical Terms, 기술 용어, 레이어 이름, 요약 스타일 (+11 more)
 
 ### Community 370 - "graph-freshness.integration.test.ts"
 Cohesion: 0.50
 Nodes (7): commitAll(), createRepository(), createTemporaryDirectory(), git(), prepare(), temporaryDirectories, writeProjectFile()
 
 ### Community 371 - "CodeViewer.tsx"
-Cohesion: 0.29
-Nodes (9): CodeViewer(), CodeViewerProps, fallbackLanguage(), fileContentUrl(), formatBytes(), MarkdownView(), SourceFile, SourceState (+1 more)
+Cohesion: 0.23
+Nodes (11): CodeViewer(), CodeViewerProps, fallbackLanguage(), fileContentUrl(), formatBytes(), MarkdownView(), SourceFile, SourceState (+3 more)
 
-### Community 373 - "test-load-test.cjs"
-Cohesion: 0.22
-Nodes (5): assert, fs, source, valid, vm
+### Community 373 - "ref_node_fs"
+Cohesion: 0.05
+Nodes (35): analyzer, __dirname, hook, skill, __dirname, graphConsumerSkills, repoRoot, requiredFreshnessInstructions (+27 more)
 
 ### Community 374 - "aws/scripts/Common.ps1"
 Cohesion: 0.53
@@ -1933,9 +1902,9 @@ Nodes (4): Assert-AwsContext(), Assert-ExternalCommand(), Assert-LastExitCode(),
 Cohesion: 0.53
 Nodes (4): Assert-AzureContext(), Assert-ExternalCommand(), Assert-LastExitCode(), Get-TerraformOutput()
 
-### Community 376 - "ConfirmedInput"
-Cohesion: 0.25
-Nodes (5): ConfirmedInput, DraftInput, EvaluationInput, MediaActionsInput, PagesInput
+### Community 377 - "RagFactExtractor"
+Cohesion: 0.23
+Nodes (7): ExtractedValue, RagFactExtractor, codes(), test_acme_and_ace_amenity_aliases(), test_aliases_and_controlled_typos_map_to_closed_taxonomy(), test_negated_amenities_are_not_claimed(), test_short_generic_tokens_are_not_fuzzy_matched()
 
 ### Community 378 - ".oxlintrc.json"
 Cohesion: 0.33
@@ -1966,8 +1935,8 @@ Cohesion: 0.40
 Nodes (4): Homepage Feature Update Implementation Plan, Task 1: Update Features.astro — Replace 3 Cards with 6, Task 2: Update Install.astro — Multi-Platform Note, Task 3: Update Footer.astro — Tagline
 
 ### Community 385 - "test_admin_navigation.py"
-Cohesion: 0.11
-Nodes (27): detail(), extraction_post(), ready_extraction_plan(), test_asset_category_filter_is_preserved(), test_external_sources_navigation_preserves_quick_link_queue(), test_extraction_browser_room_controls_and_responsive_layout(), serve(), test_manual_corrections_resolve_only_changed_axis_warnings_and_keep_original_evidence() (+19 more)
+Cohesion: 0.05
+Nodes (50): detail(), extraction_post(), ready_extraction_plan(), test_asset_category_filter_is_preserved(), test_external_sources_navigation_preserves_quick_link_queue(), test_extraction_browser_room_controls_and_responsive_layout(), serve(), test_manual_corrections_resolve_only_changed_axis_warnings_and_keep_original_evidence() (+42 more)
 
 ### Community 387 - "PULL_REQUEST_TEMPLATE.md"
 Cohesion: 0.40
@@ -2073,25 +2042,17 @@ Nodes (4): Answer, Outcome, Q: We ran the evaluations again but we dont see upda
 Cohesion: 0.29
 Nodes (7): aggregateStructureSummaries(), buildOutputDigest(), canonicalSha256(), emptyEntityCounts(), ENTITY_FIELDS, summarizeStructureOutput(), updateCanonicalHash()
 
-### Community 417 - "5. Catalog"
-Cohesion: 0.29
-Nodes (7): 5. Catalog, `GET /api/v1/map-stations`, `GET /api/v1/projects`, `GET /api/v1/projects/{projectId}`, `GET /api/v1/projects/{projectId}/gallery`, `POST /api/v1/project-comparisons`, `POST /api/v1/shortlists/{shortlistId}/projects`
-
 ### Community 418 - "Q: Integrity error on other floors, please check"
 Cohesion: 0.40
 Nodes (4): Answer, Outcome, Q: Integrity error on other floors, please check, Source Nodes
 
-### Community 459 - "DeveloperProjectCreateView"
-Cohesion: 0.43
-Nodes (4): ProjectCreateSerializer, normalize_maha_rera_id(), test_maha_rera_id_is_normalized(), DeveloperProjectCreateView
-
-### Community 460 - "project_outputs.py"
-Cohesion: 0.10
-Nodes (24): NEXT-PROXY-001: Proxy/Middleware must not introduce header smuggling or unsafe header forwarding, NEXT-SSRF-001: Outbound requests using user-influenced URLs MUST be restricted, REACT-SW-001: Service workers are high-privilege; require HTTPS and safe caching/update rules, FASTAPI-SSRF-001: Prevent server-side request forgery (SSRF) in outbound HTTP, enqueue_nearby_amenity_enrichment(), enrich_nearby_amenities(), backend(), fetch() (+16 more)
+### Community 460 - "external_sources.py"
+Cohesion: 0.09
+Nodes (12): RegistryEvidenceForm, metro_catalogue(), nearby_catalogue(), registry_lookup(), enqueue_nearby_amenity_enrichment(), enrich_nearby_amenities(), backend(), fetch() (+4 more)
 
 ### Community 461 - "FloorPlanAgent"
-Cohesion: 0.05
-Nodes (42): FloorPlanAgent, FloorPlanVisionProvider, Command, DocumentLayoutPage, add_source_pages(), _authorize(), evaluate_source_page(), queue_saved_amenity_pages() (+34 more)
+Cohesion: 0.09
+Nodes (16): FloorPlanAgent, FloorPlanCandidate, candidate_data(), evaluate_source_page(), _queue_automatic_layouts(), test_ai_persistence_uses_unique_run_name_and_requested_state(), test_document_ingestion_routes_layouts_directly_and_queues_full_floors(), test_floor_analysis_runs_with_existing_image_layout_and_inactive_source() (+8 more)
 
 ### Community 462 - "Руководство по выводу на русском языке (Russian)"
 Cohesion: 0.33
@@ -2104,10 +2065,6 @@ Nodes (4): Answer, Outcome, Q: here i would like another layer of pre check get 
 ### Community 464 - "load-test.js"
 Cohesion: 0.33
 Nodes (4): base, options, paths, users
-
-### Community 466 - "OrganizationRoleForm"
-Cohesion: 0.33
-Nodes (3): Meta, OrganizationRoleForm, PlatformRoleForm
 
 ### Community 467 - "resolveCacheDir"
 Cohesion: 0.50
@@ -2125,18 +2082,10 @@ Nodes (4): Answer, Outcome, Q: tell me how the login flow works for all 3 portal
 Cohesion: 0.40
 Nodes (4): Answer, Outcome, Q: Explain how login flow works here across all 3 portals, Source Nodes
 
-### Community 473 - "fixture"
-Cohesion: 0.40
-Nodes (3): configuration(), profiles(), sdk()
-
-### Community 474 - "layout.worker.ts"
-Cohesion: 0.50
-Nodes (3): LayoutMessage, LayoutResult, @dagrejs/dagre
-
 ## Knowledge Gaps
-- **2777 isolated node(s):** `name`, `type`, `version`, `node`, `dev` (+2772 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 3915 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **92 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **2783 isolated node(s):** `name`, `type`, `version`, `node`, `dev` (+2778 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 3926 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **77 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Work-memory lessons
 
@@ -2149,17 +2098,17 @@ Nodes (3): LayoutMessage, LayoutResult, @dagrejs/dagre
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `fetch()` connect `project_outputs.py` to `4) Rules (generation + audit)`, `EvidenceDocument`, `4) Rules (generation + audit)`, `OpenAI Docs`, `re`, `external_sources_admin.py`, `File Structure`, `4) Rules (generation + audit)`, `/understand-figma — Figma Ingestion & Structure (Foundation) Design`?**
-  _High betweenness centrality (0.172) - this node is a cross-community bridge._
+- **Why does `fetch()` connect `external_sources.py` to `4) Rules (generation + audit)`, `json`, `4) Rules (generation + audit)`, `OpenAI Docs`, `4) Rules (generation + audit)`, `workers.py`, `4) Rules (generation + audit)`, `/understand-figma — Figma 수집 & 구조 분석 (기반) 설계`, `4) Rules (generation + audit)`, `FigmaSource`?**
+  _High betweenness centrality (0.168) - this node is a cross-community bridge._
 - **Are the 178 inferred relationships involving `Project` (e.g. with `FloorPlanAdmin` and `ProjectAdmin`) actually correct?**
   _`Project` has 178 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `name`, `type`, `version` to the rest of the system?**
-  _2777 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Project` be split into smaller, more focused modules?**
-  _Cohesion score 0.0696629213483146 - nodes in this community are weakly interconnected._
-- **Why does `/understand-figma Foundation — Implementation Plan` connect `File Structure` to `schema.ts`, `project_outputs.py`?**
-  _High betweenness centrality (0.131) - this node is a cross-community bridge._
+  _2783 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `LayoutCropDraft` be split into smaller, more focused modules?**
+  _Cohesion score 0.07226890756302522 - nodes in this community are weakly interconnected._
+- **Why does `/understand-figma Foundation — Implementation Plan` connect `FigmaSource` to `mergeDesignGraph`, `File Structure`, `schema.ts`, `external_sources.py`?**
+  _High betweenness centrality (0.132) - this node is a cross-community bridge._
 - **Are the 160 inferred relationships involving `OutboxMessage` (e.g. with `ProjectAdmin` and `reserve_ready_jobs()`) actually correct?**
   _`OutboxMessage` has 160 INFERRED edges - model-reasoned connections that need verification._
 - **Should `platform_api/admin.py` be split into smaller, more focused modules?**
-  _Cohesion score 0.02808181315644002 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.038633275092215105 - nodes in this community are weakly interconnected._
