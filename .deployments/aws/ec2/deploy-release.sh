@@ -10,7 +10,7 @@ demo=${4:-false}
 [[ "$demo" == true || "$demo" == false ]] || exit 1
 exec 9>"$HOME/.realestate-deploy.lock"
 flock -n 9 || { echo 'Another deployment is running'; exit 1; }
-unset APPLICATION_IMAGE GATEWAY_IMAGE DOMAIN WORKSPACE_PATH
+unset APPLICATION_IMAGE GATEWAY_IMAGE DOMAIN BUILDER_DOMAIN ADMIN_DOMAIN WORKSPACE_PATH
 config="$HOME/ec2"
 for file in .env app.env global-bundle.pem; do
     test -s "$config/$file" || { echo "Configure $config/$file first"; exit 1; }

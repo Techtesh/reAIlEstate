@@ -79,6 +79,7 @@ jobs:
           docker run --rm "realestate-ec2-gateway:$GITHUB_SHA" nginx -t
           docker pull caddy:2-alpine
           docker run --rm -e DOMAIN=validation.example \
+            -e BUILDER_DOMAIN=builder.validation.example -e ADMIN_DOMAIN=admin.validation.example \
             -v "$PWD/.deployments/aws/ec2/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Package release

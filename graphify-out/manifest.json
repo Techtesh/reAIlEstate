@@ -4277,12 +4277,6 @@
     "ast_hash": "ea62468e0eec192271c8b499d87edd26",
     "semantic_hash": ""
   },
-  ".azure/validate-status.json": {
-    "mtime": 1792682402.4897144,
-    "seen": 1792687092.2455864,
-    "ast_hash": "8779c3bc3c6d380bafc49ed7c0e2e8ee",
-    "semantic_hash": ""
-  },
   ".codex/hooks.json": {
     "mtime": 1791456867.3625548,
     "seen": 1791458919.3435316,
@@ -5717,12 +5711,6 @@
     "ast_hash": "60c5ae67b7cc393dec2e0618ba76944c",
     "semantic_hash": ""
   },
-  ".azure/deployment-plan.md": {
-    "mtime": 1792682402.4897144,
-    "seen": 1792687092.3220613,
-    "ast_hash": "d54fd614033642edfdc991dcd0be848b",
-    "semantic_hash": ""
-  },
   ".codex/skills/gpt-tasteskill/SKILL.md": {
     "mtime": 1790655559.4429662,
     "seen": 1791458919.3759577,
@@ -5736,9 +5724,9 @@
     "semantic_hash": ""
   },
   ".deployments/README.md": {
-    "mtime": 1792682402.4887118,
-    "seen": 1792687092.322287,
-    "ast_hash": "ac06fbf6c65e8a43f66b1634f8a72d2c",
+    "mtime": 1792687630.744399,
+    "seen": 1792784147.3835766,
+    "ast_hash": "8b60e9446d3f057469f036fb2211b0ff",
     "semantic_hash": ""
   },
   ".deployments/aws/README.md": {
@@ -6144,15 +6132,15 @@
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/README.md": {
-    "mtime": 1792687053.397129,
-    "seen": 1792687092.3222923,
-    "ast_hash": "f0d7d2158b11e11bf41c936bc64fc181",
+    "mtime": 1792784114.5779793,
+    "seen": 1792784147.3836918,
+    "ast_hash": "a26dedcab432321f927de34304597138",
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/compose.yml": {
-    "mtime": 1792657860.4907582,
-    "seen": 1792658138.7571611,
-    "ast_hash": "88692cee1017ca38499c62ee8c7fcaec",
+    "mtime": 1792784114.5529785,
+    "seen": 1792784147.3838038,
+    "ast_hash": "5ee0a47ed4a53c9fdd2d22383a3ad160",
     "semantic_hash": ""
   },
   "graphify-out/memory/query_20261022_080028_fd0c7259_give_me_a_run_down_of_this_project.md": {
@@ -6180,9 +6168,9 @@
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/deploy-release.sh": {
-    "mtime": 1792687053.3791258,
-    "seen": 1792687092.2457395,
-    "ast_hash": "05d2cb7166652bbb672e57878357af49",
+    "mtime": 1792784114.5539796,
+    "seen": 1792784147.31632,
+    "ast_hash": "3b97f7735f5b07c743a0be4db66362e0",
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/package.sh": {
@@ -6198,9 +6186,9 @@
     "semantic_hash": ""
   },
   ".github/workflows/aws-ec2-release.yml": {
-    "mtime": 1792687053.3584921,
-    "seen": 1792687092.3226748,
-    "ast_hash": "b1d6a26207a0865ca0358c61b7dca0cd",
+    "mtime": 1792784114.5549786,
+    "seen": 1792784147.3841238,
+    "ast_hash": "5c1686778e68bcb2778c7451651bde49",
     "semantic_hash": ""
   },
   "graphify-out/memory/query_20261022_083837_6acb4971_explain_with_a_flow_chart_how__with_individual_fun.md": {
@@ -6329,28 +6317,22 @@
     "ast_hash": "a10c96a82e80fa48767861d1618adbee",
     "semantic_hash": ""
   },
-  ".playwright-cli/page-2026-10-22T15-08-28-556Z.yml": {
-    "mtime": 1792681708.5585315,
-    "seen": 1792687092.3226767,
-    "ast_hash": "41a7247c73535c3f65f02dc18551ec5c",
+  ".deployments/azure/validate-status.json": {
+    "mtime": 1792682402.4897144,
+    "seen": 1792784147.3180552,
+    "ast_hash": "8779c3bc3c6d380bafc49ed7c0e2e8ee",
     "semantic_hash": ""
   },
-  ".playwright-cli/page-2026-10-22T15-09-01-541Z.yml": {
-    "mtime": 1792681741.5426772,
-    "seen": 1792687092.3226788,
-    "ast_hash": "2e734e1970e82068ddd717c0607da81b",
+  ".deployments/aws/deployment-plan.md": {
+    "mtime": 1792687902.5364275,
+    "seen": 1792784147.3836887,
+    "ast_hash": "e32b500d1797f2289ced4f3b75383bdf",
     "semantic_hash": ""
   },
-  ".playwright-cli/page-2026-10-22T15-09-22-226Z.yml": {
-    "mtime": 1792681762.2275841,
-    "seen": 1792687092.3226802,
-    "ast_hash": "3013d61b07705ec0323f7cf94e3d8bec",
-    "semantic_hash": ""
-  },
-  ".playwright-cli/page-2026-10-22T15-09-42-888Z.yml": {
-    "mtime": 1792681782.8920975,
-    "seen": 1792687092.3226824,
-    "ast_hash": "adb45f6d34e2cdde5fd8579718fc28d5",
+  ".deployments/azure/deployment-plan.md": {
+    "mtime": 1792687902.5374303,
+    "seen": 1792784147.3840122,
+    "ast_hash": "7feec6d1d952128a0e30c6b573a6216f",
     "semantic_hash": ""
   }
 }

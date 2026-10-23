@@ -23,7 +23,8 @@ Docker depend on that mount. Preserve existing database and evidence data.
 
 In the deployment user's `~/ec2` directory, place these protected runtime files:
 
-- `.env`, based on `.env.example`: set `WORKSPACE_PATH` and `DOMAIN`.
+- `.env`, based on `.env.example`: set `WORKSPACE_PATH`, `DOMAIN` (Buyer),
+  `BUILDER_DOMAIN`, and `ADMIN_DOMAIN`.
   Keep assignments literal; values are read as data, never sourced as shell code.
   Actions selects both application image tags from the checked commit.
 - `app.env`, based on `app.env.example`: set the PostgreSQL connection, verified
@@ -39,6 +40,15 @@ must explain and obtain explicit permission before running any `aws` or `az` com
 For public HTTPS, configure your domain's DNS, public 80/443 access and matching
 Django allowed hosts/origins. Keep app ports and gateway 8080 private. For preview,
 set `DOMAIN=localhost`; no public domain or HTTPS listener is started.
+
+For a DuckDNS demo, point three DuckDNS hostnames at the host's public address.
+Set the Buyer hostname as `DOMAIN`, and the other two as `BUILDER_DOMAIN` and
+`ADMIN_DOMAIN` in the server's `.env`. In `app.env`, include all three hostnames
+in `DJANGO_ALLOWED_HOSTS` alongside `localhost,127.0.0.1`, and their `https://`
+origins in both `CSRF_TRUSTED_ORIGINS` and `CORS_ALLOWED_ORIGINS`. Keep the actual
+hostnames in these protected runtime files. If the extra domain variables are
+omitted, they default to `builder.localhost` and `admin.localhost` for compatibility
+with existing single-domain configurations.
 
 ## 2. Configure GitHub
 
@@ -113,8 +123,10 @@ until processing/scanning is separately configured.
 
 ## 4. Open the result
 
-In HTTPS mode, open your configured domain and its `/builder/login` and `/admin/`
-paths. In preview mode, forward your local port to the server's loopback gateway
+In HTTPS mode, open the Buyer domain, the Builder domain (its root redirects to
+`/builder/`), or the Admin domain (its root redirects to `/admin/`). All three
+proxy through the same gateway; `/builder/login` and `/admin/` also remain available
+on the Buyer domain. In preview mode, forward your local port to the server's loopback gateway
 using your normal SSH client. Example placeholders only:
 
 ```text

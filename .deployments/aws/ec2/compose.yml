@@ -68,6 +68,8 @@ services:
     mem_limit: 256m
     environment:
       DOMAIN: ${DOMAIN:?Set DOMAIN to your public DNS hostname}
+      BUILDER_DOMAIN: ${BUILDER_DOMAIN:-builder.localhost}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:-admin.localhost}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
