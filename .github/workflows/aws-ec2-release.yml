@@ -124,7 +124,8 @@ jobs:
           [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$SSH_PORT > 0 && 10#$SSH_PORT < 65536))
           [[ "$DEPLOY_MODE" == preview || "$DEPLOY_MODE" == https ]]
           [[ "$DEMO_ENABLED" == true || "$DEMO_ENABLED" == false ]]
-          test -n "$SSH_PRIVATE_KEY" && test -n "$SSH_KNOWN_HOSTS"
+          : "${SSH_PRIVATE_KEY:?Set SSH_PRIVATE_KEY as a secret in the selected GitHub environment}"
+          : "${SSH_KNOWN_HOSTS:?Set SSH_KNOWN_HOSTS as a secret in the selected GitHub environment}"
           cd release
           sha256sum --check "realestate-$GITHUB_SHA.tar.gz.sha256"
       - name: Transfer and deploy the checked release
