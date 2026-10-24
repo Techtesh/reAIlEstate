@@ -13,7 +13,6 @@ from pathlib import Path
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
-from filelock import FileLock, Timeout
 
 
 logger = logging.getLogger("platform_api.ingestion")
@@ -29,33 +28,19 @@ def work_lock(namespace, identifier):
     """Session advisory lock: no open transaction during I/O; released on process/connection death.
 
     PostgreSQL must be accessed directly (not through a transaction-mode pooler).
-    The local SQLite fallback is a process file lock, not a database transaction.
     """
     digest = hashlib.sha256(f"{namespace}:{identifier}".encode()).digest()
-    if connection.vendor == "postgresql":
-        key = int.from_bytes(digest[:8], "big", signed=True)
+    key = int.from_bytes(digest[:8], "big", signed=True)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", [key])
+        acquired = cursor.fetchone()[0]
+    if not acquired:
+        raise WorkAlreadyClaimed(str(identifier))
+    try:
+        yield
+    finally:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_try_advisory_lock(%s)", [key])
-            acquired = cursor.fetchone()[0]
-        if not acquired:
-            raise WorkAlreadyClaimed(str(identifier))
-        try:
-            yield
-        finally:
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT pg_advisory_unlock(%s)", [key])
-    else:
-        root = Path(settings.WORKSPACE_DATA_ROOT) / "output" / "reports" / ".locks"
-        root.mkdir(parents=True, exist_ok=True)
-        lock = FileLock(str(root / (digest.hex() + ".lock")), timeout=0)
-        try:
-            lock.acquire()
-        except Timeout:
-            raise WorkAlreadyClaimed(str(identifier)) from None
-        try:
-            yield
-        finally:
-            lock.release()
+            cursor.execute("SELECT pg_advisory_unlock(%s)", [key])
 
 
 def event(stage, **details):

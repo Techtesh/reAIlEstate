@@ -18,7 +18,7 @@ from django.core import signing
 from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db import connection, models, transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from .artifact_storage import storage
@@ -404,9 +404,6 @@ def update_layout_crop(plan_id, actor, *, editor_token, expected_asset_id, expec
         )
         try:
             with transaction.atomic():
-                # Reserve SQLite writer before reading; PostgreSQL uses row locks.
-                if connection.vendor == "sqlite":
-                    FloorPlan.objects.filter(pk=plan_id).update(id=models.F("id"))
                 list(Project.objects.select_for_update().filter(
                     pk__in=project_family_ids(destination)).order_by("pk"))
                 FloorPlan.objects.select_for_update().get(pk=plan_id)

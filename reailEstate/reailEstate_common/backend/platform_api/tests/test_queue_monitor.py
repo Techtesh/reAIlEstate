@@ -20,6 +20,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from .legacy_admin_urls import legacy_admin_adapters  # noqa: F401 - opt-in adapter regression harness
 from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
 from django.utils import timezone
@@ -186,11 +187,11 @@ def test_project_run_action_reports_capacity(client, django_user_model, state, e
     owner = django_user_model.objects.create_superuser(username="project-button", password=None)
     project = Project.objects.create(organization=Organization.objects.create(legal_name="Button"), submitted_name="Selected")
     client.force_login(owner)
-    url = reverse("admin:platform_api_project_media_dashboard", args=[project.pk])
+    url = reverse("admin:platform_api_project_jobs") + "?project=" + str(project.pk)
     with patch("platform_api.queue_monitor.start_user_queue", return_value=QueueWorker(state=state)) as launch:
-        response = client.post(url + "?section=floor-plans", {"action": action})
+        response = client.post(url, {"action": action})
     launch.assert_called_once_with(owner, project=project)
-    assert response.status_code == 302 and response.url.endswith("?section=floor-plans")
+    assert response.status_code == 302 and response.url == url
     assert expected in " ".join(str(message) for message in get_messages(response.wsgi_request))
 
 
@@ -206,7 +207,7 @@ def test_queued_only_action_preserves_dead_letters(source, client):
     job.save()
     version = job.dead_lettered_at
     client.force_login(actor)
-    url = reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id])
+    url = reverse("admin:platform_api_project_jobs") + "?project=" + str(plan.project_id)
     page = client.get(url)
     assert b'Run queued evaluations (exclude DLQ)' in page.content
     with patch("platform_api.queue_monitor.start_user_queue", return_value=None) as launch:
@@ -370,7 +371,7 @@ def test_failed_project_run_requires_explicit_confirmation(client, django_user_m
     job.last_error_code = "PROVIDER_UNAVAILABLE"
     job.save()
     client.force_login(owner)
-    url = reverse("admin:platform_api_project_media_dashboard", args=[project.pk])
+    url = reverse("admin:platform_api_project_jobs") + "?project=" + str(project.pk)
     submitted = {"action": "run_project_evaluations"}
     with patch("platform_api.queue_monitor.start_user_queue", return_value=QueueWorker(state="starting")) as launch:
         response = client.post(url, submitted, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
@@ -397,41 +398,45 @@ def test_failed_project_run_requires_explicit_confirmation(client, django_user_m
 ])
 def test_retry_gate_blocks_mutation_for_each_dashboard_action(source, client, action, event_type):
     from django.urls import reverse
-
-    plan, owner = source
-    plan.document.status = "extraction_failed"
-    plan.document.save()
-    plan.asset.source_bounds = {"manualPageAddition": True, "category": "amenities"}
-    plan.asset.save()
-    job = make_job(owner)
-    job.event_type = event_type
-    job.payload.update(projectId=str(plan.project_id), documentId=str(plan.document_id),
-                       floorPlanId=str(plan.pk), assetId=str(plan.asset_id))
-    job.dead_lettered_at = timezone.now()
-    job.attempts = 3
-    job.last_error_code = "PROVIDER_UNAVAILABLE"
-    job.save()
-    before = OutboxMessage.objects.values().get(pk=job.pk)
+    from .workspace_helpers import workspace_request
+    plan,owner=source
+    plan.document.status='extraction_failed';plan.document.save()
+    plan.asset.source_bounds={'manualPageAddition':True,'category':'amenities','sourceSha256':plan.document.sha256};plan.asset.save()
+    job=make_job(owner);job.event_type=event_type
+    job.payload.update(projectId=str(plan.project_id),documentId=str(plan.document_id),floorPlanId=str(plan.pk),assetId=str(plan.asset_id))
+    job.dead_lettered_at=timezone.now();job.attempts=3;job.last_error_code='PROVIDER_UNAVAILABLE';job.save()
+    before=OutboxMessage.objects.values().get(pk=job.pk)
     client.force_login(owner)
-    response = client.post(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]),
-        {"action": action, "floor_plan_id": str(plan.pk), "retry": "true"}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
-    assert response.status_code == 409 and response.json()["requiresConfirmation"]
-    assert OutboxMessage.objects.values().get(pk=job.pk) == before
-    assert OutboxMessage.objects.count() == 1 and not QueueWorker.objects.exists()
-    targets = {
-        "queue_project_reanalysis": ("platform_api.admin.queue_project_reanalysis", []),
-        "queue_failed_reanalysis": ("platform_api.admin.queue_project_reanalysis", []),
-        "run_project_evaluations": ("platform_api.queue_monitor.start_user_queue", QueueWorker(state="starting")),
-        "run_layout_evaluation": ("platform_api.layout_evaluation_status.queue_single_layout", {"status": "queued"}),
-        "queue_floor_layouts": ("platform_api.admin.queue_floor_plan_layouts", job),
-        "queue_amenity_pages": ("platform_api.source_page_additions.queue_saved_amenity_pages", []),
-    }
-    target, result = targets[action]
-    with patch(target, return_value=result) as handler:
-        confirmed = client.post(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]),
-            {"action": action, "floor_plan_id": str(plan.pk), "retry": "true",
-             "retry_confirmation": response.json()["confirmationToken"]}, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
-    assert confirmed.status_code == 200 and "redirectUrl" in confirmed.json()
+    if action=='run_project_evaluations':
+        url=reverse('admin:platform_api_project_jobs')+'?project='+str(plan.project_id)
+        response=client.post(url,{'action':action},HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        assert response.status_code==409 and response.json()['requiresConfirmation']
+        assert OutboxMessage.objects.values().get(pk=job.pk)==before and not QueueWorker.objects.exists()
+        with patch('platform_api.queue_monitor.start_user_queue',return_value=QueueWorker(state='starting')) as handler:
+            confirmed=client.post(url,{'action':action,'retry_confirmation':response.json()['confirmationToken']},HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        assert confirmed.status_code==200
+    else:
+        choices={
+            'queue_project_reanalysis':('reprocess-all','platform_api.reanalysis.queue_document_reanalysis',None),
+            'queue_failed_reanalysis':('reprocess-failed','platform_api.reanalysis.queue_document_reanalysis',None),
+            'queue_floor_layouts':('segment','platform_api.floor_plan_layout_jobs.queue_floor_plan_layouts',job),
+            'queue_amenity_pages':('evaluate-amenities','platform_api.source_page_additions._queue_page',job),
+        }
+        if action=='run_layout_evaluation':
+            plan.plan_scope='flat';plan.save()
+            suffix='/media/evaluate';target='platform_api.builder_media.queue_layout_evaluation'
+            result=(job,Operation.objects.get(pk=job.payload['operationId']))
+            body={'planId':str(plan.pk),'expectedUpdatedAt':plan.updated_at.isoformat(),'confirm':False,'requestId':str(uuid4())}
+        else:
+            command,target,result=choices[action];suffix='/media/actions'
+            body={'action':command,'targets':[{'planId':str(plan.pk),'expectedUpdatedAt':plan.updated_at.isoformat()}] if command=='segment' else [],'confirm':False,'requestId':str(uuid4())}
+        response=workspace_request(client,plan.project,suffix,body,method='post')
+        assert response.status_code==400
+        assert OutboxMessage.objects.values().get(pk=job.pk)==before and not QueueWorker.objects.exists()
+        body['confirm']=True
+        with patch(target,return_value=result) as handler:
+            confirmed=workspace_request(client,plan.project,suffix,body,method='post')
+        assert confirmed.status_code==202,confirmed.content
     handler.assert_called_once()
 
 
@@ -496,7 +501,7 @@ def test_retry_warning_fallback_escapes_names_and_preserves_form(source, client)
     job.last_error_code = "PROVIDER_UNAVAILABLE"
     job.save()
     client.force_login(owner)
-    url = reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id])
+    url = reverse("admin:platform_api_project_jobs") + "?project=" + str(plan.project_id)
     response = client.post(url, {"action": "run_project_evaluations"})
     assert response.status_code == 409
     html = response.content.decode()

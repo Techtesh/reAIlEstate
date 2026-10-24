@@ -1,4 +1,4 @@
-"""Organization-scoped builder portal, separate from platform administration."""
+"""Shared project editor with explicit builder and platform authorization scopes."""
 
 from decimal import Decimal
 
@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .builder_access import builder_memberships
-from .builder_locations import project_location_data, resolve_project_location, submit_project_location
+from .project_locations import project_location_data, resolve_project_location, submit_project_location
 from .domain.layout_titles import validate_layout_display_name
 from .external_sources import coordinates
 from .layout_names import save_layout_name
@@ -128,16 +128,23 @@ def layout_data(plan):
     }
 
 
-def builder_projects(user):
-    return Project.objects.filter(
-        organization_id__in=builder_memberships(user).values("organization_id"),
-    ).exclude(merge_out__state="applied").exclude(
+def builder_projects(user, *, workspace="builder"):
+    if workspace == "admin":
+        from .project_workspace import platform_project_editor
+        if not platform_project_editor(user):
+            raise PermissionDenied()
+        projects = Project.objects.filter(organization__status="active")
+    else:
+        projects = Project.objects.filter(
+            organization_id__in=builder_memberships(user).values("organization_id"),
+        )
+    return projects.exclude(merge_out__state="applied").exclude(
         address__has_key="mergedIntoProjectId",
     ).select_related("organization").order_by("-updated_at", "pk")
 
 
-def locked_project(user, project_id, expected):
-    project = get_object_or_404(builder_projects(user).select_for_update(of=("self",)), pk=project_id)
+def locked_project(user, project_id, expected, *, workspace="builder"):
+    project = get_object_or_404(builder_projects(user, workspace=workspace).select_for_update(of=("self",)), pk=project_id)
     if project.status in {"retired", "merged"}:
         raise BuilderConflict("This project is archived and cannot be changed.")
     if expected is None:
@@ -171,10 +178,21 @@ class BuilderLoginView(SessionLoginView):
 
 class BuilderView(NoStoreResponseMixin, APIView):
     permission_classes = [IsAuthenticated]
+    workspace = "builder"
+
+    @property
+    def api_prefix(self):
+        return "/api/v1/admin/project-workspace" if self.workspace == "admin" else "/api/v1"
 
 
 class BuilderOrganizationsView(BuilderView):
     def get(self, request):
+        if self.workspace == "admin":
+            return Response([
+                {"id": str(org.pk), "legalName": org.legal_name, "role": "platform_editor",
+                 "canCreateProject": request.user.has_perm("platform_api.add_project")}
+                for org in Organization.objects.filter(status="active").order_by("legal_name", "pk")
+            ])
         return Response([
             {"id": str(member.organization_id), "legalName": member.organization.legal_name, "role": member.effective_role}
             for member in builder_memberships(request.user).select_related("organization").order_by("organization__legal_name", "pk")
@@ -183,17 +201,23 @@ class BuilderOrganizationsView(BuilderView):
 
 class BuilderProjectsView(BuilderView, DeveloperProjectCreateView):
     def get(self, request):
-        return Response([project_data(project) for project in builder_projects(request.user)])
+        return Response([project_data(project) for project in builder_projects(request.user, workspace=self.workspace)])
 
     @transaction.atomic
     def post(self, request):
         data = CreateProjectInput(data=request.data)
         data.is_valid(raise_exception=True)
         values = data.validated_data
+        organizations = Organization.objects.filter(status="active")
+        if self.workspace == "admin":
+            if not request.user.has_perm("platform_api.add_project"):
+                raise PermissionDenied("Creating projects requires project add permission.")
+        else:
+            organizations = organizations.filter(
+                pk__in=builder_memberships(request.user).values("organization_id"),
+            )
         organization = get_object_or_404(
-            Organization.objects.select_for_update(),
-            pk=values.pop("organizationId"),
-            pk__in=builder_memberships(request.user).values("organization_id"),
+            organizations.select_for_update(), pk=values.pop("organizationId"),
         )
         location = values.pop("location", None)
         reference = resolve_project_location(location) if location is not None else None
@@ -219,14 +243,14 @@ class BuilderProjectsView(BuilderView, DeveloperProjectCreateView):
 
 class BuilderProjectView(BuilderView):
     def get(self, request, project_id):
-        return Response(project_data(get_object_or_404(builder_projects(request.user), pk=project_id)))
+        return Response(project_data(get_object_or_404(builder_projects(request.user, workspace=self.workspace), pk=project_id)))
 
     @transaction.atomic
     def patch(self, request, project_id):
         data = UpdateProjectInput(data=request.data, partial=True)
         data.is_valid(raise_exception=True)
         values = data.validated_data
-        project = locked_project(request.user, project_id, values.pop("expectedUpdatedAt", None))
+        project = locked_project(request.user, project_id, values.pop("expectedUpdatedAt", None), workspace=self.workspace)
         location = values.pop("location", None)
         reference = resolve_project_location(location) if location is not None else None
         if "locality" not in values and "locality" in values.get("address", {}):
@@ -274,19 +298,19 @@ class BuilderProjectArchiveView(BuilderView):
     def post(self, request, project_id):
         data = VersionInput(data=request.data)
         data.is_valid(raise_exception=True)
-        project = locked_project(request.user, project_id, data.validated_data["expectedUpdatedAt"])
+        project = locked_project(request.user, project_id, data.validated_data["expectedUpdatedAt"], workspace=self.workspace)
         project = retire_project(project.pk, request.user, reason_code="BUILDER_ARCHIVE")
         return Response(project_data(project))
 
 
 class BuilderLayoutsView(BuilderView):
     def get(self, request, project_id):
-        project = get_object_or_404(builder_projects(request.user), pk=project_id)
+        project = get_object_or_404(builder_projects(request.user, workspace=self.workspace), pk=project_id)
         return Response([layout_data(plan) for plan in pricing_layouts(can_review=True).filter(project=project).order_by("display_name", "pk")])
 
     @transaction.atomic
     def patch(self, request, project_id, layout_id):
-        project = get_object_or_404(builder_projects(request.user).select_for_update(of=("self",)), pk=project_id)
+        project = get_object_or_404(builder_projects(request.user, workspace=self.workspace).select_for_update(of=("self",)), pk=project_id)
         if project.status in {"retired", "merged"}:
             raise BuilderConflict("This project is archived and cannot be changed.")
         data = LayoutInput(data=request.data)

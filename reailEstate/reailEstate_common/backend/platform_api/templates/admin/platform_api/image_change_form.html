@@ -5,14 +5,10 @@
   {% if extraction_editor_url %}
     <li><a href="{{ extraction_editor_url }}">Edit extraction</a></li>
   {% endif %}
-  {% if flat_separation_url %}
-    <li><a href="{{ flat_separation_url }}">Separate flats</a></li>
-  {% endif %}
-  {% if manual_crop_url %}
-    <li><a href="{{ manual_crop_url }}">Draw layout crops</a></li>
-  {% endif %}
-  {% if layout_dashboard_url %}
-    <li><a href="{{ layout_dashboard_url }}">Rotate / normalize layout</a></li>
+  {% if layout_workspace_url %}
+    <li><a href="{{ layout_workspace_url }}">Edit in project workspace</a></li>
+  {% elif layout_dashboard_url %}
+    <li><a href="{{ layout_dashboard_url }}">Open project workspace</a></li>
   {% endif %}
 {% endblock %}
 

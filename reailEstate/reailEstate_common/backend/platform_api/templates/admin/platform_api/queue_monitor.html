@@ -15,6 +15,11 @@
     {% if can_run %}<form method="post" action="{% url 'admin:platform_api_project_run_reanalysis_cart' %}">{% csrf_token %}<button type="submit">Run all my queued evaluations</button></form>{% endif %}
     <span id="queue-refresh" role="status" aria-live="polite"></span>
   </div>
+  {% if selected_project and can_run %}<section aria-label="Project queue controls"><h2>{{ selected_project.submitted_name }}</h2>
+    <form method="post">{% csrf_token %}<input type="hidden" name="project_id" value="{{ selected_project.pk }}">
+      <button name="action" value="run_queued_project_evaluations">Run queued evaluations (exclude DLQ)</button>
+      <button name="action" value="run_project_evaluations">Review and run project evaluations</button>
+    </form></section>{% endif %}
   <dl class="queue-counts"><div><dt>Pending</dt><dd data-count="pending">0</dd></div><div><dt>Running</dt><dd data-count="running">0</dd></div><div><dt>Dead letter</dt><dd data-count="dead_letter">0</dd></div><div><dt>Completed</dt><dd data-count="completed">0</dd></div></dl>
   <p id="queue-action-status" role="status" aria-live="polite"></p>
   <h2>Workers <span id="queue-availability"></span></h2>

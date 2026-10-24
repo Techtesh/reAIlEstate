@@ -138,11 +138,10 @@ page-sourced drafts and layout display names, respectively.
 - Shared scoped styling standardizes action sizes and placement. The media byline
     displays recorded project locality, or explicitly says the location is not recorded.
 
-The **Run updated layout tools (SQLite 8001)** VS Code task serves the regenerated
-SQLite catalog at `http://127.0.0.1:8001/admin/`. It is separate from an older
+The **Run updated layout tools (PostgreSQL 8001)** VS Code task serves the PostgreSQL
+catalog at `http://127.0.0.1:8001/admin/`. It is separate from an older
 `--noreload` server that may still occupy port 8000. Fresh shell checks alone do not
-prove the live server loaded new admin routes. Do not run corpus writers against
-SQLite and PostgreSQL simultaneously.
+prove the live server loaded new admin routes. Runtime and tests require PostgreSQL.
 
 Open **Admin → Projects → Media dashboard** for a project-scoped view. Direct tabs show:
 

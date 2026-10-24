@@ -16,7 +16,6 @@ locals {
     CLAMAV_ENDPOINT                          = var.clamav_endpoint
     CORS_ALLOWED_ORIGINS                     = local.application_url
     CSRF_TRUSTED_ORIGINS                     = local.application_url
-    DATABASE_BACKEND                         = "postgresql"
     DJANGO_ALLOWED_HOSTS                     = join(",", [aws_cloudfront_distribution.gateway.domain_name, aws_lb.gateway.dns_name, "127.0.0.1", "localhost"])
     DJANGO_DEBUG                             = "false"
     ENVIRONMENT                              = var.environment_name

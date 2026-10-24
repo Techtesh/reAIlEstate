@@ -1,28 +1,65 @@
-name: Build AWS EC2 release
+name: Deploy EC2 service
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub environment containing deployment secrets
+        type: environment
+        required: true
+        default: production
+      mode:
+        description: Private SSH preview or public HTTPS
+        type: choice
+        options: [preview, https]
+        default: preview
+        required: true
+      demo:
+        description: Show clean unreviewed media and draft details to all demo viewers
+        type: boolean
+        default: true
+        required: true
 permissions:
   contents: read
 concurrency:
-  group: aws-ec2-build
+  group: ec2-${{ inputs.environment }}
   cancel-in-progress: false
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: realestate
+          POSTGRES_PASSWORD: ci-validation-only
+          POSTGRES_DB: realestate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U realestate -d realestate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Validate workflow syntax
+        run: >-
+          docker run --rm -v "$PWD:/repo:ro" -w /repo
+          rhysd/actionlint:1.7.7 .github/workflows/aws-ec2-release.yml
       - name: Validate deployment configuration
         shell: pwsh
         run: ./.deployments/aws/scripts/Test-Ec2Configuration.ps1
       - name: Check shell scripts
         run: |
-          bash -n .deployments/aws/ec2/start.sh
           bash -n .deployments/aws/ec2/package.sh
           bash -n .deployments/aws/ec2/deploy-release.sh
           bash .deployments/aws/ec2/test-package.sh
+          docker run --rm --network none --read-only --tmpfs /root:rw,exec --tmpfs /tmp \
+            -v "$PWD/.deployments/aws:/checks:ro" python:3.14-slim \
+            python /checks/ec2/test-deployment.py
       - name: Build and verify release images
         shell: bash
         run: |
@@ -33,14 +70,16 @@ jobs:
             -t "realestate-ec2-gateway:$GITHUB_SHA" \
             -f .deployments/aws/ec2/gateway.Dockerfile .
           for service in admin builder buyer; do
-            docker run --rm -e DATABASE_BACKEND=sqlite -e DJANGO_DEBUG=false \
+            docker run --rm --network host -e PGHOST=127.0.0.1 -e PGPORT=5432 \
+              -e PGDATABASE=realestate -e PGUSER=realestate -e PGPASSWORD=ci-validation-only -e DJANGO_DEBUG=false \
               -e DJANGO_ALLOWED_HOSTS=localhost -e DJANGO_SECRET_KEY=ci-validation-only \
               "realestate-app:$GITHUB_SHA" python "${service}Service/manage.py" check \
-              "--settings=${service}_service.settings"
+              "--settings=${service}_service.settings" --database default
           done
           docker run --rm "realestate-ec2-gateway:$GITHUB_SHA" nginx -t
           docker pull caddy:2-alpine
           docker run --rm -e DOMAIN=validation.example \
+            -e BUILDER_DOMAIN=builder.validation.example -e ADMIN_DOMAIN=admin.validation.example \
             -v "$PWD/.deployments/aws/ec2/Caddyfile:/etc/caddy/Caddyfile:ro" \
             caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Package release
@@ -53,3 +92,81 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 3
+
+  deploy:
+    needs: build
+    runs-on: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.environment }}
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+      SSH_USER: ${{ vars.SSH_USER || 'ec2-user' }}
+      SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+      DEPLOY_MODE: ${{ inputs.mode }}
+      DEMO_ENABLED: ${{ inputs.demo && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: aws-ec2-release
+          path: release
+      - name: Validate deployment inputs and release checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EC2_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$SSH_PORT > 0 && 10#$SSH_PORT < 65536))
+          [[ "$DEPLOY_MODE" == preview || "$DEPLOY_MODE" == https ]]
+          [[ "$DEMO_ENABLED" == true || "$DEMO_ENABLED" == false ]]
+          : "${SSH_PRIVATE_KEY:?Set SSH_PRIVATE_KEY as a secret in the selected GitHub environment}"
+          : "${SSH_KNOWN_HOSTS:?Set SSH_KNOWN_HOSTS as a secret in the selected GitHub environment}"
+          cd release
+          sha256sum --check "realestate-$GITHUB_SHA.tar.gz.sha256"
+      - name: Show deployment runner SSH source
+        if: runner.environment == 'github-hosted'
+        shell: bash
+        run: |
+          set -euo pipefail
+          runner_ip=$(curl -4 --fail --silent --show-error --connect-timeout 5 --max-time 10 https://checkip.amazonaws.com)
+          [[ "$runner_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+          printf 'Runner IPv4: %s\nAllow SSH TCP %s from %s/32 on the EC2 security group for this run.\n' "$runner_ip" "$SSH_PORT" "$runner_ip"
+          printf 'The next step retries timed-out SSH connections for about five minutes. Remove the temporary rule after the run.\n'
+      - name: Transfer and deploy the checked release
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh_dir="$RUNNER_TEMP/ec2-deploy"
+          mkdir -m 700 "$ssh_dir"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          chmod 600 "$ssh_dir/key" "$ssh_dir/known_hosts"
+          options=(-i "$ssh_dir/key" -o BatchMode=yes -o StrictHostKeyChecking=yes
+            -o "UserKnownHostsFile=$ssh_dir/known_hosts" -o ConnectTimeout=20
+            -o AddressFamily=inet -o ConnectionAttempts=15
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=6)
+          target="$SSH_USER@$EC2_HOST"
+          archive="release/realestate-$GITHUB_SHA.tar.gz"
+          digest=$(sha256sum "$archive" | cut -d ' ' -f 1)
+          scp -P "$SSH_PORT" "${options[@]}" "$archive" "$target:realestate-$GITHUB_SHA.tar.gz"
+          scp -P "$SSH_PORT" "${options[@]}" .deployments/aws/ec2/deploy-release.sh "$target:realestate-deploy-$GITHUB_SHA.sh"
+          ssh -p "$SSH_PORT" "${options[@]}" "$target" \
+            "bash realestate-deploy-$GITHUB_SHA.sh $GITHUB_SHA $digest $DEPLOY_MODE $DEMO_ENABLED"
+      - name: Remove runner SSH material
+        if: always()
+        shell: bash
+        run: |
+          rm -f -- "$RUNNER_TEMP/ec2-deploy/key" "$RUNNER_TEMP/ec2-deploy/known_hosts"
+          rmdir -- "$RUNNER_TEMP/ec2-deploy" 2>/dev/null || true
+      - name: Deployment summary
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+        shell: bash
+        run: |
+          printf 'Deployed commit %s to **%s** in **%s** mode (demo visibility: **%s**). Processing remains off.\n' \
+            "$GITHUB_SHA" "$TARGET_ENVIRONMENT" "$DEPLOY_MODE" "$DEMO_ENABLED" >> "$GITHUB_STEP_SUMMARY"

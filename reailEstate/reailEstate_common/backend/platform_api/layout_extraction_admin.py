@@ -38,10 +38,9 @@ class ExtractionForm(forms.Form):
 class RoomForm(forms.Form):
     source_index = forms.IntegerField(required=False, min_value=0, widget=forms.HiddenInput)
     room = forms.CharField(label="Room", max_length=120)
-    length_ft = forms.DecimalField(label="Length (ft)", required=False, min_value=Decimal("0.001"),
-        max_value=1000, max_digits=10, decimal_places=5)
-    width_ft = forms.DecimalField(label="Width (ft)", required=False, min_value=Decimal("0.001"),
-        max_value=1000, max_digits=10, decimal_places=5)
+    # Extracted feet/inches conversions have floating-point tails; accept saved precision unchanged.
+    length_ft = forms.FloatField(label="Length (ft)", required=False, min_value=0.001, max_value=1000)
+    width_ft = forms.FloatField(label="Width (ft)", required=False, min_value=0.001, max_value=1000)
 
 
 RoomFormSet = forms.formset_factory(RoomForm, extra=1, can_delete=True, max_num=100, validate_max=True,

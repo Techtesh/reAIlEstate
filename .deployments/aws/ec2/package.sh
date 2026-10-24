@@ -9,7 +9,7 @@ mkdir -p "$output"
 stage=$(mktemp -d)
 trap 'rm -rf -- "$stage"' EXIT
 mkdir "$stage/ec2"
-for file in compose.yml Caddyfile start.sh deploy-release.sh .env.example app.env.example; do
+for file in compose.yml Caddyfile compose.preview.yml deploy-release.sh .env.example app.env.example; do
     cp "$root/.deployments/aws/ec2/$file" "$stage/ec2/$file"
 done
 printf '%s\n' "$sha" > "$stage/release.txt"

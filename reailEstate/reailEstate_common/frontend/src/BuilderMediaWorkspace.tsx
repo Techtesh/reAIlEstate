@@ -1,32 +1,39 @@
 import { useCallback, useEffect, useId, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from 'react'
 import { Check, Maximize2, Pencil, Trash2, X } from 'lucide-react'
-import { api, ApiError, apiPath, json } from './api'
+import { ApiError, apiPath, json } from './api'
 import { errorMessage, isAbortError } from './errors'
+import { useProjectWorkspace } from './projectWorkspace'
 import './BuilderMediaWorkspace.css'
+import { workspaceOrder } from './workspaceOrdering'
+import { rotatedImageSize } from './cropGeometry'
+import { FloorSummary, PlanReview, FloorPlanReview } from './AdminReview'
 
 export type BuilderLayout = { id: string; name: string; price: string | null; configurationType: string; carpetAreaSqFt: string | null; updatedAt: string; reviewState: string }
 type Category = 'project-images' | 'amenities' | 'floor-plans' | 'layouts'
 type RoomMeasurement = { room?: string; name?: string; lengthFt?: number | string | null; widthFt?: number | string | null; areaSqFt?: number | null }
 type Evaluation = { state: string; label: string; error?: string; attempts?: number; retryAt?: string | null; canRun: boolean }
+type AdminTool = { label: string; url: string }
 type MediaItem = {
   id: string; category: Category; label: string; imageUrl: string; documentId: string; pageNumber: number
   planId: string | null; updatedAt: string | null; sourceSha256: string; canCrop: boolean; canEvaluate: boolean
-  assetId?: string; active?: boolean; reviewState?: string; displayName?: string
+  assetId?: string; planScope?: string; active?: boolean; inactiveSource?: boolean; reviewState?: string; displayName?: string; canEdit?: boolean
   configuration?: string; area?: string | number | null; dimensions?: RoomMeasurement[]
   roomRectangleSumSqFt?: number | null; roomCount?: number | null; bathrooms?: number | null; balconies?: number | null
   orientation?: string; confidence?: number | string | null; extractorVersion?: string; sourceKind?: string
   qualityWarning?: string; dimensionWarning?: string; features?: Record<string, unknown>; evaluation?: Evaluation | null
+  adminTools?: AdminTool[]; canReview?: boolean; reviewReason?: string
 }
 type Media = {
   projectId: string; projectName: string; projectPrice: string | number | null; canEdit: boolean
   projectUpdatedAt: string; confirmNameChanges: boolean
+  adminTools?: AdminTool[]
   items: MediaItem[]; documents: MediaDocument[]
   profiles: { id: string; label: string }[]; drafts: { id: string; label: string; imageUrl: string; category?: Category; action?: string }[]
   jobs: { id: string; state: string; kind: string; error: string | null; planId?: string | null }[]
 }
 type MediaDocument = { id: string; name: string; pageCount: number; sha256: string; error?: string | null }
 type Region = { label: string; x: number; y: number; width: number; height: number }
-type Crop = { documentId: string; pageNumber: number; sourceSha256: string; region: Region; category: Category; rotationDegrees: number; target?: MediaItem; layoutRegions?: Region[] }
+type Crop = { documentId: string; pageNumber: number; sourceSha256: string; region: Region; category: Category; rotationDegrees: number; sourceMode?: 'original' | 'current'; target?: MediaItem; layoutRegions?: Region[] }
 type MediaAction = 'rename' | 'set-active' | 'remove' | 'restore' | 'normalize' | 'reset-crop' | 'segment' | 'evaluate-amenities' | 'reprocess-all' | 'reprocess-failed'
 type ActionValues = { action: MediaAction; targets: { planId: string; expectedUpdatedAt: string }[]; name?: string; active?: boolean; rotationDegrees?: number; reason?: string }
 type Confirmation =
@@ -110,11 +117,12 @@ function CropImage({ url, rotation, pageNumber, imageRef, onReady, onError }: {
     source.onload = () => {
       if (cancelled) return
       const canvas = document.createElement('canvas')
-      const swapped = Math.abs(rotation) === 90
-      canvas.width = swapped ? source.height : source.width
-      canvas.height = swapped ? source.width : source.height
+      const [width, height] = rotatedImageSize(source.naturalWidth, source.naturalHeight, rotation)
+      canvas.width = width
+      canvas.height = height
       const context = canvas.getContext('2d')
       if (!context) { onError(); return }
+      context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height)
       context.translate(canvas.width / 2, canvas.height / 2)
       context.rotate(-rotation * Math.PI / 180)
       context.drawImage(source, -source.width / 2, -source.height / 2)
@@ -129,12 +137,13 @@ function CropImage({ url, rotation, pageNumber, imageRef, onReady, onError }: {
 }
 
 export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, renderLayout }: Props) {
-  const projectPath = `/api/v1/builder/projects/${encodeURIComponent(projectId)}`
+  const { api, path: workspacePath, admin } = useProjectWorkspace()
+  const projectPath = workspacePath(`/api/v1/builder/projects/${encodeURIComponent(projectId)}`)
   const root = `${projectPath}/media`
   const prefix = useId()
   const [media, setMedia] = useState<Media | null>(null), [layouts, setLayouts] = useState<BuilderLayout[]>([])
-  const [tab, setTab] = useState<Category>('project-images'), [selectedId, setSelectedId] = useState('')
-  const [layoutSearch, setLayoutSearch] = useState(''), [layoutSort, setLayoutSort] = useState('default')
+  const [tab, setTab] = useState<Category>(() => tabs.find(tab => tab.id === new URLSearchParams(window.location.search).get('section'))?.id ?? 'project-images'), [selectedId, setSelectedId] = useState(new URLSearchParams(window.location.search).get('plan') ?? '')
+  const [layoutSearch, setLayoutSearch] = useState(''), [layoutSort, setLayoutSort] = useState('name')
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false)
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [conflict, setConflict] = useState(false)
   const [layoutDirty, setLayoutDirty] = useState<Set<string>>(() => new Set())
@@ -144,18 +153,23 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
   const [selectedPlans, setSelectedPlans] = useState<string[]>([])
   const [rename, setRename] = useState<{ itemId: string; value: string } | null>(null)
-  const [previewVersion, setPreviewVersion] = useState(0)
+  const [previewVersion, setPreviewVersion] = useState(0), [fresh, setFresh] = useState(false)
   const scope = useRef<AbortController | null>(null), pending = useRef(false)
   const drag = useRef<{ x: number; y: number; before: Crop; editing: Crop; dropped?: Region } | null>(null)
   const cropImage = useRef<HTMLImageElement>(null)
   const cropEditor = useRef<HTMLElement>(null), confirmationPanel = useRef<HTMLDivElement>(null)
+  const cropLauncher = useRef<HTMLElement | null>(null), wasCropping = useRef(false)
   const nameButton = useRef<HTMLButtonElement>(null), wasRenaming = useRef(false)
   useEffect(() => {
     if (!rename && wasRenaming.current) nameButton.current?.focus()
     wasRenaming.current = !!rename
   }, [rename])
   const cropOpened = !!crop
-  useEffect(() => { if (cropOpened) cropEditor.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [cropOpened])
+  useEffect(() => {
+    if (cropOpened) { cropEditor.current?.focus(); cropEditor.current?.scrollIntoView({ block: 'nearest' }) }
+    else if (wasCropping.current) cropLauncher.current?.focus()
+    wasCropping.current = cropOpened
+  }, [cropOpened])
   useEffect(() => { if (confirmation) confirmationPanel.current?.focus() }, [confirmation])
   const sourceImageReady = useCallback(() => setCropReady(true), [])
   const sourceImageError = useCallback(() => { setCropReady(false); setCropImageError(true) }, [])
@@ -187,7 +201,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     }).catch(failure => { if (!isAbortError(failure)) setError(message(failure)) })
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => { controller.abort(); scope.current = null }
-  }, [root, projectId, projectPath])
+  }, [root, projectId, projectPath, api])
 
   async function refresh(includeLayouts = !changed) {
     const controller = scope.current
@@ -217,6 +231,14 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     try { await refresh(false) }
     catch (failure) { if (!isAbortError(failure)) setError(`${message(failure)} The layout was saved. Refresh media; do not repeat the save.`) }
     finally { pending.current = false; if (scope.current) setLoading(false) }
+  }
+  async function reviewSaved(success: string) {
+    pending.current = true; setLoading(true); setError(''); setNotice(success)
+    onChanged()
+    try { await refresh(true) }
+    catch (failure) {
+      if (!isAbortError(failure)) { setConflict(true); setError(`${message(failure)} The review was saved. Refresh media before making another decision.`) }
+    } finally { pending.current = false; if (scope.current) setLoading(false) }
   }
   async function mutate(endpoint: string, payload: unknown, success: string, completed: () => void) {
     if (mutationBlocked || pending.current || !scope.current) { setError('Save local edits and resolve access or version conflicts before changing media.'); return }
@@ -249,8 +271,15 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     setCropReady(false); setCropImageError(false); setCropWarning('')
   }
   function editCrop(next: Crop | null) {
+    if (next && !crop) cropLauncher.current = document.activeElement as HTMLElement
     if (json(next) !== json(crop)) cropRequest.current = null
     setCrop(next)
+  }
+  function rotateCrop(delta: number) {
+    if (!crop || crop.layoutRegions?.length) return
+    setCropReady(false); setCropImageError(false)
+    editCrop({ ...crop, rotationDegrees: (crop.rotationDegrees + delta + 360) % 360, region: { ...emptyRegion(), label: crop.region.label } })
+    setCropWarning('Rotation changed. Draw a new rectangle on the rotated image.')
   }
   function point(event: PointerEvent<HTMLDivElement>) {
     const box = cropImage.current?.getBoundingClientRect()
@@ -346,7 +375,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     if (!regions.length) { setError('Draw and label at least one layout crop covering 2% or more of the source image before saving.'); return }
     if (regions.length > 20) { setError('Save at most 20 layout crops at a time. Remove a crop or clear the current selection.'); return }
     if (!regions.every(validRegion)) return
-    const payload = { documentId: crop.documentId, pageNumber: crop.pageNumber, sourceSha256: crop.sourceSha256, category: crop.category, regions, rotationDegrees: crop.rotationDegrees,
+    const payload = { documentId: crop.documentId, pageNumber: crop.pageNumber, sourceSha256: crop.sourceSha256, category: crop.category, regions, rotationDegrees: crop.rotationDegrees, ...(crop.sourceMode === 'current' ? { sourceMode: 'current' } : {}),
       ...(crop.target ? { targetPlanId: crop.target.planId, expectedUpdatedAt: crop.target.updatedAt } : {}) }
     const fingerprint = json(payload)
     if (!cropRequest.current || cropRequest.current.payload !== fingerprint) cropRequest.current = { payload: fingerprint, requestId: crypto.randomUUID() }
@@ -358,11 +387,11 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     return { ...payload, requestId: actionRequest.current.requestId }
   }
   function saveMediaAction(values: ActionValues, queues: boolean) {
-    void mutate('actions', withRequestId('actions', { confirm: true, ...(profile ? { visionProfileId: profile } : {}), ...values }), queues ? 'Processing queued. Refresh jobs to follow progress.' : 'Media updated. Independent review is required.', () => { actionRequest.current = null; setConfirmation(null); setRename(null); setSelectedPlans([]) })
+    void mutate('actions', withRequestId('actions', { confirm: true, ...(queues && fresh ? { fresh: true } : {}), ...(profile ? { visionProfileId: profile } : {}), ...values }), queues ? 'Processing queued. Refresh jobs to follow progress.' : 'Media updated. Independent review is required.', () => { actionRequest.current = null; setConfirmation(null); setRename(null); setSelectedPlans([]) })
   }
   function confirmAction() {
     if (!confirmation) return
-    const options = { confirm: true, ...(profile ? { visionProfileId: profile } : {}) }
+    const options = { confirm: true, ...(fresh ? { fresh: true } : {}), ...(profile ? { visionProfileId: profile } : {}) }
     if (confirmation.kind === 'picture') {
       const payload = { source: confirmation.source, expectedUpdatedAt: confirmation.version, requestId: confirmation.requestId, ...(confirmation.assetId ? { assetId: confirmation.assetId } : {}) }
       if (confirmation.image) {
@@ -383,9 +412,9 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
       void mutate('drafts', withRequestId('drafts', { ...(attaching ? options : { confirm: true }), action: confirmation.kind, draftIds: confirmation.draftIds, ...(confirmation.replacementIds ? { replacementIds: confirmation.replacementIds, replacementTargets: confirmation.replacementTargets } : {}) }), attaching ? 'Selected drafts attached; evaluation queued.' : 'Selected crop drafts discarded.', () => { actionRequest.current = null; setConfirmation(null); setSelectedDrafts([]); setSelectedPlans([]) })
     }
   }
-  const directory = media?.items.filter(item => item.category === 'layouts' && item.label.toLocaleLowerCase().includes(layoutSearch.trim().toLocaleLowerCase())) ?? []
-  if (layoutSort !== 'default') directory.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }) * (layoutSort === 'name-desc' ? -1 : 1))
-  const items = tab === 'layouts' ? directory : media?.items.filter(item => item.category === tab) ?? []
+  const planTab = tab === 'layouts' || tab === 'floor-plans'
+  const directory = workspaceOrder(media?.items.filter(item => item.category === tab && item.label.toLocaleLowerCase().includes(layoutSearch.trim().toLocaleLowerCase())) ?? [], item => item.label, item => item.active === false || !!item.inactiveSource || item.reviewState === 'removed_by_user', layoutSort === 'name-desc')
+  const items = planTab ? directory : media?.items.filter(item => item.category === tab) ?? []
   const selected = items.find(item => item.id === selectedId) ?? items[0]
   const index = selected ? items.indexOf(selected) : -1
   function action(action: MediaAction, title: string, targets: MediaItem[] = [], extra: Partial<ActionValues> = {}, queues = false) {
@@ -395,20 +424,38 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     else setConfirmation({ kind: 'action', values, title, queues })
   }
   function changeActivity(item: MediaItem, active: boolean) {
+    if (selected) setSelectedId(selected.id)
     action('set-active', active
       ? item.category === 'floor-plans' ? 'Activate this floor plan? Derived layouts will stay inactive.' : 'Activate this layout?'
       : item.category === 'floor-plans' ? 'Deactivate this floor plan and its derived layouts?' : 'Deactivate this layout?',
     [item], { active })
   }
   function selectImage(item: MediaItem) {
+    if (item.id === selected?.id) return
+    if (changed && !window.confirm('Discard unsaved layout or review entries and select another image?')) return
+    if (crop && !window.confirm('Discard the unsaved crop selection?')) return
     if (rename && !window.confirm('Discard the unsaved media name?')) return
+    if (changed) { setLayoutDirty(new Set()); setPreviewVersion(version => version + 1) }
+    if (crop) editCrop(null)
     setRename(null); setSelectedId(item.id)
+    const url = new URL(window.location.href)
+    url.searchParams.set('section', tab); url.searchParams.set('plan', item.planId || item.id)
+    window.history.replaceState(null, '', url)
   }
   function selectTab(category: Category) {
-    if (rename && !window.confirm('Discard the unsaved media name?')) return
+    if (category === tab) return true
+    if (changed && !window.confirm('Discard unsaved layout or review entries and change media section?')) return false
+    if (crop && !window.confirm('Discard the unsaved crop selection?')) return false
+    if (rename && !window.confirm('Discard the unsaved media name?')) return false
+    if (changed) { setLayoutDirty(new Set()); setPreviewVersion(version => version + 1) }
+    if (crop) editCrop(null)
     setRename(null); setTab(category); setSelectedId('')
+    const url = new URL(window.location.href)
+    url.searchParams.set('section', category); url.searchParams.delete('plan')
+    window.history.replaceState(null, '', url)
+    return true
   }
-  const cropUrl = crop ? `${root}/documents/${encodeURIComponent(crop.documentId)}/pages/${crop.pageNumber}?sha256=${encodeURIComponent(crop.sourceSha256)}` : ''
+  const cropUrl = crop?.sourceMode === 'current' && crop.target ? crop.target.imageUrl : crop ? `${root}/documents/${encodeURIComponent(crop.documentId)}/pages/${crop.pageNumber}?sha256=${encodeURIComponent(crop.sourceSha256)}` : ''
   const cropDocument = media?.documents.find(document => document.id === crop?.documentId)
   const cropPageAvailable = !!cropDocument && cropSourceAvailable(cropDocument) && !!crop && crop.pageNumber >= 1 && crop.pageNumber <= cropDocument.pageCount
   const chosenPlans = media?.items.filter(item => item.planId && selectedPlans.includes(item.planId)) ?? []
@@ -420,9 +467,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     : `Discard ${confirmation.draftIds.length} selected draft(s)?`
   const queues = confirmation && (['attach', 'evaluate', 'pages'].includes(confirmation.kind) || (confirmation.kind === 'action' && confirmation.queues))
   return <section className="builder-panel builder-media" aria-label="Project media workspace">
-    <h2>Project media workspace</h2>
-    <p>{media?.projectName} {media && <>· Project price: {media.projectPrice ?? 'contact to know'}</>}</p>
-    <p>Preview evidence, edit layout aliases and prices, or stage missing layouts from source pages. Changes require independent review.</p>
+    <div className="builder-media-toolbar"><div><h2>Images & plans</h2><p className="data-note">{media?.projectName} {media && <>· Project price: {media.projectPrice ?? 'contact to know'}</>}</p></div><div className="button-row"><button className="secondary" disabled={loading || busy} onClick={() => void refreshClicked()}>Refresh media and jobs</button><button className="secondary" disabled={mutationBlocked || !!rename || !media?.documents.some(cropSourceAvailable) || !!confirmation} onClick={() => startCrop()}>Crop source page</button></div></div>
     {error && !crop && <p role="alert" className="field-error">{error}</p>}
     {notice && <p role="status" className="builder-notice">{notice}</p>}
     {cropWarning && !crop && <p role="alert" className="builder-notice">Warning: {cropWarning}</p>}
@@ -431,28 +476,28 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     {changed && <p role="status">Save or explicitly reload your layout entries before cropping, attaching or re-evaluating. Refresh keeps these entries.</p>}
     {conflict && <p role="alert">The source or layout changed. Your local entries were kept. Refresh media, then reopen the source or confirmation using the latest version.</p>}
     {media?.documents.filter(document => !cropSourceAvailable(document)).map(document => <p key={document.id} role="alert" className="field-error">{document.name}: {document.error || 'No readable source pages are available.'} Cropping is unavailable for this document.</p>)}
-    <div className="button-row"><button className="secondary" disabled={loading || busy} onClick={() => void refreshClicked()}>Refresh media and jobs</button><button className="secondary" disabled={mutationBlocked || !!rename || !media?.documents.some(cropSourceAvailable) || !!confirmation} onClick={() => startCrop()}>Crop source page</button></div>
     {loading && <p role="status">Loading media...</p>}
+    {admin && <nav className="button-row" aria-label="Admin review tools"><a href="/admin/records/review-tasks/">Review queue</a><a href="/admin/queue/">Processing queue</a><a href="/admin/records/facts/">Project facts and history</a></nav>}
     <div className="builder-media-tabs" role="tablist" aria-label="Project media categories">
       {tabs.map((item, position) => <button key={item.id} id={`${prefix}-${item.id}`} role="tab" aria-selected={tab === item.id} aria-controls={`${prefix}-${item.id}-panel`} tabIndex={tab === item.id ? 0 : -1} onClick={() => selectTab(item.id)} onKeyDown={event => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
         event.preventDefault()
         const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (position + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
-        selectTab(tabs[next].id)
-        document.getElementById(`${prefix}-${tabs[next].id}`)?.focus()
+        if (selectTab(tabs[next].id)) document.getElementById(`${prefix}-${tabs[next].id}`)?.focus()
       }}>{item.label}</button>)}
     </div>
-    <div className={tab === 'layouts' ? 'builder-layout-explorer' : undefined}>
-    {tab === 'layouts' && <aside className="builder-layout-directory" aria-label="Layout directory">
-      <h3>Layouts <span>{directory.length}</span></h3>
-      <label>Find a layout<input type="search" value={layoutSearch} disabled={busy || !!confirmation || !!rename} onChange={event => setLayoutSearch(event.target.value)} /></label>
-      <label>Sort layouts<select value={layoutSort} disabled={busy || !!confirmation || !!rename} onChange={event => setLayoutSort(event.target.value)}><option value="default">Default order</option><option value="name">Name (A-Z)</option><option value="name-desc">Name (Z-A)</option></select></label>
-      <ul aria-label="Layout list">{directory.map(item => <li key={item.id}><button className="secondary" aria-pressed={selected?.id === item.id} aria-controls={`${prefix}-layout-detail`} disabled={busy || !!confirmation} onClick={() => selectImage(item)}>
-        <strong>{item.label}</strong><span>{item.active === false ? 'Inactive · ' : ''}{item.evaluation?.state?.replaceAll('_', ' ') ?? item.reviewState?.replaceAll('_', ' ') ?? 'Awaiting review'}{item.planId && layoutDirty.has(item.planId) ? ' · Unsaved edits' : ''}</span>
+    <div className={planTab ? 'builder-layout-explorer' : undefined}>
+    {planTab && <aside className="builder-layout-directory" aria-label={tab === 'floor-plans' ? 'Floor plan directory' : 'Layout directory'}>
+      <h3>{tab === 'floor-plans' ? 'Floor plans' : 'Layouts'} <span>{directory.length}</span></h3>
+      <label>{tab === 'floor-plans' ? 'Find a floor plan' : 'Find a layout'}<input type="search" value={layoutSearch} disabled={changed || !!crop || busy || !!confirmation || !!rename} onChange={event => setLayoutSearch(event.target.value)} /></label>
+      <label>{tab === 'floor-plans' ? 'Sort floor plans' : 'Sort layouts'}<select value={layoutSort} disabled={changed || !!crop || busy || !!confirmation || !!rename} onChange={event => setLayoutSort(event.target.value)}><option value="name">Name (A-Z)</option><option value="name-desc">Name (Z-A)</option></select></label>
+      <p className="data-note">Checked plans are active. Layouts with an inactive source require that floor plan to be activated first.</p>
+      <ul aria-label={tab === 'floor-plans' ? 'Floor plan list' : 'Layout list'}>{directory.map(item => <li key={item.id} className="builder-plan-directory-row"><input type="checkbox" aria-label={`Active: ${item.label}`} title={item.inactiveSource ? 'Activate the source floor plan first' : item.active === false ? 'Activate plan' : 'Deactivate plan'} checked={item.active !== false && !item.inactiveSource && item.reviewState !== 'removed_by_user'} disabled={mutationBlocked || !!crop || !!rename || !!confirmation || !item.updatedAt || item.canEdit === false || item.inactiveSource || item.reviewState === 'removed_by_user'} onChange={event => changeActivity(item, event.target.checked)} /><button className="secondary" aria-pressed={selected?.id === item.id} aria-controls={`${prefix}-layout-detail`} disabled={busy || !!confirmation} onClick={() => selectImage(item)}>
+        <strong>{item.label}</strong><span>{item.active === false || item.inactiveSource ? 'Inactive · ' : ''}{item.evaluation?.state?.replaceAll('_', ' ') ?? item.reviewState?.replaceAll('_', ' ') ?? 'Awaiting review'}{item.planId && layoutDirty.has(item.planId) ? ' · Unsaved edits' : ''}</span>
       </button></li>)}</ul>
       {!directory.length && <p role="status">{layoutSearch ? 'No matching layouts.' : 'No layouts available yet.'}</p>}
     </aside>}
-    <div id={`${prefix}-layout-detail`} className="builder-layout-detail">
+    <div id={`${prefix}-layout-detail`} className={`builder-layout-detail${crop ? ' is-cropping' : ''}`}>
     {tabs.map(category => <div key={category.id} id={`${prefix}-${category.id}-panel`} role="tabpanel" aria-labelledby={`${prefix}-${category.id}`} hidden={tab !== category.id}>
       {tab === category.id && <>
         {selected ? <div className="builder-media-preview">
@@ -473,18 +518,18 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
           </div>
           <p>Page {selected.pageNumber} · {index + 1} of {items.length}</p>
           <div className="button-row">
-            <button className="secondary" disabled={items.length < 2 || busy || !!confirmation} onClick={() => selectImage(items[(index - 1 + items.length) % items.length])}>Previous image</button>
-            <button className="secondary" disabled={items.length < 2 || busy || !!confirmation} onClick={() => selectImage(items[(index + 1) % items.length])}>Next image</button>
+            {!planTab && <><button className="secondary" disabled={items.length < 2 || busy || !!confirmation} onClick={() => selectImage(items[(index - 1 + items.length) % items.length])}>Previous image</button>
+            <button className="secondary" disabled={items.length < 2 || busy || !!confirmation} onClick={() => selectImage(items[(index + 1) % items.length])}>Next image</button></>}
             {selected.canCrop && cropSourceAvailable(media?.documents.find(document => document.id === selected.documentId)) && <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => startCrop(selected)}>Crop this image</button>}
             {selected.category === 'floor-plans' && selected.canCrop && selected.reviewState !== 'removed_by_user' && cropSourceAvailable(media?.documents.find(document => document.id === selected.documentId)) && <button className="primary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => startCrop(selected, { multipleLayouts: true })}>Manually crop layouts</button>}
             {selected.canEvaluate && selected.planId && <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation || !selected.updatedAt || selected.evaluation?.canRun === false || ['queued', 'running'].includes(selected.evaluation?.state ?? '')} onClick={() => setConfirmation({ kind: 'evaluate', item: selected })}>{evaluationAction(selected)}</button>}
             {selected.assetId && <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => media && setConfirmation({ kind: 'picture', source: 'asset', assetId: selected.assetId, version: media.projectUpdatedAt, requestId: crypto.randomUUID() })}>Use as project picture</button>}
           </div>
           {selected.planId && <>
-            <p>Status: {selected.reviewState?.replaceAll('_', ' ') ?? 'Awaiting review'} · {selected.active === false ? 'Inactive' : 'Active'}</p>
+            <p>Status: {selected.reviewState?.replaceAll('_', ' ') ?? 'Awaiting review'} · {selected.active === false || selected.inactiveSource ? 'Inactive' : 'Active'}</p>
             <div className="button-row">
               {selected.reviewState === 'removed_by_user' ? <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => action('restore', 'Restore this removed plan without restarting cancelled jobs?', [selected], { reason: 'Builder restored media' })}>Restore plan</button> : <>
-                <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => changeActivity(selected, selected.active === false)}>{selected.active === false ? 'Activate plan' : 'Deactivate plan'}</button>
+                {selected.active === false && <button className="icon-button" disabled={mutationBlocked || !!rename || !!confirmation || !selected.updatedAt} title={`Delete ${selected.label}`} aria-label={`Delete ${selected.label}`} onClick={() => action('remove', `Delete ${selected.label}? Its source evidence will be retained.`, [selected], { reason: 'Removed disabled media' })}><Trash2 size={18} aria-hidden="true" /></button>}
                 {selected.canCrop && <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => startCrop(selected, { update: true })}>Reset / update crop</button>}
                 {selected.canCrop && <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => action('reset-crop', 'Reset this crop to its original source and re-evaluate?', [selected], {}, true)}>Restore original crop</button>}
                 {selected.category === 'floor-plans' && <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation || selected.active === false} onClick={() => action('segment', 'Extract individual layouts from this floor plan?', [selected], {}, true)}>Extract layouts</button>}
@@ -492,11 +537,11 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
               </>}
             </div>
           </>}
-          {tab !== 'layouts' && <div className="builder-media-thumbnails" aria-label="Select preview">{items.map(item => <button key={item.id} disabled={busy || !!confirmation} aria-label={`Preview ${item.label}`} aria-pressed={selected.id === item.id} onClick={() => selectImage(item)}><PrivateImage key={`${item.imageUrl}-${previewVersion}`} url={item.imageUrl} label={item.label} /><span>{item.label}</span></button>)}</div>}
+          {!planTab && <div className="builder-media-thumbnails" aria-label="Select preview">{items.map(item => <button key={item.id} disabled={busy || !!confirmation} aria-label={`Preview ${item.label}`} aria-pressed={selected.id === item.id} onClick={() => selectImage(item)}><PrivateImage key={`${item.imageUrl}-${previewVersion}`} url={item.imageUrl} label={item.label} /><span>{item.label}</span></button>)}</div>}
         </div> : <p>{tab === 'layouts' && layoutSearch ? 'No layout matches this search. Clear the search to see all layouts.' : `No ${category.label.toLowerCase()} available. Upload evidence or crop a source page for a missing layout.`}</p>}
       </>}
     </div>)}
-    {crop && <section ref={cropEditor} className="builder-crop" aria-label="Crop source editor">
+    {crop && <section ref={cropEditor} tabIndex={-1} className="builder-crop" aria-label="Crop source editor">
       <h3>{crop.target ? `Update crop: ${crop.target.label}` : crop.layoutRegions ? 'Manually crop layouts' : 'Crop source page'}</h3><p>Drag a rectangle on the original page, or enter percentage bounds. Saving creates a draft only, without model costs. {crop.target && 'Committing this draft updates the existing plan, keeping its identity and alias.'}</p>
       {cropPageAvailable && !cropImageError && <p><a href={apiPath(cropUrl)} target="_blank" rel="noopener noreferrer">Open original source page in new tab</a></p>}
       {crop.layoutRegions && <p>Draw each layout one after another (up to 20). Starting the next rectangle automatically keeps the previous one; no Add button is required. Overlap is allowed for shared walls and adjacent homes. Each layout must cover at least 2% of the source image area. Smaller added crops are dropped with a warning; a smaller current rectangle is silently ignored when saving. Default labels can be renamed below. Save layout drafts includes the valid current rectangle. This creates new layouts; it does not replace the floor plan.</p>}
@@ -505,7 +550,8 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
           <label>Source document<select value={crop.documentId} disabled={!!crop.target} onChange={event => replaceSource(event.target.value, 1)}>{media?.documents.map(document => <option key={document.id} value={document.id} disabled={!cropSourceAvailable(document)}>{document.name}{!cropSourceAvailable(document) ? ' (unavailable)' : ''}</option>)}</select></label>
           <label>Source page<select value={crop.pageNumber} disabled={!!crop.target || !cropSourceAvailable(cropDocument)} onChange={event => replaceSource(crop.documentId, Number(event.target.value))}>{Array.from({ length: cropDocument?.pageCount ?? 0 }, (_, page) => <option key={page + 1} value={page + 1}>{page + 1}</option>)}</select></label>
           <label>Crop category<select value={crop.category} disabled={!!crop.target || !!crop.layoutRegions} onChange={event => { const category = tabs.find(tab => tab.id === event.target.value)?.id; if (category) editCrop({ ...crop, category }) }}>{tabs.map(category => <option key={category.id} value={category.id}>{category.label}</option>)}</select></label>
-          <label>Source rotation<select value={crop.rotationDegrees} disabled={!!crop.layoutRegions?.length} onChange={event => { setCropReady(false); setCropImageError(false); editCrop({ ...crop, rotationDegrees: Number(event.target.value), region: { ...emptyRegion(), label: crop.region.label } }) }}><option value={0}>Original</option><option value={90}>90 degrees counterclockwise</option><option value={180}>180 degrees</option><option value={-90}>90 degrees clockwise</option></select></label>
+          {crop.target && <label>Crop source<select value={crop.sourceMode ?? 'original'} onChange={event => { setCropReady(false); setCropImageError(false); editCrop({ ...crop, sourceMode: event.target.value as 'current' | 'original', rotationDegrees: 0, region: { ...emptyRegion(), label: crop.region.label } }) }}><option value="original">Original source page</option><option value="current">Current cropped image</option></select></label>}
+          <div className="builder-crop-rotation" role="group" aria-label="Source rotation"><span>Source rotation</span><div><button type="button" className="secondary" aria-label="Rotate source clockwise 5 degrees" disabled={!!crop.layoutRegions?.length} onClick={() => rotateCrop(-5)}>−5°</button><output aria-live="polite">{crop.rotationDegrees > 180 ? crop.rotationDegrees - 360 : crop.rotationDegrees}°</output><button type="button" className="secondary" aria-label="Rotate source counterclockwise 5 degrees" disabled={!!crop.layoutRegions?.length} onClick={() => rotateCrop(5)}>+5°</button></div></div>
         </div>
         {crop.layoutRegions && <p>Choose rotation before drawing. Remove retained rectangles before changing rotation; their coordinates belong to the current orientation.</p>}
         {!cropPageAvailable ? <p role="alert">The selected source page is unavailable. Your crop entries have been kept; choose a readable source document and page.</p> : cropImageError ? <p role="alert">Original page preview could not be loaded. Check document access, refresh media and reopen the crop editor.</p> : <div className={`builder-crop-canvas${mutationBlocked || confirmation ? ' is-disabled' : ''}`} onPointerDown={beginRectangle} onPointerMove={move} onPointerUp={finishRectangle} onPointerCancel={cancelRectangle} onLostPointerCapture={cancelRectangle}>
@@ -533,8 +579,16 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
           <button className="secondary" disabled={!cropReady || !cropPageAvailable} onClick={() => setConfirmation({ kind: 'pages', source: crop, category: 'amenities' })}>Add full page as amenities</button>
         </div>
       </fieldset>
-      <button className="secondary" disabled={busy} onClick={() => { if (window.confirm('Discard this unsaved crop selection?')) { editCrop(null); drag.current = null } }}>Discard local crop</button>
+      <button className="secondary" disabled={busy} onClick={() => { if (window.confirm('Discard this unsaved crop selection?')) { editCrop(null); drag.current = null } }}>Cancel crop edit</button>
     </section>}
+    {selected?.planScope === 'floor' && <FloorSummary features={selected.features} />}
+    {admin && selected?.planId && ['floor', 'flat'].includes(selected.planScope ?? '') && <section className="plan-review-editor">
+      <p className="data-note">Extraction: <strong>{selected.evaluation?.label || selected.reviewState?.replaceAll('_', ' ') || 'Awaiting review'}</strong></p>
+      {selected.evaluation?.error && <p role="alert" className="field-error">{selected.evaluation.error}</p>}
+      {selected.qualityWarning && <p role="alert" className="field-error">Boundary review: {selected.qualityWarning}</p>}
+      {selected.dimensionWarning && <p role="alert" className="field-error">Room size review: {selected.dimensionWarning}</p>}
+      {selected.planScope === 'floor' ? <FloorPlanReview key={`${selected.planId}-${selected.updatedAt}-${previewVersion}`} plan={selected} disabled={blocked || !!rename || !!confirmation || selected.canEdit === false} onDirty={dirty => reportLayoutDirty(`review:${selected.planId}`, dirty)} onSaved={() => { void reviewSaved('Floor evaluation updated.') }} /> : <PlanReview key={`${selected.planId}-${selected.updatedAt}-${previewVersion}`} plan={selected} disabled={blocked || !!rename || !!confirmation || selected.canEdit === false || [...layoutDirty].some(key => !key.startsWith('review:'))} onDirty={dirty => reportLayoutDirty(`review:${selected.planId}`, dirty)} onSaved={() => { void reviewSaved('Review updated.') }} />}</section>}
+    {admin && selected?.planId && !['floor', 'flat'].includes(selected.planScope ?? '') && <p role="status">This plan must be classified as a whole floor or individual layout before review.</p>}
     {tab === 'layouts' && selected && <section aria-label="Selected layout evaluation" className="builder-layout-evaluation">
       <h3>Extracted room sizes</h3>
       <p role="status"><strong>{selected.evaluation?.label ?? 'Refresh media to load the evaluation status.'}</strong></p>
@@ -564,15 +618,16 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
       <p>Extracted measurements remain subject to independent review. Use Refresh media and jobs to load processing results.</p>
     </section>}
     <section hidden={tab !== 'layouts' || !selected} aria-label="Layout editing">
-      <h3>Layout price</h3><p>Edit the name in the title beneath the image. Total INR prices are editable here; extracted room sizes, carpet area and review state are read-only.</p>
+      <h3>Layout price</h3><p className="data-note">Edit the name beneath the image. {admin ? 'Correct and validate extracted measurements in the review editor.' : 'Extracted measurements require independent review.'}</p>
       <div className="builder-media-table"><table><caption>Layout review summary</caption><thead><tr><th>Alias</th><th>Total price (INR)</th><th>Carpet area (sq ft)</th><th>Configuration</th><th>Review state</th></tr></thead><tbody>{layouts.filter(layout => layout.id === selected?.planId).map(layout => <tr key={layout.id}><th scope="row">{layout.name}</th><td>{layout.price ?? 'contact to know'}</td><td>{layout.carpetAreaSqFt ?? 'Unknown'}</td><td>{layout.configurationType || 'Unknown'}</td><td>{layout.reviewState.replaceAll('_', ' ')}</td></tr>)}</tbody></table></div>
-      {layouts.map(layout => <div key={`${layout.id}-${layout.updatedAt}`} hidden={selected?.planId !== layout.id}>{renderLayout(layout, blocked || !!rename || !!confirmation, saved => void layoutSaved(saved), reportLayoutDirty)}</div>)}
+      {layouts.map(layout => <div key={`${layout.id}-${layout.updatedAt}-${previewVersion}`} hidden={selected?.planId !== layout.id}>{renderLayout(layout, blocked || !!rename || !!confirmation || [...layoutDirty].some(key => key.startsWith('review:')), saved => void layoutSaved(saved), reportLayoutDirty)}</div>)}
     </section>
     </div>
     </div>
     {confirmation && <div ref={confirmationPanel} tabIndex={-1} className="builder-confirm" role="group" aria-label="Confirm media action">
       <h3>{confirmationTitle}</h3>
       <p>{queues ? 'This explicitly queues AI evaluation and may incur model costs. Results still require independent review; this does not publish or approve anything.' : confirmation.kind === 'discard' ? 'This removes only the selected crop drafts, not their source documents.' : 'This changes project media, not the original evidence. Independent review is still required; this does not approve or publish anything.'}</p>
+      {queues && (confirmation.kind === 'evaluate' || (confirmation.kind === 'action' && confirmation.values.action === 'segment')) && <label><span><input type="checkbox" checked={fresh} onChange={event => setFresh(event.target.checked)} /> Start a fresh evaluation using current AI settings. Keep unchecked to retry saved settings.</span></label>}
       {queues && <p>Evaluation profile: {media?.profiles.find(item => item.id === profile)?.label ?? 'Automatic — configured fallback order'}</p>}
       <div className="button-row"><button className="primary" disabled={mutationBlocked} onClick={confirmAction}>{confirmation.kind === 'discard' ? 'Confirm discard' : queues ? 'Confirm and queue evaluation' : 'Confirm media change'}</button><button className="secondary" disabled={busy} onClick={() => setConfirmation(null)}>Cancel media action</button></div>
     </div>}
@@ -590,34 +645,27 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
       </fieldset>
     </section>}
     {media && <>
-      <section className="builder-media-drafts" aria-label="Crop drafts"><h3>Crop drafts</h3><p>Attach new media or commit existing crop updates, or discard drafts. Categories are retained: amenity crops remain amenities, not layouts. Draft previews do not run AI.</p>
+      <details className="builder-media-utility" aria-label="Crop drafts" open={media.drafts.length > 0 || undefined}><summary>Crop drafts <span>{media.drafts.length} saved</span></summary><p>Attach or discard saved drafts. Categories are retained. Previewing drafts does not run AI.</p>
         <div className="builder-media-thumbnails">{media.drafts.map(draft => <div className="builder-media-draft" key={draft.id}><PrivateImage key={`${draft.imageUrl}-${previewVersion}`} url={draft.imageUrl || `${root}/drafts/${encodeURIComponent(draft.id)}`} label={draft.label} openInNewTab /><label><input type="checkbox" disabled={mutationBlocked || !!confirmation} checked={selectedDrafts.includes(draft.id)} onChange={event => setSelectedDrafts(current => event.target.checked ? [...current, draft.id] : current.filter(id => id !== draft.id))} />{draft.label}</label></div>)}</div>
         {!media.drafts.length && <p>No crop drafts.</p>}
         <label>Evaluation profile<select value={profile} disabled={mutationBlocked || !!confirmation} onChange={event => setProfile(event.target.value)}><option value="">Automatic — configured fallback order</option>{media.profiles.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
         <div className="button-row"><button className="primary" disabled={mutationBlocked || !selectedDrafts.length || !!confirmation} onClick={() => setConfirmation({ kind: 'attach', draftIds: [...selectedDrafts] })}>Attach selected drafts</button><button className="secondary" disabled={mutationBlocked || !selectedDrafts.length || !!confirmation} onClick={() => setConfirmation({ kind: 'discard', draftIds: [...selectedDrafts] })}>Discard selected drafts</button></div>
-      </section>
-      <section aria-label="Plan management"><h3>Plan management</h3><p>Checked means enabled. Uncheck a plan to disable it, then use its trash icon to delete it from the active collection. Deactivating a floor plan also deactivates its derived layouts; activating it does not reactivate them. Original evidence is retained.</p>
         <fieldset disabled={mutationBlocked || !!rename || !!confirmation}>
-          {media.items.filter(item => item.planId).map(item => <div className="builder-plan-row" key={item.id}>
-            <label className="builder-check"><input type="checkbox" aria-label={`Enabled: ${item.label}`} checked={item.active !== false && item.reviewState !== 'removed_by_user'} disabled={!item.updatedAt || item.reviewState === 'removed_by_user'} onChange={event => changeActivity(item, event.target.checked)} /><span>{item.label} ({item.reviewState?.replaceAll('_', ' ') ?? 'awaiting review'}, {item.active === false ? 'disabled' : 'enabled'})</span></label>
-            {item.reviewState === 'removed_by_user' ? <button className="secondary" disabled={!item.updatedAt} aria-label={`Restore ${item.label}`} onClick={() => action('restore', 'Restore this removed plan without restarting cancelled jobs?', [item], { reason: 'Builder restored media' })}>Restore</button>
-              : item.active === false && <button className="icon-button" disabled={!item.updatedAt} title={`Delete ${item.label}`} aria-label={`Delete ${item.label}`} onClick={() => action('remove', `Delete ${item.label}? Its source evidence will be retained.`, [item], { reason: 'Builder removed disabled media' })}><Trash2 size={18} aria-hidden="true" /></button>}
-          </div>)}
           {!!selectedDrafts.length && <div className="builder-plan-replacement">
             <label>Layouts to replace with drafts<select multiple value={selectedPlans} onChange={event => setSelectedPlans(Array.from(event.target.selectedOptions, option => option.value))}>{media.items.flatMap(item => item.planId && item.category === 'layouts' && item.reviewState !== 'removed_by_user' ? [<option key={item.id} value={item.planId}>{item.label}</option>] : [])}</select></label>
             <p>Replacement is separate from enabled state. Only the layouts selected here will be replaced.</p>
             <button className="secondary" disabled={!selectedDrafts.length || !chosenPlans.length || chosenPlans.some(item => item.category !== 'layouts' || !item.updatedAt)} onClick={() => setConfirmation({ kind: 'attach', draftIds: [...selectedDrafts], replacementIds: [...selectedPlans], replacementTargets: chosenPlans.flatMap(item => item.planId && item.updatedAt ? [{ planId: item.planId, expectedUpdatedAt: item.updatedAt }] : []) })}>Replace selected layouts with drafts</button>
           </div>}
         </fieldset>
-      </section>
-      <section aria-label="Project processing"><h3>Project processing</h3><p>These actions queue the standard pipelines. Workers run automatically; opening media never starts extraction.</p>
+      </details>
+      <details className="builder-media-utility" aria-label="Project processing"><summary>Project processing</summary><p>Queue extraction or retry documents. Workers process queued jobs; opening media never starts extraction.</p>
         <div className="button-row">
           <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => action('evaluate-amenities', 'Evaluate saved amenity pages and retry failed extraction?', [], {}, true)}>Evaluate amenity pages</button>
           <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => action('reprocess-failed', 'Reprocess failed documents for this project?', [], {}, true)}>Reprocess failed documents</button>
           <button className="secondary" disabled={mutationBlocked || !!rename || !!confirmation} onClick={() => action('reprocess-all', 'Reprocess all documents for this project?', [], {}, true)}>Reprocess all documents</button>
         </div>
-      </section>
-      <MediaJobs media={media} />
+      </details>
+      <details className="builder-media-utility"><summary>Processing jobs</summary><MediaJobs media={media} /></details>
     </>}
   </section>
 }

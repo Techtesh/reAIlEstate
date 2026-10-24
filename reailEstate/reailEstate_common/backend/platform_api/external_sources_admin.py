@@ -1,4 +1,4 @@
-"""Owner-bound external lookup drafts, separate from verified project facts."""
+"""Independent source review and station operations for shared project submissions."""
 
 import json
 from decimal import Decimal
@@ -9,7 +9,6 @@ from uuid import UUID, uuid4
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
-from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import models, transaction
 from django.db.models.fields.json import KeyTextTransform
@@ -18,10 +17,10 @@ from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils import timezone
 
-from .external_sources import GoogleProjectMaps, REGISTRATION, REGISTRY_SEARCH, coordinates, direct_location, registry_lookup, station_routes
+from .external_sources import GoogleProjectMaps, REGISTRY_SEARCH, coordinates, direct_location, station_routes
 from .ingestion_runtime import WorkAlreadyClaimed, work_lock
 from .models import AuditEvent, Project, ReviewTask
-from .project_enrichment import source_url
+from .project_workspace_admin import workspace_url
 
 
 TTL = 900
@@ -322,7 +321,7 @@ def project_transit_maps(project):
 
 def location_reviewer_allowed(task, actor):
     return (not (getattr(settings, "PROJECT_LOCATION_REQUIRE_SECOND_APPROVER", True)
-                 or task.resolution.get("source") == "builder_project_location")
+                 or task.resolution.get("source") in {"builder_project_location", "project_workspace"})
             or str(task.resolution.get("submittedBy")) != str(actor.pk))
 
 
@@ -372,7 +371,7 @@ def _save_google_location(previous_project, previous_task, place, actor, routes=
             raise ValueError("This location requires a different reviewer.")
         approval_policy = {
             "secondApproverRequired": (getattr(settings, "PROJECT_LOCATION_REQUIRE_SECOND_APPROVER", True)
-                                      or task.resolution.get("source") == "builder_project_location"),
+                                      or task.resolution.get("source") in {"builder_project_location", "project_workspace"}),
             "selfApproved": str(task.resolution.get("submittedBy")) == str(actor.pk),
         }
         current.latitude = Decimal(str(location["latitude"]))
@@ -446,6 +445,8 @@ def refresh_google_routes(project, actor, task_id, radius):
             raise ValueError("Google returned a different place reference. Start a fresh lookup.")
     routes = station_routes(place, radius, maps)
     routes["origin"] = coordinates(place["location"])
+    if place.get("placeId"):
+        routes["originPlaceId"] = place["placeId"]
     with transaction.atomic():
         current = Project.objects.select_for_update().get(pk=project.pk)
         task = ReviewTask.objects.select_for_update().get(pk=previous_task.pk)
@@ -456,95 +457,6 @@ def refresh_google_routes(project, actor, task_id, radius):
         AuditEvent.objects.create(actor=actor, action="project.google_station_routes_refreshed", entity_type="ReviewTask",
             entity_id=task.pk, correlation_id=uuid4(), metadata={"projectId": str(project.pk), "radius": radius})
     return routes
-
-
-class MapsSearchForm(forms.Form):
-    query = forms.CharField(max_length=500, min_length=3, label="Project name and address")
-
-
-class DirectLocationForm(forms.Form):
-    latitude = forms.FloatField(required=False, min_value=-90, max_value=90)
-    longitude = forms.FloatField(required=False, min_value=-180, max_value=180)
-    maps_url = forms.URLField(required=False, max_length=8192, label="Google Maps link",
-        widget=forms.URLInput(attrs={"placeholder": "https://maps.app.goo.gl/..."}))
-
-    def clean(self):
-        data = super().clean()
-        if self.errors:
-            return data
-        try:
-            data["reference"] = direct_location(data.get("latitude"), data.get("longitude"), data.get("maps_url", ""))
-        except ValueError as exc:
-            raise forms.ValidationError(str(exc)) from exc
-        return data
-
-
-class RegistryEvidenceForm(forms.Form):
-    registration_number = forms.RegexField(REGISTRATION, max_length=64, label="MahaRERA number")
-    source_url = forms.URLField(max_length=2048, label="MahaRERA project record URL")
-    checked_on = forms.DateField(label="Evidence date", widget=forms.DateInput(attrs={"type": "date"}))
-    evidence = forms.CharField(max_length=3000, widget=forms.Textarea(attrs={"rows": 4}), label="Project details from the record")
-
-    def clean_registration_number(self):
-        number = self.cleaned_data["registration_number"].strip().upper()
-        if not REGISTRATION.fullmatch(number):
-            raise forms.ValidationError("Enter an exact project registration number.")
-        return number
-
-    def clean_source_url(self):
-        value = self.cleaned_data["source_url"]
-        if not source_url(value, maharera=True):
-            raise forms.ValidationError("Use an HTTPS MahaRERA project record URL.")
-        return value
-
-    def clean_checked_on(self):
-        value = self.cleaned_data["checked_on"]
-        if value > timezone.localdate():
-            raise forms.ValidationError("Evidence date cannot be in the future.")
-        return value
-
-
-def draft_key(project, actor, token):
-    try:
-        token = str(UUID(str(token)))
-    except (ValueError, TypeError, AttributeError):
-        raise ValueError("Lookup draft expired. Start a new lookup.") from None
-    return f"external-sources:{project.pk}:{actor.pk}:{token}"
-
-
-def commit_references(project, actor, draft, token):
-    if not actor.is_active or not actor.is_staff or not actor.has_perm("platform_api.change_project"):
-        raise PermissionDenied
-    with transaction.atomic():
-        locked = Project.objects.select_for_update().get(pk=project.pk)
-        if locked.status in {"retired", "merged"} or locked.updated_at.isoformat() != draft["projectVersion"]:
-            raise ValueError("Project changed. Start a fresh lookup before committing.")
-        existing = ReviewTask.objects.filter(project=locked, task_type="external_sources", resolution__draftId=token).first()
-        if existing:
-            return existing
-        references = {"draftId": token, "submittedBy": actor.pk, "reviewState": "unreviewed"}
-        if draft.get("selected"):
-            references["googlePlaceId"] = draft["selected"]["placeId"]
-        if draft.get("manualLocation"):
-            manual = manual_reference_details(draft["manualLocation"])
-            if not manual:
-                raise ValueError("Direct location is invalid. Start a fresh draft.")
-            references["manualLocation"] = manual | {
-                "evidenceMethod": draft["manualLocation"].get("evidenceMethod", "manual_coordinates"),
-            }
-            if draft["manualLocation"].get("sourceUrlDigest"):
-                references["manualLocation"]["sourceUrlDigest"] = draft["manualLocation"]["sourceUrlDigest"]
-        if draft.get("registry"):
-            references["maharera"] = draft["registry"]
-        if draft.get("routes") and (draft.get("selected") or draft.get("manualLocation")):
-            references["stationRoutes"] = draft["routes"] | {
-                "origin": coordinates((draft.get("manualLocation") or draft["selected"])["location"])}
-        if not (references.get("googlePlaceId") or references.get("manualLocation") or references.get("maharera")):
-            raise ValueError("Select a project match or add registry evidence first.")
-        task = ReviewTask.objects.create(project=locked, task_type="external_sources", priority=3, resolution=references)
-        AuditEvent.objects.create(actor=actor, action="project.external_sources_submitted", entity_type="ReviewTask",
-                                  entity_id=task.pk, correlation_id=uuid4(), metadata={"projectId": str(locked.pk)})
-        return task
 
 
 class ExternalSourcesAdminMixin:
@@ -558,58 +470,13 @@ class ExternalSourcesAdminMixin:
         preserved_filters = request.GET.get("_changelist_filters", "")
         if preserved_filters:
             url += "?" + urlencode({"_changelist_filters": preserved_filters})
-        token = request.POST.get("draft_token") if request.method == "POST" else request.GET.get("draft")
-        search_form = MapsSearchForm(initial={"query": f"{project.submitted_name}, {project.locality}, Maharashtra, India"})
-        direct_form = DirectLocationForm()
-        registry_form = RegistryEvidenceForm(initial={"registration_number": project.maha_rera_id, "checked_on": timezone.localdate()})
-        draft, error = None, None
-        if token:
-            try:
-                draft = cache.get(draft_key(project, request.user, token))
-            except ValueError:
-                pass
+        error = None
         if request.method == "POST":
             action = request.POST.get("action")
             try:
                 if project.status in {"retired", "merged"}:
                     raise ValueError("Use an active canonical project.")
-                if action == "search":
-                    search_form = MapsSearchForm(request.POST)
-                    if not search_form.is_valid():
-                        raise ValueError("Enter a project name and locality.")
-                    places = GoogleProjectMaps().search(search_form.cleaned_data["query"])
-                    token = str(uuid4())
-                    draft = {"projectVersion": project.updated_at.isoformat(), "places": places,
-                             "registry": draft.get("registry") if draft else None}
-                    if not places:
-                        messages.warning(request, "No project matches returned. Refine the name and address.")
-                elif action == "direct_location":
-                    direct_form = DirectLocationForm(request.POST)
-                    if not direct_form.is_valid():
-                        raise ValueError("Check the direct location fields.")
-                    token = str(uuid4())
-                    draft = {"projectVersion": project.updated_at.isoformat(), "places": [],
-                             "manualLocation": direct_form.cleaned_data["reference"],
-                             "registry": draft.get("registry") if draft else None}
-                elif action in {"registry_lookup", "registry_manual"}:
-                    if not draft:
-                        token = str(uuid4())
-                        draft = {"projectVersion": project.updated_at.isoformat(), "places": []}
-                    if action == "registry_lookup":
-                        number = request.POST.get("registration_number", "").strip().upper()
-                        result = registry_lookup(number)
-                        if result["status"] != "available":
-                            raise ValueError("MahaRERA adapter returned no matching record. Open the official search and add dated evidence below.")
-                        draft["registry"] = result | {"registrationNumber": number, "evidenceMethod": "approved_adapter"}
-                    else:
-                        registry_form = RegistryEvidenceForm(request.POST)
-                        if not registry_form.is_valid():
-                            raise ValueError("Check the registry evidence fields.")
-                        values = registry_form.cleaned_data
-                        draft["registry"] = {"registrationNumber": values["registration_number"], "sourceUrl": values["source_url"],
-                                             "checkedOn": values["checked_on"].isoformat(), "evidence": values["evidence"],
-                                             "evidenceMethod": "manual_website", "status": "unreviewed"}
-                elif action == "apply_manual":
+                if action == "apply_manual":
                     if request.POST.get("confirm") != "on":
                         raise ValueError("Confirm applying this reviewed location to the project.")
                     apply_manual_reference(project, request.user,
@@ -644,53 +511,8 @@ class ExternalSourcesAdminMixin:
                     if request.POST.get("return_to") == "project":
                         return HttpResponseRedirect(reverse("admin:platform_api_project_change", args=[project.pk]) + "#project-transit-heading")
                     return HttpResponseRedirect(url)
-                elif action == "refresh_saved":
-                    reference_id = forms.UUIDField().clean(request.POST.get("reference_id"))
-                    task = ReviewTask.objects.filter(project=project, task_type="external_sources", pk=reference_id).first()
-                    if not task or not task.resolution.get("googlePlaceId"):
-                        raise ValueError("Saved Google reference is unavailable.")
-                    place = GoogleProjectMaps().details(task.resolution["googlePlaceId"])
-                    token = str(uuid4())
-                    draft = {"projectVersion": project.updated_at.isoformat(), "places": [place], "selected": place,
-                             "routes": station_routes(place, 10000)}
                 else:
-                    if not draft:
-                        raise ValueError("Lookup draft expired. Start a new lookup.")
-                    if action == "select":
-                        place = next((item for item in draft["places"] if item["placeId"] == request.POST.get("place_id")), None)
-                        if not place:
-                            raise ValueError("Select a match from this lookup.")
-                        radius = int(request.POST.get("radius", "10000"))
-                        draft["routes"] = station_routes(place, radius)
-                        draft["selected"] = place
-                    elif action == "discard":
-                        cache.delete(draft_key(project, request.user, token))
-                        messages.success(request, "External lookup draft discarded.")
-                        return HttpResponseRedirect(url)
-                    elif action == "commit":
-                        if request.POST.get("confirm") != "on":
-                            raise ValueError("Confirm submitting these source references for review.")
-                        with work_lock("external-sources", project.pk):
-                            reference = commit_references(project, request.user, draft, token)
-                            if (getattr(settings, "GOOGLE_MAPS_API_KEY", "")
-                                    and (reference.resolution.get("manualLocation") or reference.resolution.get("googlePlaceId"))
-                                    and not reference.resolution.get("stationRoutes")):
-                                try:
-                                    routes = refresh_google_routes(project, request.user, reference.pk, 10000)
-                                except ValueError:
-                                    messages.warning(request, "Pin saved; directions could not be generated. Retry from Nearby transit.")
-                                else:
-                                    if routes.get("errors"):
-                                        messages.warning(request, "Pin saved; some station lookups failed. Review the route results and retry if needed.")
-                                    else:
-                                        messages.success(request, "Station directions generated from the saved pin.")
-                        cache.delete(draft_key(project, request.user, token))
-                        messages.success(request, "Source references submitted for review. Accepted project facts are unchanged.")
-                        return HttpResponseRedirect(url)
-                    else:
-                        raise ValueError("Choose a valid external-source action.")
-                cache.set(draft_key(project, request.user, token), draft, TTL)
-                return HttpResponseRedirect(url + ("&" if preserved_filters else "?") + urlencode({"draft": token}))
+                    raise ValueError("Use the shared project workspace to submit source references.")
             except (ValueError, ValidationError, WorkAlreadyClaimed) as exc:
                 error = str(exc) if isinstance(exc, ValueError) else "Invalid reference." if isinstance(exc, ValidationError) else "Project is busy. Retry shortly."
         references = list(ReviewTask.objects.filter(project=project, task_type="external_sources").order_by("-created_at")[:20])
@@ -703,11 +525,9 @@ class ExternalSourcesAdminMixin:
         saved_routes = saved_station_routes(project)
         response = TemplateResponse(request, "admin/platform_api/external_sources.html", {
             **self.admin_site.each_context(request), "opts": self.model._meta, "original": project,
-            "title": f"External sources: {project.submitted_name}", "search_form": search_form,
-            "registry_form": registry_form, "direct_form": direct_form, "draft": draft, "draft_token": token or "", "source_error": error,
+            "title": f"Review sources: {project.submitted_name}", "source_error": error,
+            "workspace_url": workspace_url(project, section="sources"),
             "registry_search_url": REGISTRY_SEARCH, "registry_number": project.maha_rera_id or "",
-            "registry_json": json.dumps(draft.get("registry"), indent=2) if draft and draft.get("registry") else "",
-            "draft_map_url": draft_map_url(draft),
             "maps_configured": bool(getattr(settings, "GOOGLE_MAPS_API_KEY", "")),
             "location_second_approver_required": getattr(settings, "PROJECT_LOCATION_REQUIRE_SECOND_APPROVER", True),
             "registry_configured": bool(getattr(settings, "PROJECT_ENRICHMENT_BACKEND", "")),
@@ -722,19 +542,3 @@ class ExternalSourcesAdminMixin:
         response["Cache-Control"] = "private, no-store"
         response["Referrer-Policy"] = "same-origin"
         return response
-
-
-def draft_map_url(draft):
-    if not isinstance(draft, dict):
-        return ""
-    reference = draft.get("manualLocation") or draft.get("selected")
-    try:
-        location = coordinates(reference.get("location"))
-    except (ValueError, TypeError, AttributeError):
-        return ""
-    latitude, longitude = location["latitude"], location["longitude"]
-    bounds = (max(-180, longitude - 0.004), max(-90, latitude - 0.003),
-              min(180, longitude + 0.004), min(90, latitude + 0.003))
-    return "https://www.openstreetmap.org/export/embed.html?" + urlencode({
-        "bbox": ",".join(str(value) for value in bounds), "layer": "mapnik", "marker": f"{latitude},{longitude}",
-    })

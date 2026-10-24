@@ -286,7 +286,6 @@ $Workspace = (Resolve-Path '../..').Path
 $Output = Join-Path $Workspace 'output'
 $Reports = Join-Path $Output 'reports'
 $env:WORKSPACE_DATA_ROOT = $Workspace
-$env:DATABASE_BACKEND = 'postgresql'
 $env:PYTHONUTF8 = '1'
 $env:PROJECT_METRO_CATALOGUE_FILE = Join-Path $PWD 'config/mmr-upcoming-metro.json'
 ```
@@ -736,23 +735,17 @@ while a managed evaluation worker is already processing the same scope.
 
 ### Tests and diagnostics
 
-These checks use isolated SQLite, do not run ingestion or live providers, and restore
-the terminal's database selection afterward. The browser test uses local Chromium;
+These checks use an isolated PostgreSQL test database and do not call live providers.
+Start PostgreSQL first; the configured account needs CREATEDB permission. The browser test uses local Chromium;
 install it as shown above to avoid skipping that check.
 
 ```powershell
-$PreviousBackend = $env:DATABASE_BACKEND
-try {
-  $env:DATABASE_BACKEND = 'sqlite'
-  & $Python manage.py check
-  if ($LASTEXITCODE -ne 0) { throw 'Django checks failed' }
-  & $Python -m pytest -c pytest.ini platform_api/tests/test_external_sources.py --tb=short
-  if ($LASTEXITCODE -ne 0) { throw 'Connector tests failed' }
-  & $Python -m pytest -c pytest.ini platform_api/tests/test_project_outputs.py platform_api/tests/test_layout_names.py -k 'project_admin_columns or dashboard_layout_explorer or dashboard_alias or active_toggle' --tb=short
-  if ($LASTEXITCODE -ne 0) { throw 'Project UI tests failed' }
-} finally {
-  $env:DATABASE_BACKEND = $PreviousBackend
-}
+& $Python manage.py check
+if ($LASTEXITCODE -ne 0) { throw 'Django checks failed' }
+& $Python -m pytest -c pytest.ini platform_api/tests/test_external_sources.py --tb=short
+if ($LASTEXITCODE -ne 0) { throw 'Connector tests failed' }
+& $Python -m pytest -c pytest.ini platform_api/tests/test_project_outputs.py platform_api/tests/test_layout_names.py -k 'project_admin_columns or dashboard_layout_explorer or dashboard_alias or active_toggle' --tb=short
+if ($LASTEXITCODE -ne 0) { throw 'Project UI tests failed' }
 ```
 
 VS Code equivalents: **Tasks: Run Task -> Test external connectors**, **Test project
@@ -902,7 +895,6 @@ Run from `reailEstate/reailEstate_common/backend` with this workspace's `.venv` 
 ```powershell
 python -m pip install -r requirements.txt
 python -m playwright install chromium
-$env:DATABASE_BACKEND = 'postgresql'
 $env:PROJECT_METRO_CATALOGUE_FILE = (Resolve-Path './config/mmr-upcoming-metro.json').Path
 python manage.py check
 python manage.py help fetch_maharera_project
@@ -990,14 +982,13 @@ Google review task, then a same-project/same-reference report in `output/reports
 (legacy backend `reports` is read only when the target report is absent).
 
 Offline validation: VS Code tasks **Test external connectors** and
-**Test project form and sidebar** use isolated SQLite. Live Google billing/key access,
+**Test project form and sidebar** use an isolated PostgreSQL test database. Live Google billing/key access,
 route availability and the current MahaRERA website/CAPTCHA require separate validation.
 
 ### PostgreSQL and concurrent sample ingestion
 
 This workspace uses one PostgreSQL 17 primary at `127.0.0.1:15432`.
-There is no read replica: separate tables alone do not fix SQLite's database-wide
-writer lock. Its loopback-only Docker container is `realestate-workspace-publish-postgres`
+There is no read replica. Its loopback-only Docker container is `realestate-workspace-publish-postgres`
 and persistent volume is `realestate-workspace-publish-postgres-data`. Its randomly
 generated password is stored in the git-ignored, Windows-ACL-restricted
 `.local/postgres.json`; never commit or display that file. Do not delete the volume.
@@ -1007,9 +998,10 @@ The setup script retains legacy defaults for the sibling workspace. Never invoke
 here without explicit `-Container realestate-workspace-publish-postgres`,
 `-Volume realestate-workspace-publish-postgres-data`, and `-Port 15432` arguments.
 
-Settings load that local connection automatically when the file exists. The startup
-task explicitly selects PostgreSQL. `DATABASE_BACKEND=sqlite` is only for backup or
-rollback operations; never run workers against different databases simultaneously.
+PostgreSQL is required for runtime, tests, backups and demos. Settings load local
+credentials when the file exists and otherwise use the PG* environment/defaults.
+There is no database-engine selector or file-database fallback. A stale non-PostgreSQL
+`DATABASE_BACKEND` override is rejected at startup.
 For externally hosted PostgreSQL, configure `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`,
 `PGPASSWORD`, and the appropriate `PGSSLMODE` instead. Use a direct connection, not
 transaction-mode connection pooling, because job ownership uses session advisory locks.
@@ -1062,9 +1054,8 @@ or fail. A failed source is retained as a gap, not counted as successfully extra
 
 The pre-migration SQLite backup, export and field/relationship verification report are
 under workspace `output/reports/postgres-migration-20260911`. Keep them private: the
-fixture contains original account password hashes and evidence data. Rollback requires
-stopping all writers and explicitly selecting SQLite; new PostgreSQL work is not copied
-back automatically. `verify_database_transfer` compares a dumpdata fixture against the
+fixture contains original account password hashes and evidence data. These are historical
+archives only; the application no longer opens them. Recovery must target PostgreSQL. `verify_database_transfer` compares a dumpdata fixture against the
 selected target without exposing the field values in its report.
 
 ### Folder-based sample refresh
@@ -1097,7 +1088,7 @@ artifacts remain private under `output/media/projects`.
 
 Use `--resume` with the same report, source and vision/scanner configuration after an
 interruption; completed sources are skipped and incomplete ones retried. Run only one
-synchronous importer/worker against SQLite. The command refuses pending document
+synchronous corpus importer; use `refresh_sample_corpus` for concurrent processing. The command refuses pending document
 outbox work. `--test-scanner` is an explicit local/development-only **malware scanning
 bypass**, not a security scan; use it only for trusted samples with approval.
 
@@ -1249,7 +1240,6 @@ with the backend virtual environment and the same data root, database, scanner,
 vision profiles, and credentials as the API:
 
 ```powershell
-$env:DATABASE_BACKEND = 'postgresql'
 & $Python manage.py run_extraction_dispatcher --poll-seconds 2
 ```
 
@@ -1335,11 +1325,11 @@ Every API response carries `X-Correlation-ID`; asynchronous messages preserve th
 
 ### Local clean script rebuild
 
-The `rebuild_script_outputs` maintenance command inventories all projects with documents and defaults to a read-only preview. It requires a **new** `--backup-dir`; `--execute --reuse-recorded-scans` explicitly opts into local cleanup and checksum-bound reuse of a recorded clean scan (not a fresh malware scan). This operation is restricted to DEBUG + SQLite and requires an exclusive maintenance window with no uploads, edits, or workers. It refuses active outbox work and skips projects containing published/reviewed data, missing sources, or changed hashes.
+The `rebuild_script_outputs` maintenance command inventories all projects with documents and defaults to a read-only preview. It requires a **new** `--backup-dir`; `--execute --reuse-recorded-scans` explicitly opts into local cleanup and checksum-bound reuse of a recorded clean scan (not a fresh malware scan). This operation is restricted to DEBUG + local/development + loopback PostgreSQL and requires an exclusive maintenance window with no uploads, edits, or workers. It refuses active outbox work and skips projects containing published/reviewed data, missing sources, or changed hashes.
 
-Before cleanup it backs up SQLite and all referenced sources/derived files, verifies the ZIP, and writes a restore manifest. It rebuilds one project at a time with the rules provider and external enrichment disabled. Original uploads, projects, organizations, user accounts, published data and audit history are preserved. Old unreviewed plans/assets/runs/candidates/conflicts and their extraction review tasks are replaced; old document operations are marked superseded. Superseded generated files are deleted only after the project's replacement commits. A failed project rolls back its database changes and retains its previous outputs; interrupted runs can leave unreferenced files for later reconciliation.
+Before cleanup it runs `pg_dump --format=custom` and checks the archive catalogue with `pg_restore --list`, backs up all referenced sources/derived files, verifies the ZIP, and writes a restore manifest. It rebuilds one project at a time with the rules provider and external enrichment disabled. Original uploads, projects, organizations, user accounts, published data and audit history are preserved. Old unreviewed plans/assets/runs/candidates/conflicts and their extraction review tasks are replaced; old document operations are marked superseded. Superseded generated files are deleted only after the project's replacement commits. A failed project rolls back its database changes and retains its previous outputs; interrupted runs can leave unreferenced files for later reconciliation.
 
-The backup includes `db.sqlite3`, `media.zip`, `media-manifest.json` (original storage root/key, archive member, SHA-256), and a progressively updated `rebuild-report.json`. Keep these private: they contain original evidence and a complete local database. To restore, stop all application processes, restore the database and each archived object to the root/key in the manifest, verify hashes, and only then restart. Do not merge old and new SQLite data ad hoc. Standalone comparison reports and unrelated backup folders are not deleted.
+Matching `pg_dump` and `pg_restore` tools must be on PATH. The backup includes `database.dump`, `media.zip`, `media-manifest.json` (original storage root/key, archive member, SHA-256), and a progressively updated `rebuild-report.json`. Keep these private: they contain original evidence and a complete local database. To restore, stop all application processes, restore the database archive with `pg_restore` into an empty PostgreSQL database and each archived object to the root/key in the manifest, verify hashes, and only then restart. Do not merge old and new database data ad hoc. Standalone comparison reports and unrelated backup folders are not deleted.
 
 In admin, **Floor plan assets → Image category** can filter floor plans, flat layouts, design, amenities or unclassified candidates. Script identification remains heuristic: cleanup removes historical duplicates, not every possible false positive.
 

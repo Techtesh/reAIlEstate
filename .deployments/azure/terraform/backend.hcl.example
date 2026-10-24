@@ -3,5 +3,5 @@ storage_account_name = "replacewithstatestorage"
 container_name       = "tfstate"
 key                  = "workspace-poc.tfstate"
 use_azuread_auth      = true
-subscription_id      = "088476fe-27ee-42b2-a867-268aab19dce3"
-tenant_id            = "d68b2372-3268-46b9-8329-75273fb49a72"
+subscription_id      = "<subscription-id>"
+tenant_id            = "<tenant-id>"

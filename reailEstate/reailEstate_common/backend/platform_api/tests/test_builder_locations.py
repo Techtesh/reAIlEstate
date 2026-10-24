@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from platform_api import builder_views
-from platform_api.builder_locations import BUILDER_LOCATION_SOURCE
+from platform_api.project_locations import PROJECT_LOCATION_SOURCE
 from platform_api.external_sources_admin import apply_manual_reference
 from platform_api.models import AuditEvent, Project, ReviewTask
 from platform_api.project_map_locations import project_map_location
@@ -42,7 +42,7 @@ def test_location_saved_as_private_review_proposal_not_project_fact(workspace, s
     task = project.review_tasks.get(task_type="external_sources")
     assert task.resolution["manualLocation"]["location"] == POINT
     assert task.resolution["submittedBy"] == user.pk and task.state == "open"
-    assert task.resolution["source"] == BUILDER_LOCATION_SOURCE
+    assert task.resolution["source"] == PROJECT_LOCATION_SOURCE
     assert project.review_tasks.filter(task_type="publication", state="open").exists()
     for preview in (False, True):
         settings.PROJECT_PUBLIC_PREVIEW_ENABLED = preview

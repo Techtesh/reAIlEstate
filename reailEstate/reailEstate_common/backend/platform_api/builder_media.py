@@ -1,4 +1,4 @@
-"""Private project media and explicit processing actions for organization builders."""
+"""Shared private project media and explicit, permission-scoped processing actions."""
 
 from datetime import timedelta
 from contextlib import ExitStack
@@ -29,23 +29,24 @@ from .infrastructure.source_documents import SOURCE_TYPES, render_source_pages, 
 from .layout_pricing import project_price_label
 from .layout_evaluation_status import layout_evaluation_states
 from .layout_reanalysis import queue_layout_evaluation
-from .models import EvidenceDocument, FloorPlan, IdempotencyRecord, LayoutCropDraft, OutboxMessage, Project, QueueWorker
+from .models import EvidenceDocument, FloorPlan, FloorPlanAsset, IdempotencyRecord, LayoutCropDraft, OutboxMessage, Project, QueueWorker
 from .queue_monitor import LIVE_SECONDS, project_jobs
 from .project_pictures import first_picture_document
+from .project_workspace import project_evidence_ids
 from .services import audit
 from .source_page_additions import add_source_pages
-from . import builder_media_edits
+from . import project_media_edits
 
 
-def scoped_project(user, project_id, *, edit=False):
-    project = get_object_or_404(builder_projects(user), pk=project_id)
+def scoped_project(user, project_id, *, edit=False, workspace="builder"):
+    project = get_object_or_404(builder_projects(user, workspace=workspace), pk=project_id)
     if edit and project.status in {"retired", "merged"}:
         raise BuilderConflict("This project is archived and cannot be changed.")
     return project
 
 
 def scoped_document(project, document_id, sha256):
-    document = get_object_or_404(EvidenceDocument, pk=document_id, project=project)
+    document = get_object_or_404(EvidenceDocument, pk=document_id, project_id__in=project_evidence_ids(project))
     if document.scan_status != "clean" or document.sha256 != sha256:
         raise BuilderConflict("Source changed or is not ready; refresh media before continuing.")
     return document
@@ -53,16 +54,18 @@ def scoped_document(project, document_id, sha256):
 
 def private_assets(project):
     # Unlike the public gallery, the editor needs removed/inactive evidence for restore.
-    return project.floor_plan_assets.filter(
-        status="ready", document__project=project, document__scan_status="clean",
+    family = project_evidence_ids(project)
+    return FloorPlanAsset.objects.filter(
+        project_id__in=family, document__project_id__in=family, status="ready", document__scan_status="clean",
         media_type__in=["image/png", "image/jpeg", "image/webp"],
     )
 
 
 def scoped_plan(project, plan_id, *, lock=False):
     query = FloorPlan.objects.select_for_update() if lock else FloorPlan.objects
-    plan = get_object_or_404(query, pk=plan_id, project=project, document__project=project)
-    if plan.asset_id and (plan.asset.project_id != project.pk or plan.asset.document_id != plan.document_id):
+    family = project_evidence_ids(project)
+    plan = get_object_or_404(query, pk=plan_id, project_id__in=family, document__project_id__in=family)
+    if plan.asset_id and (plan.asset.project_id not in family or plan.asset.document_id != plan.document_id):
         raise NotFound("This plan's evidence is unavailable in this project.")
     return plan
 
@@ -85,9 +88,10 @@ class CropInput(StrictInput):
     pageNumber = serializers.IntegerField(min_value=1)
     sourceSha256 = serializers.RegexField(r"^[a-f0-9]{64}$")
     regions = CropRegion(many=True, min_length=1, max_length=20)
-    rotationDegrees = serializers.ChoiceField(choices=[-180, -90, 0, 90, 180, 270], default=0)
+    rotationDegrees = serializers.ChoiceField(choices=list(range(-180, 360, 5)), default=0)
     requestId = serializers.UUIDField()
     category = serializers.ChoiceField(choices=["layouts", "floor-plans", "amenities", "project-images"], default="layouts")
+    sourceMode = serializers.ChoiceField(choices=["original", "current"], default="original")
     targetPlanId = serializers.UUIDField(required=False)
     expectedUpdatedAt = serializers.DateTimeField(required=False)
 
@@ -96,11 +100,14 @@ class CropInput(StrictInput):
             raise serializers.ValidationError("Crop updates require targetPlanId and expectedUpdatedAt together.")
         if "targetPlanId" in attrs and len(attrs["regions"]) != 1:
             raise serializers.ValidationError("Updating an existing plan requires exactly one rectangle.")
+        if "targetPlanId" not in attrs and attrs["sourceMode"] != "original":
+            raise serializers.ValidationError("New crops require an original source.")
         return attrs
 
 
 class ConfirmedInput(StrictInput):
     confirm = serializers.BooleanField()
+    fresh = serializers.BooleanField(default=False)
     requestId = serializers.UUIDField()
     visionProfileId = serializers.CharField(required=False, max_length=128)
 
@@ -184,16 +191,21 @@ class PictureInput(StrictInput):
 
 class BuilderMediaView(BuilderView):
     def get(self, request, project_id):
-        project = scoped_project(request.user, project_id)
-        editable = project.status not in {"retired", "merged"}
+        from .project_workspace import admin_media_tools
+        project = scoped_project(request.user, project_id, workspace=self.workspace)
+        editable = project.status not in {"retired", "merged"} and (
+            self.workspace != "admin" or request.user.has_perm("platform_api.change_floorplan")
+        )
         can_crop = editable and is_enabled("media.crop_drafts", actor=request.user, project=project)
         can_evaluate = editable and is_enabled("media.extraction_queue", actor=request.user, project=project)
-        project_plans = list(FloorPlan.objects.filter(project=project, document__project=project).order_by("pk"))
+        project_plans = list(FloorPlan.objects.filter(project_id__in=project_evidence_ids(project), document__project_id__in=project_evidence_ids(project)).order_by("pk"))
         evaluations = layout_evaluation_states(project_plans)
+        inactive_pages = {(plan.document_id, plan.page_number) for plan in project_plans
+                          if plan.plan_scope == "floor" and not plan.active and plan.review_state not in HIDDEN_REVIEW_STATES}
         plans = {}
         for plan in project_plans:
             plans.setdefault(plan.asset_id, []).append(plan)
-        base = f"/api/v1/builder/projects/{project.pk}/media"
+        base = f"{self.api_prefix}/builder/projects/{project.pk}/media"
         items = []
         cover_document = None if project.project_pic else first_picture_document(project)
         if project.project_pic or cover_document:
@@ -221,7 +233,8 @@ class BuilderMediaView(BuilderView):
                     "imageUrl": f"{base}/assets/{asset.pk}", "documentId": str(asset.document_id),
                     "pageNumber": asset.page_number, "planId": str(plan.pk) if plan else None,
                     "updatedAt": plan.updated_at if plan else None, "sourceSha256": asset.document.sha256,
-                    "active": plan.active if plan else True, "reviewState": plan.review_state if plan else "",
+                    "planScope": plan.plan_scope if plan else None,
+                    "active": plan.active if plan else True, "inactiveSource": bool(plan and plan.plan_scope != "floor" and (plan.document_id, plan.page_number) in inactive_pages), "reviewState": plan.review_state if plan else "",
                     "displayName": plan.display_name if plan else "", "canEdit": bool(editable and plan),
                     "configuration": plan.configuration_type if plan else "",
                     "area": plan.carpet_area_sqft if plan else None,
@@ -237,14 +250,25 @@ class BuilderMediaView(BuilderView):
                     "qualityWarning": plan.raw_extraction.get("qualityWarning", "") if plan else "",
                     "dimensionWarning": plan.raw_extraction.get("dimensionWarning", "") if plan else "",
                     "features": plan.features if plan else {},
+                    "canReview": bool(self.workspace == "admin" and editable and plan and
+                        (request.user.is_superuser or (not project.organization.memberships.filter(user=request.user, status="active").exists() and
+                            (plan.plan_scope != "floor" or plan.features.get("floorEvaluation", {}).get("correctedBy") != request.user.pk)))),
+                    "reviewReason": "A different administrator must review your organization's evidence or your own corrections.",
                     "evaluation": evaluations.get(str(plan.pk)) if plan else None,
+                    "adminTools": admin_media_tools(request.user, project, plan) if self.workspace == "admin" and plan else [],
                     "canCrop": bool(can_crop and asset.document.declared_media_type in SOURCE_TYPES
                                     and (not plan or (plan.active and plan.review_state not in HIDDEN_REVIEW_STATES))),
                     "canEvaluate": bool(can_evaluate and plan and plan.plan_scope == "flat" and plan.active
                                         and plan.review_state not in HIDDEN_REVIEW_STATES and not plan.crop_remaining),
                 })
+        if request.query_params.get("sort") in {"name", "name-desc"}:
+            import re
+            def natural_name(item):
+                return [int(part) if part.isdigit() else part.casefold() for part in re.split(r"(\d+)", item["label"])]
+            items.sort(key=natural_name, reverse=request.query_params["sort"] == "name-desc")
+        items.sort(key=lambda item: item["active"] is False)
         documents = []
-        for document in project.documents.filter(scan_status="clean", declared_media_type__in=SOURCE_TYPES):
+        for document in EvidenceDocument.objects.filter(project_id__in=project_evidence_ids(project), scan_status="clean", declared_media_type__in=SOURCE_TYPES):
             try:
                 count = source_page_count(document)
             except (ValueError, OSError):
@@ -264,6 +288,7 @@ class BuilderMediaView(BuilderView):
                 for job in project_jobs(project).order_by("-occurred_at")[:50]]
         return Response({
             "projectId": str(project.pk), "projectName": project.submitted_name,
+            "adminTools": admin_media_tools(request.user, project) if self.workspace == "admin" else [],
             "projectPrice": project_price_label(project), "canEdit": editable,
             "confirmNameChanges": project.organization.confirm_name_changes,
             "projectUpdatedAt": project.updated_at.isoformat(),
@@ -280,7 +305,7 @@ class BuilderMediaView(BuilderView):
 
 class BuilderAssetView(BuilderView):
     def get(self, request, project_id, asset_id):
-        project = scoped_project(request.user, project_id)
+        project = scoped_project(request.user, project_id, workspace=self.workspace)
         asset = get_object_or_404(private_assets(project), pk=asset_id)
         if not storage.exists(asset.object_key):
             raise NotFound("This media file is unavailable.")
@@ -291,10 +316,10 @@ class BuilderAssetView(BuilderView):
 
 class BuilderPictureView(BuilderView):
     def post(self, request, project_id):
-        return BuilderPictureAction().post(request, project_id)
+        return BuilderPictureAction(workspace=self.workspace).post(request, project_id)
 
     def get(self, request, project_id):
-        project = scoped_project(request.user, project_id)
+        project = scoped_project(request.user, project_id, workspace=self.workspace)
         if not project.project_pic:
             raise NotFound("This project picture is unavailable.")
         try:
@@ -308,7 +333,7 @@ class BuilderPictureView(BuilderView):
 
 class BuilderPageView(BuilderView):
     def get(self, request, project_id, document_id, page_number):
-        project = scoped_project(request.user, project_id)
+        project = scoped_project(request.user, project_id, workspace=self.workspace)
         document = scoped_document(project, document_id, request.query_params.get("sha256"))
         try:
             image = render_source_pages(document, [page_number])[0][1]
@@ -321,9 +346,14 @@ class BuilderPageView(BuilderView):
 
 class BuilderDraftPreviewView(BuilderView):
     def get(self, request, project_id, draft_id):
-        project = scoped_project(request.user, project_id)
+        project = scoped_project(request.user, project_id, workspace=self.workspace)
         draft = get_object_or_404(LayoutCropDraft, project=project, owner=request.user, pk=draft_id)
-        return HttpResponse(bytes(draft.image), content_type="image/png")
+        image = bytes(draft.image)
+        if hashlib.sha256(image).hexdigest() != draft.sha256:
+            raise NotFound("Draft checksum mismatch.")
+        response = HttpResponse(image, content_type="image/png")
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
 
 class BuilderMediaAction(BuilderView):
@@ -342,19 +372,19 @@ class BuilderMediaAction(BuilderView):
         ids += values.get("replacementIds", [])
         documents = set()
         if values.get("documentId"):
-            documents.add(get_object_or_404(EvidenceDocument, project=project, pk=values["documentId"]).pk)
+            documents.add(get_object_or_404(EvidenceDocument, project_id__in=project_evidence_ids(project), pk=values["documentId"]).pk)
         for draft_id in values.get("draftIds", []):
             draft = LayoutCropDraft.objects.filter(project=project, owner=actor, pk=draft_id).first()
             if draft is None:
                 raise ValueError("Select your saved drafts from this project.")
             if draft.document_id:
-                documents.add(get_object_or_404(EvidenceDocument, project=project, pk=draft.document_id).pk)
+                documents.add(get_object_or_404(EvidenceDocument, project_id__in=project_evidence_ids(project), pk=draft.document_id).pk)
             if draft.source_plan_id:
                 ids.append(draft.source_plan_id)
         for plan_id in set(ids):
             documents.add(scoped_plan(project, plan_id).document_id)
         if values.get("action") in {"evaluate-amenities", "reprocess-all", "reprocess-failed"}:
-            documents.update(project.documents.values_list("pk", flat=True))
+            documents.update(EvidenceDocument.objects.filter(project_id__in=project_evidence_ids(project)).values_list("pk", flat=True))
         for document_id in sorted(documents, key=str):
             locks.enter_context(work_lock("document", document_id))
         if values.get("draftIds") or self.action_name == "crops":
@@ -366,7 +396,7 @@ class BuilderMediaAction(BuilderView):
             locks.enter_context(work_lock("outbox", job_id))
 
     def post(self, request, project_id):
-        project = scoped_project(request.user, project_id, edit=True)
+        project = scoped_project(request.user, project_id, edit=True, workspace=self.workspace)
         data = self.serializer_class(data=request.data)
         data.is_valid(raise_exception=True)
         values = data.validated_data
@@ -378,7 +408,7 @@ class BuilderMediaAction(BuilderView):
             # Commit jobs, review invalidation and replay records together: a worker
             # must never see a builder edit before publication is invalidated.
             with work_lock("builder-media", project.pk), ExitStack() as locks:
-                project = scoped_project(request.user, project_id, edit=True)
+                project = scoped_project(request.user, project_id, edit=True, workspace=self.workspace)
                 existing = IdempotencyRecord.objects.filter(user=request.user, scope=scope, key=key).first()
                 if existing:
                     if existing.response_body["fingerprint"] != fingerprint:
@@ -387,7 +417,7 @@ class BuilderMediaAction(BuilderView):
                 self.acquire_locks(project, request.user, values, locks)
                 self.prepared = self.prepare(project, request.user, values)
                 with transaction.atomic():
-                    project = get_object_or_404(builder_projects(request.user).select_for_update(of=("self",)), pk=project.pk)
+                    project = get_object_or_404(builder_projects(request.user, workspace=self.workspace).select_for_update(of=("self",)), pk=project.pk)
                     result = self.perform(project, request.user, values)
                     if self.action_name != "crops" and values.get("action") != "discard":
                         current = Project.objects.select_for_update().get(pk=project.pk)
@@ -400,7 +430,7 @@ class BuilderMediaAction(BuilderView):
                 return Response(result, status=202)
         except WorkAlreadyClaimed as exc:
             raise BuilderConflict("Media is being processed. Wait for it to finish, then retry this action.") from exc
-        except builder_media_edits.edits.StaleCropEdit as exc:
+        except project_media_edits.edits.StaleCropEdit as exc:
             raise BuilderConflict(str(exc)) from exc
         except DjangoValidationError as exc:
             raise ValidationError({"detail": exc.messages}) from exc
@@ -434,8 +464,8 @@ class BuilderCropView(BuilderMediaAction):
         if (plan.document_id != values["documentId"] or plan.page_number != values["pageNumber"]
                 or values["category"] != category):
             raise ValidationError("Crop update must use this plan's original page and category.")
-        return builder_media_edits.prepare_revision(
-            plan, project, actor, regions=values["regions"], rotation=values["rotationDegrees"],
+        return project_media_edits.prepare_revision(
+            plan, project, actor, regions=values["regions"], rotation=values["rotationDegrees"], source_mode=values["sourceMode"],
         )
 
     def perform(self, project, actor, values):
@@ -443,7 +473,7 @@ class BuilderCropView(BuilderMediaAction):
         if "targetPlanId" in values:
             plan = scoped_plan(project, values["targetPlanId"], lock=True)
             check_version(plan, values["expectedUpdatedAt"])
-            draft = builder_media_edits.stage_revision(plan, project, actor, self.prepared)
+            draft = project_media_edits.stage_revision(plan, project, actor, self.prepared)
             return {"state": "draft", "draftIds": [str(draft.pk)], "planIds": [], "queued": []}
         rotation = values["rotationDegrees"]
         result = stage_page_crops(project, values["documentId"], values["pageNumber"],
@@ -470,12 +500,20 @@ class BuilderDraftActionView(BuilderMediaAction):
             raise ValueError("Commit only one update per plan at a time.")
         for draft in drafts:
             action = draft.bounds.get("draftAction")
-            if action not in {None, "update"}:
+            if action not in {None, "page", "update"}:
                 raise ValueError("Select new crops or existing-plan crop updates.")
+            if action == "page":
+                document = scoped_document(project, draft.document_id, draft.source_sha256)
+                image = render_source_pages(document, [draft.page_number])[0][1]
+                if hashlib.sha256(image).hexdigest() != draft.sha256 or hashlib.sha256(bytes(draft.image)).hexdigest() != draft.sha256:
+                    raise ValueError("Saved page changed; discard it and select the source again.")
+                prepared[str(draft.pk)] = {"sourcePage": True}
             if action == "update":
                 plan = scoped_plan(project, draft.source_plan_id)
-                prepared[str(draft.pk)] = builder_media_edits.prepare_saved_revision(draft, plan, project, actor)
+                prepared[str(draft.pk)] = project_media_edits.prepare_saved_revision(draft, plan, project, actor)
         if values.get("replacementIds"):
+            if any(draft.bounds.get("draftAction") == "page" for draft in drafts):
+                raise ValueError("Attach saved pages separately from layout replacements.")
             if any(draft.bounds.get("category", "layouts") != "layouts" for draft in drafts if draft not in updates):
                 raise ValueError("Only new individual layouts can replace selected layouts.")
             if len(updates) == len(drafts) or set(values["replacementIds"]) & {draft.source_plan_id for draft in updates}:
@@ -497,8 +535,14 @@ class BuilderDraftActionView(BuilderMediaAction):
         updates = []
         for draft_id, prepared in self.prepared.items():
             draft = get_object_or_404(LayoutCropDraft, project=project, owner=actor, pk=draft_id)
+            if prepared.get("sourcePage"):
+                add_source_pages(project, draft.document_id, [draft.page_number], draft.bounds["category"], actor,
+                    values.get("visionProfileId") or draft.bounds.get("visionProfileId"),
+                    expected_source_sha256=draft.source_sha256, expected_page_sha256={draft.page_number: draft.sha256})
+                draft.delete()
+                continue
             plan = scoped_plan(project, draft.source_plan_id, lock=True)
-            builder_media_edits.commit_revision(plan, project, actor, prepared, self.saved_keys,
+            project_media_edits.commit_revision(plan, project, actor, prepared, self.saved_keys,
                                                values.get("visionProfileId"))
             updates.append(str(plan.pk))
             draft.delete()
@@ -516,12 +560,13 @@ class BuilderEvaluateView(BuilderMediaAction):
     def perform(self, project, actor, values):
         require_enabled("media.extraction_queue", actor=actor, project=project)
         with transaction.atomic():
-            plan = get_object_or_404(visible_floor_plans(FloorPlan.objects.select_for_update().filter(
-                project=project, active=True, plan_scope="flat")), pk=values["planId"])
+            plan = scoped_plan(project, values["planId"], lock=True)
+            if not plan.active or plan.plan_scope != "flat" or plan.review_state in HIDDEN_REVIEW_STATES:
+                raise NotFound("Choose an active individual layout from this project.")
             if plan.updated_at != values["expectedUpdatedAt"]:
                 raise BuilderConflict("This layout changed. Refresh media before re-evaluating.")
             message, operation = queue_layout_evaluation(
-                plan, actor=actor, vision_profile_id=values.get("visionProfileId"), retry=True, force=True,
+                plan, actor=actor, vision_profile_id=values.get("visionProfileId"), retry=True, force=True, fresh=values["fresh"],
             )
             if plan.review_state == "approved":
                 plan.review_state = "needs_review"
@@ -555,21 +600,27 @@ class BuilderPictureAction(BuilderMediaAction):
         return super().fingerprint(content)
 
     def prepare(self, project, actor, values):
-        from .project_pictures import default_picture, extracted_picture, normalize_picture
+        from .project_pictures import extracted_picture, normalize_picture
         check_version(project, values["expectedUpdatedAt"])
         if values["source"] == "upload":
             return normalize_picture(self.upload)
         if values["source"] == "automatic":
-            return default_picture(project)
+            return None
         get_object_or_404(private_assets(project), pk=values["assetId"])
         return extracted_picture(project, values["assetId"]).read()
 
     def perform(self, project, actor, values):
         check_version(project, values["expectedUpdatedAt"])
-        project.project_pic.save(f"builder-{uuid4()}.png", ContentFile(self.prepared), save=False)
-        self.saved_keys.append(project.project_pic.name)
+        if values["source"] == "automatic":
+            project.project_pic = ""
+        else:
+            project.project_pic.save(f"project-{uuid4()}.png", ContentFile(self.prepared), save=False)
+            self.saved_keys.append(project.project_pic.name)
         project.save(update_fields=["project_pic", "updated_at"])
-        return {"state": "saved", "imageUrl": f"/api/v1/builder/projects/{project.pk}/media/picture"}
+        from .models import AuditEvent
+        AuditEvent.objects.create(actor=actor, action="project.picture_changed", entity_type="Project",
+            entity_id=project.pk, correlation_id=uuid4(), metadata={"source": values["source"]})
+        return {"state": "saved", "imageUrl": f"{self.api_prefix}/builder/projects/{project.pk}/media/picture" if project.project_pic else None}
 
 
 class BuilderActionsView(BuilderMediaAction):
@@ -582,7 +633,7 @@ class BuilderActionsView(BuilderMediaAction):
             plan = scoped_plan(project, target["planId"])
             check_version(plan, target["expectedUpdatedAt"])
             if values["action"] in {"normalize", "reset-crop"}:
-                prepared[str(plan.pk)] = builder_media_edits.prepare_revision(
+                prepared[str(plan.pk)] = project_media_edits.prepare_revision(
                     plan, project, actor, normalize=values["action"] == "normalize",
                     rotation=values.get("rotationDegrees", 0),
                     regions=[{"x": 0, "y": 0, "width": 1, "height": 1}],
@@ -615,29 +666,37 @@ class BuilderActionsView(BuilderMediaAction):
                     plan.review_state = "needs_review"
                     plan.save(update_fields=["review_state", "updated_at"])
             elif action in {"normalize", "reset-crop"}:
-                builder_media_edits.commit_revision(plan, project, actor, self.prepared[str(plan.pk)],
+                project_media_edits.commit_revision(plan, project, actor, self.prepared[str(plan.pk)],
                                                    self.saved_keys, values.get("visionProfileId"))
             elif action == "segment":
                 if not plan.active:
                     raise ValueError("Activate this floor plan before extracting individual layouts.")
                 require_enabled("media.extraction_queue", actor=actor, project=project)
-                jobs.append(str(queue_floor_plan_layouts(
-                    plan, actor, vision_profile_id=values.get("visionProfileId"), retry=True,
-                ).pk))
+                try:
+                    job = queue_floor_plan_layouts(plan, actor, vision_profile_id=values.get("visionProfileId"), retry=True, fresh=values["fresh"])
+                except ValueError as exc:
+                    reasons = {
+                        "STALE_VISION_SELECTION": "This source is pinned to AI settings that have changed. Select a current profile.",
+                        "SOURCE_ASSET_NOT_READY": "The source document must pass the clean-source check before extraction.",
+                        "FULL_FLOOR_SOURCE_REQUIRED": "Choose a full-floor source, not an individual layout crop.",
+                        "Feature is disabled.": "Check the media.auto_segment feature flag.",
+                    }
+                    raise ValueError(reasons.get(str(exc), "Check source readiness and the configured AI profile.")) from exc
+                jobs.append(str(job.pk))
             if action not in {"remove", "restore"}:
                 FloorPlan.objects.filter(pk=plan.pk, review_state="approved").update(review_state="needs_review")
             plans.append(str(plan.pk))
         if action.startswith("reprocess-"):
             require_enabled("media.extraction_queue", actor=actor, project=project)
-            documents = project.documents.order_by("pk")
+            documents = EvidenceDocument.objects.filter(project_id__in=project_evidence_ids(project)).order_by("pk")
             if action == "reprocess-failed":
                 documents = documents.filter(status="extraction_failed")
             else:
                 from .reanalysis import RETRYABLE_DOCUMENT_STATUSES
                 documents = documents.filter(status__in=RETRYABLE_DOCUMENT_STATUSES)
             for document in documents:
-                job = queue_document_reanalysis(document.pk, actor, reason_code="BUILDER_REANALYSIS",
-                                               vision_profile_id=values.get("visionProfileId"))
+                job = queue_document_reanalysis(document.pk, actor, reason_code="PROJECT_WORKSPACE_REANALYSIS",
+                                               vision_profile_id=values.get("visionProfileId"), allow_merged=True)
                 if job:
                     jobs.append(str(job[0].pk))
         elif action == "evaluate-amenities":

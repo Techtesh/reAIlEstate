@@ -34,23 +34,18 @@ class CorrelationIdMiddleware:
         response["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(self)"
         policy = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
         match = getattr(request, "resolver_match", None)
-        if match and "admin" in match.namespaces:
-            # Admin templates use local CSS, JS, SVG icons and inline layout styles.
-            # Do not apply these exceptions to API or uploaded media responses.
-            policy += (
-                "; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-                "img-src 'self'; font-src 'self'; connect-src 'self'; form-action 'self'"
-            )
-            if match.url_name == "platform_api_project_external_sources":
-                policy += "; frame-src https://www.openstreetmap.org"
-            elif match.url_name == "platform_api_project_change":
-                policy += "; frame-src https://maps.google.com https://www.google.com"
-        elif match and match.url_name == "service-frontend":
+        if match and (match.url_name in {"service-frontend", "admin-project-workspace", "admin-console"} or getattr(getattr(match, "func", None), "is_admin_frontend", False)):
             policy += (
                 "; script-src 'self'; style-src 'self'; "
                 "img-src 'self' data: https://tile.openstreetmap.org "
                 "https://server.arcgisonline.com https://a.basemaps.cartocdn.com; "
                 "font-src 'self'; connect-src 'self'; worker-src 'none'; form-action 'self'"
             )
+        elif match and "admin" in match.namespaces:
+            # Retained adapters may still be exercised directly; production mounts
+            # replace their callbacks with marked custom frontend compatibility views.
+            policy += "; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; form-action 'self'"
+            if match.url_name == "platform_api_project_change":
+                policy += "; frame-src https://maps.google.com https://www.google.com"
         response["Content-Security-Policy"] = policy
         return response

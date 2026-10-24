@@ -5,7 +5,7 @@ import logging
 import re
 
 from .artifact_storage import storage as default_storage, move_document
-from django.db import connection, models, transaction
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -347,7 +347,13 @@ def process_outbox_message(message_id, scanner=None, extractor=None):
                 from .models import FloorPlan
                 plan = FloorPlan.objects.only("document_id").get(pk=message.payload["floorPlanId"])
                 # Worker ownership only. Enqueue never competes for this lock.
-                locks.enter_context(work_lock("document", plan.document_id))
+                try:
+                    locks.enter_context(work_lock("document", plan.document_id))
+                except WorkAlreadyClaimed:
+                    # We own the outbox claim; defer a busy source without spending an attempt.
+                    message.available_after = timezone.now() + timedelta(seconds=5)
+                    message.save(update_fields=["available_after"])
+                    return "not_ready"
                 with transaction.atomic():
                     message = _locked_outbox(message.pk)
                     if message.published_at:
@@ -422,10 +428,6 @@ def _dispatch_outbox_message(message, scanner=None, extractor=None):
 
 
 def _locked_outbox(message_id):
-    # Like enqueue's plan reservation, avoid SQLite read-to-write upgrades when
-    # another short queue transaction commits while a worker is acknowledging.
-    if connection.vendor == "sqlite":
-        OutboxMessage.objects.filter(pk=message_id).update(id=models.F("id"))
     return OutboxMessage.objects.select_for_update().get(pk=message_id)
 
 

@@ -3,12 +3,14 @@
 import hashlib
 import io
 import json
+import math
 from datetime import timedelta
 from unittest.mock import Mock
 from uuid import uuid4
 
 import pymupdf
 import pytest
+from .legacy_admin_urls import legacy_admin_adapters  # noqa: F401 - opt-in adapter regression harness
 from PIL import Image
 from django.contrib import admin
 from django.contrib.auth import get_user_model
@@ -133,6 +135,32 @@ def test_save_writes_only_drafts_from_selected_page(page_source, monkeypatch):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("rotation", [5, 10, 175, 185, 270, 355])
+def test_rotated_draft_retains_original_page_geometry(page_source, rotation):
+    _, document, _, *_ = page_source
+    result = save(page_source, rotation=rotation)
+    draft = LayoutCropDraft.objects.get(pk=result["draftIds"][0])
+    data = crop_from_page.render_source_pages(document, [2])[0][1]
+    with Image.open(io.BytesIO(data)) as original:
+        rotated = original.convert("RGB").rotate(rotation, expand=True, resample=Image.Resampling.BICUBIC, fillcolor="white")
+        try:
+            box = tuple(round(value * axis) for value, axis in zip((.1, .2, .4, .6), rotated.size * 2))
+            with Image.open(io.BytesIO(bytes(draft.image))) as saved:
+                assert saved.size == (box[2] - box[0], box[3] - box[1])
+                assert saved.convert("RGB").tobytes() == rotated.crop(box).tobytes()
+            cosine, sine = math.cos(math.radians(rotation)), math.sin(math.radians(rotation))
+            corners = [(REGION["x"], REGION["y"]), (.4, .2), (.4, .6), (.1, .6)]
+            for (x, y), expected in zip(draft.bounds["originalPageBounds"]["polygon"], corners):
+                dx, dy = (x - .5) * original.width, (y - .5) * original.height
+                displayed = ((cosine * dx + sine * dy) / rotated.width + .5,
+                             (-sine * dx + cosine * dy) / rotated.height + .5)
+                assert displayed == pytest.approx(expected)
+        finally:
+            rotated.close()
+    assert result["planIds"] == result["queued"] == []
+
+
+@pytest.mark.django_db
 def test_attach_only_selected_page_crops_no_whole_page_layout(page_source, monkeypatch):
     project, document, actor, *_ = page_source
     selected = save(page_source, regions=[REGION, SECOND])["draftIds"]
@@ -193,7 +221,7 @@ def test_preview_original_checksum_is_mandatory(page_source, checksum):
 @pytest.mark.django_db
 @pytest.mark.parametrize("page,regions,rotation", [
     (0, [REGION], 0), (4, [REGION], 0), (True, [REGION], 0),
-    (2, [], 0), (2, [REGION], 45), (2, [REGION], True),
+    (2, [], 0), (2, [REGION], 7), (2, [REGION], True),
     (2, [{"x": 0, "y": 0, "width": 1, "height": 1}], 0),
     (2, [REGION, REGION], 0),
 ])
@@ -267,10 +295,10 @@ def test_owner_and_project_scoping(page_source):
             method(foreign, actor, ids)
     with pytest.raises(ValueError, match="project family"):
         stage_page_crops(foreign, document.pk, 1, [REGION], actor, document.sha256)
-    request = RequestFactory().get("/")
-    request.user = other
-    with pytest.raises(Http404):
-        ProjectAdmin(Project, admin.site).draft_crop_preview(request, str(project.pk), ids[0])
+    from django.test import Client
+    from .workspace_helpers import workspace_request
+    client=Client();client.force_login(other)
+    assert workspace_request(client,project,f'/media/drafts/{ids[0]}').status_code==404
     assert LayoutCropDraft.objects.count() == 1
     assert not FloorPlan.objects.exists()
 
@@ -386,25 +414,19 @@ def test_model_constraint_rejects_neither_or_both_sources(page_source):
 
 @pytest.mark.django_db
 def test_add_layout_view_uses_cropper_and_old_page_post_cannot_queue(page_source, client):
-    project, document, actor, *_ = page_source
+    from .workspace_helpers import workspace_request
+    project,document,actor,*_=page_source
     client.force_login(actor)
-    url = reverse("admin:platform_api_project_add_source_pages", args=[project.pk])
-    response = client.get(url, {"category": "layouts", "document": document.pk, "page_number": 2})
-    assert response.status_code == 200
-    assert response.template_name == "admin/platform_api/crop_from_page.html"
-    assert "source_sha256=" + document.sha256 in response.context_data["preview_url"]
-    assert b'data-crop-canvas' in response.content and b'Save to cart' in response.content
-    assert b'Save and queue extraction' not in response.content
-    response = client.post(url, {"category": "layouts", "document": document.pk, "pages": [1, 2]})
-    assert response.status_code == 200
+    url=reverse('admin:platform_api_project_add_source_pages',args=[project.pk])
+    assert client.get(url,{'category':'layouts','document':document.pk,'page_number':2}).status_code==302
+    assert client.post(url,{'category':'layouts','document':document.pk,'pages':[1,2]}).status_code==405
     assert not LayoutCropDraft.objects.exists() and not OutboxMessage.objects.exists()
-    response = client.post(url, {
-        "category": "layouts", "document": document.pk, "page_number": 2,
-        "source_sha256": document.sha256, "regions_json": json.dumps([REGION]), "rotation_degrees": 0,
-    })
-    assert response.status_code == 302
-    assert LayoutCropDraft.objects.count() == 1
-    assert published_counts() == (0,) * len(PUBLISHED_MODELS)
+    response=workspace_request(client,project,'/media/crops',{'documentId':str(document.pk),'pageNumber':2,'sourceSha256':document.sha256,
+        'regions':[REGION],'rotationDegrees':0,'requestId':str(uuid4())},method='post')
+    assert response.status_code==202,response.content
+    assert LayoutCropDraft.objects.count()==1
+    assert published_counts()[:-1]==(0,)*(len(PUBLISHED_MODELS)-1)
+    assert AuditEvent.objects.count()==1
 
 
 @pytest.mark.django_db

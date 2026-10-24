@@ -23,8 +23,7 @@ TERMINAL_REVIEW_STATES = ("resolved", "completed", "cancelled", "dismissed", "re
 def boundary_review_layouts(queryset=None):
     """Distinct visible flat records with an existing boundary flag or report.
 
-    JSON UUID text is normalized on both sides for SQLite (UUIDs stored without
-    hyphens) and PostgreSQL. Exists prevents duplicate reports inflating counts.
+    Report UUIDs are parsed before filtering; malformed values are ignored.
     Report ownership can be source OR canonical project after a merge: the plan
     reference, not the task's project FK, identifies the affected evidence.
     """
@@ -41,8 +40,7 @@ def boundary_review_layouts(queryset=None):
         except (ValueError, TypeError, AttributeError):
             continue  # Malformed reports cannot link to an unrelated layout.
     warning = Coalesce(KeyTextTransform("qualityWarning", "raw_extraction"), Value(""), output_field=CharField())
-    # SQL TRIM removes spaces only on both supported backends. Strip the other
-    # ordinary whitespace characters explicitly, without backend-specific regex.
+    # SQL TRIM removes spaces only; strip the other ordinary whitespace too.
     for whitespace in ("\n", "\r", "\t"):
         warning = Replace(warning, Value(whitespace), Value(""), output_field=CharField())
     return visible_floor_plans(queryset).filter(plan_scope="flat").annotate(
@@ -63,8 +61,7 @@ def with_project_layout_health(queryset):
     """
     if "boundary_review_count" in queryset.query.annotations:
         return queryset
-    # A correlated plan/report subquery per project made the SQLite admin count
-    # take minutes and block writers. Scan evidence once, then annotate constants.
+    # Scan evidence once instead of running a correlated report scan per project.
     aliases = dict(ProjectMerge.objects.filter(state="applied").values_list("source_project_id", "target_project_id"))
     counts = {}
     for row in boundary_review_layouts().order_by().values("project_id").annotate(total=Count("pk", distinct=True)):

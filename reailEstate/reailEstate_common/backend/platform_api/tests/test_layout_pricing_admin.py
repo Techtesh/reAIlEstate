@@ -1,6 +1,8 @@
+from .workspace_helpers import workspace_request, media_action
 from decimal import Decimal
 
 import pytest
+from .legacy_admin_urls import legacy_admin_adapters  # noqa: F401 - opt-in adapter regression harness
 from django.contrib.auth.models import Permission
 from django.test import Client
 from django.urls import reverse
@@ -24,8 +26,7 @@ def priced_layout(source):
 
 def price_data(plan, price):
     return {
-        "action": "save_layout_price", "floor_plan_id": str(plan.pk),
-        "expected_updated_at": plan.updated_at.isoformat(), "price": price,
+        "expectedUpdatedAt": plan.updated_at.isoformat(), "price": price if price != "" else None,
     }
 
 
@@ -36,87 +37,66 @@ def dashboard_url(plan):
 def test_dashboard_saves_clears_and_displays_layout_price(priced_layout, client):
     plan, actor = priced_layout
     client.force_login(actor)
-    url = dashboard_url(plan)
-    response = client.get(url)
-    assert response.status_code == 200
-    assert response.context["project_price"] == "INR 15,000,000.00"
-    assert b"Total price (INR)" in response.content
-    assert b"data-layout-price-form" in response.content
-    assert b"Save price" in response.content
-
-    response = client.post(url, price_data(plan, "17500000.50"), follow=True)
-    assert response.status_code == 200
-    plan.refresh_from_db()
-    assert plan.price == Decimal("17500000.50")
-    assert response.context["project_price"] == "INR 17,500,000.50"
-    assert AuditEvent.objects.filter(entity_id=plan.pk, action="layout.price_changed").exists()
-
-    response = client.post(url, price_data(plan, ""), follow=True)
-    plan.refresh_from_db()
-    assert plan.price is None
-    assert response.context["project_price"] == "contact to know"
-    assert b"contact to know" in response.content
+    assert workspace_request(client, plan.project, '/media').json()['projectPrice'] == 'INR 15,000,000.00'
+    for price, expected in [('17500000.50', Decimal('17500000.50')), ('', None)]:
+        response = workspace_request(client, plan.project, f'/layouts/{plan.pk}', price_data(plan, price), method='patch')
+        assert response.status_code == 200, response.content
+        plan.refresh_from_db()
+        assert plan.price == expected
+    assert workspace_request(client, plan.project, '/media').json()['projectPrice'] == 'contact to know'
+    assert AuditEvent.objects.filter(entity_id=plan.pk, action='layout.price_changed').count() == 2
 
 
 @pytest.mark.parametrize("price", ["0", "-1", "NaN", "Infinity", "123.456", "100000000000000"])
 def test_dashboard_rejects_invalid_prices(priced_layout, client, price):
     plan, actor = priced_layout
     client.force_login(actor)
-    response = client.post(dashboard_url(plan), price_data(plan, price), follow=True)
-    assert response.status_code == 200
+    response = workspace_request(client, plan.project, f'/layouts/{plan.pk}', price_data(plan, price), method='patch')
+    assert response.status_code == 400
     plan.refresh_from_db()
-    assert plan.price == Decimal("15000000.00")
-    assert any(message.level_tag == "error" for message in response.context["messages"])
-    assert not AuditEvent.objects.filter(entity_id=plan.pk, action="layout.price_changed").exists()
+    assert plan.price == Decimal('15000000.00')
+    assert not AuditEvent.objects.filter(entity_id=plan.pk, action='layout.price_changed').exists()
 
 
 def test_dashboard_rejects_stale_price_edits(priced_layout, client):
     plan, actor = priced_layout
     client.force_login(actor)
-    stale = price_data(plan, "19000000")
-    client.post(dashboard_url(plan), price_data(plan, "18000000"))
-    response = client.post(dashboard_url(plan), stale, follow=True)
+    stale = price_data(plan, '19000000')
+    assert workspace_request(client, plan.project, f'/layouts/{plan.pk}', price_data(plan, '18000000'), method='patch').status_code == 200
+    response = workspace_request(client, plan.project, f'/layouts/{plan.pk}', stale, method='patch')
+    assert response.status_code == 409
     plan.refresh_from_db()
-    assert plan.price == Decimal("18000000.00")
-    assert any(message.level_tag == "error" for message in response.context["messages"])
+    assert plan.price == Decimal('18000000.00')
 
 
 def test_price_edit_requires_floor_plan_permission(priced_layout, client):
     plan, actor = priced_layout
     actor.is_superuser = False
     actor.save()
-    actor.user_permissions.set(Permission.objects.filter(
-        content_type__app_label="platform_api", codename__in=["view_project", "change_project"],
-    ))
+    actor.user_permissions.set(Permission.objects.filter(content_type__app_label='platform_api', codename__in=['view_project','change_project']))
     client.force_login(actor)
-    response = client.get(dashboard_url(plan))
-    assert b"data-layout-price-form" not in response.content
-    response = client.post(dashboard_url(plan), price_data(plan, "18000000"))
+    response = workspace_request(client, plan.project, f'/layouts/{plan.pk}', price_data(plan, '18000000'), method='patch')
     assert response.status_code == 403
     plan.refresh_from_db()
-    assert plan.price == Decimal("15000000.00")
+    assert plan.price == Decimal('15000000.00')
 
 
 def test_price_edit_requires_csrf(priced_layout):
     plan, actor = priced_layout
     client = Client(enforce_csrf_checks=True)
     client.force_login(actor)
-    assert client.post(dashboard_url(plan), price_data(plan, "18000000")).status_code == 403
+    assert workspace_request(client, plan.project, f'/layouts/{plan.pk}', price_data(plan, '18000000'), method='patch').status_code == 403
 
 
 def test_project_admin_and_dashboard_show_derived_range(priced_layout, client):
     plan, actor = priced_layout
-    FloorPlan.objects.create(
-        project=plan.project, document=plan.document, workflow_run=plan.workflow_run,
-        asset=plan.asset, page_number=1, plan_scope="flat", plan_name="Second layout",
-        price=Decimal("20000000"), extractor_version="test",
-    )
+    FloorPlan.objects.create(project=plan.project, document=plan.document, workflow_run=plan.workflow_run, asset=plan.asset,
+        page_number=1, plan_scope='flat', plan_name='Second layout', price=Decimal('20000000'), extractor_version='test')
     client.force_login(actor)
-    response = client.get(dashboard_url(plan))
-    assert response.context["project_price"] == "INR 15,000,000.00 - INR 20,000,000.00"
-    response = client.get(reverse("admin:platform_api_project_change", args=[plan.project_id]))
+    assert workspace_request(client, plan.project, '/media').json()['projectPrice'] == 'INR 15,000,000.00 - INR 20,000,000.00'
+    response = client.get(reverse('admin:platform_api_project_change', args=[plan.project_id]))
     assert response.status_code == 200
-    assert b"INR 15,000,000.00 - INR 20,000,000.00" in response.content
+    assert b'INR 15,000,000.00 - INR 20,000,000.00' in response.content
 
 
 def test_project_layout_summary_combines_previews_prices_and_carpet_areas(priced_layout, client):
@@ -176,20 +156,17 @@ def test_project_layout_summary_respects_record_permissions(priced_layout, clien
 def test_active_toggle_updates_project_price(priced_layout, client):
     plan, actor = priced_layout
     client.force_login(actor)
-    response = client.post(dashboard_url(plan), {
-        "action": "set_plan_active", "floor_plan_id": str(plan.pk),
-        "version": plan.updated_at.isoformat(),
-    }, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
-    assert response.status_code == 200
-    assert response.json()["projectPrice"] == "contact to know"
+    response = media_action(client, plan, 'set-active', active=False)
+    assert response.status_code == 202, response.content
+    assert workspace_request(client, plan.project, '/media').json()['projectPrice'] == 'contact to know'
     plan.refresh_from_db()
-    assert plan.price == Decimal("15000000.00")
+    assert plan.price == Decimal('15000000.00')
 
 
 def test_floor_plan_source_has_no_price_editor(source, client):
     plan, actor = source
     client.force_login(actor)
-    response = client.get(dashboard_url(plan), {"section": "floor-plans"})
-    assert response.status_code == 200
-    assert b"data-layout-price-form" not in response.content
-    assert response.context["project_price"] == "contact to know"
+    assert workspace_request(client, plan.project, '/layouts').json() == []
+    assert workspace_request(client, plan.project, '/media').json()['projectPrice'] == 'contact to know'
+    response = workspace_request(client, plan.project, f'/layouts/{plan.pk}', {'price':'100', 'expectedUpdatedAt':plan.updated_at.isoformat()}, method='patch')
+    assert response.status_code == 404

@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pymupdf
 import pytest
+from .legacy_admin_urls import legacy_admin_adapters  # noqa: F401 - opt-in adapter regression harness
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.urls import resolve, reverse

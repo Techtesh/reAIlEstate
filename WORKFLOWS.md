@@ -204,6 +204,29 @@ configured.
 | A10 | Operate the platform | Inspect integration health, operational metrics, audit events, queue workers, retry state, and dead letters. Replay requires an explicit reason. |
 | A11 | Reuse access roles | Authorized platform administrators manage permission groups and organization packages across organizations in Django admin, without requiring builder membership. Staff status alone gives no role-management permission. Apply migrations 0020 and 0021 before using all packages. |
 
+### Shared admin project creation, uploads, and layout cropping
+
+Django admin **Projects -> Add** opens the shared project workspace at
+`/admin/project-workspace/?new=1`. Existing project change pages and media
+dashboards link to **Upload documents and edit layouts** / **Upload documents
+and crop layouts**. Select an active organization, create or open a project,
+upload evidence, and use the same source-page crop, draft, attach, and queued
+evaluation controls as builders.
+
+The admin workspace uses the admin session and
+`/api/v1/admin/project-workspace/` APIs, available on the admin service itself.
+It requires active staff with `platform_api.change_project`; creating a project
+also requires `platform_api.add_project`, and layout/media mutations require
+`platform_api.change_floorplan`. Builder membership is not required in this
+admin workspace. The ordinary builder portal retains organization membership
+checks; staff status alone grants access to neither workspace.
+
+The shared routes and React components preserve upload checksums, scan
+quarantine, idempotency, crop ownership, optimistic versions, feature flags,
+review invalidation, and explicit confirmation before queued evaluation.
+Creating or editing through this workspace cannot set publication or
+verification status directly. Existing reviewer-only admin tools remain available.
+
 ## 7. Worker workflows
 
 The persistent worker started by `run_worker.ps1` is the normal local runtime. It
@@ -242,7 +265,6 @@ $Python = '.\reailEstate\reailEstate_common\backend\.venv\Scripts\python.exe'
 | `compare_plan_modes` | Compare script and vision output | Writes a new local report; no DB writes |
 | `classify_plan_assets_ai` | Create AI-classified review proposals | Provider calls; originals remain unchanged |
 | `enrich_google_project_routes` | Prefetch routes or accept bounded project locations | Acceptance requires explicit `--execute` |
-| `export_demo_sqlite` | Produce a sanitized portable snapshot from PostgreSQL | Writes a new file; never converts the live DB |
 | `fetch_maharera_project` | Fetch one exact registry record | May require manual CAPTCHA |
 | `import_google_project_place_decisions` | Submit saved place decisions for review | Does not bypass review |
 | `import_sample_corpus` | Import supported project evidence | Write operation; use report/resume controls |
@@ -274,7 +296,6 @@ Backend:
 ```powershell
 . .\reailEstate\configure_runtime.ps1
 Set-RealEstateRuntimeEnvironment -ApplicationRoot (Resolve-Path .\reailEstate).Path
-$env:DATABASE_BACKEND = 'sqlite'
 $env:PROJECT_METRO_CATALOGUE_FILE = ''
 Push-Location .\reailEstate\reailEstate_common\backend
 try {
@@ -284,41 +305,28 @@ try {
 }
 ```
 
-Use the smallest relevant test files first. Tests may use isolated SQLite
-configuration; application runtime and production workflows use PostgreSQL.
+Use the smallest relevant test files first. Runtime and tests require PostgreSQL.
+Start the configured database before pytest; the test account needs CREATEDB
+permission so Django can create its isolated test database.
 Always retain the service-boundary, authorization, idempotency, concurrency,
 privacy, and publication-gate tests. The current full-suite baseline is recorded
 in `reailEstate/MAINTAINERS.md`; do not treat its known failures as a green gate.
 
 ## 10. Deployment workflows
 
-### Azure
+### GitHub Actions
 
-Azure preparation and live validation are complete for the recorded target in
-[`.azure/deployment-plan.md`](.azure/deployment-plan.md). Deployment remains
-explicitly deferred.
+Use [the Actions deployment guide](.deployments/aws/ec2/README.md). The workflow
+builds and verifies the selected Git commit, then deploys its checked artifact to
+an existing host in private-preview or public-HTTPS mode. All target-specific
+values live in GitHub environment secrets/variables or ignored server files.
 
-Allowed without deployment approval:
-
-```powershell
-.\.deployments\azure\scripts\Initialize-AzureDeployment.ps1
-```
-
-Do not run Terraform apply, image pushes, migrations, or deployment smoke tests
-without new approval.
-
-### AWS
-
-AWS artifacts are offline-validated, but no account or deployment is approved.
-
-Allowed without deployment approval:
-
-```powershell
-.\.deployments\aws\scripts\Initialize-AwsDeployment.ps1
-```
-
-Do not run foundation/workload apply, ECR pushes, migrations, or deployment smoke
-tests without explicit account selection and approval.
+Do not deploy application releases with ad hoc local/SSH commands. The retained
+build and target-side Bash helpers are invoked by Actions. Alternative AWS/Azure
+Terraform tools are reference infrastructure paths, not the active release flow.
+Before running any `aws` or `az` command, an agent must explain the exact command
+and its expected effect and obtain explicit user permission. This applies to
+read-only commands and authentication as well as mutations.
 
 ## 11. Change workflow
 
@@ -336,3 +344,12 @@ Before changing behavior:
 
 Never bypass independent review, invent unavailable prices or coordinates, expose
 private destinations publicly, or silently turn a failed operation into success.
+
+### Shared project editor cleanup
+
+- Admin and builder use the same project details, pin/share-link location input, source-reference and manual-amenity forms, media directory, crop editor and owner-scoped draft cart.
+- Google lookups and MahaRERA evidence submission use the shared content API. Submitted claims remain unreviewed. Independent source approval and station corrections stay in administration.
+- Legacy admin media/crop/page-selection URLs are GET-only links to `/admin/project-workspace/`. POSTs to retired editors return 405. Their templates, forms and JavaScript assets have been removed.
+- Crop updates support current images or original source pages and five-degree rotations. Existing page/update drafts remain readable and commit through the common cart API with checksum, ownership and version checks.
+- Unique project worker controls live in the evaluation jobs monitor (`?project=<id>`); signed retry confirmation and dead-letter protections remain there. The shared editor exposes retry/fresh evaluation choices and explicit cost confirmation.
+- Shared project APIs keep distinct authorization: scoped organization membership for builders; explicit project/floor-plan permissions for platform editors, without requiring builder membership.

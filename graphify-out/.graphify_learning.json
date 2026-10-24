@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-10-22T08:07:14.491254+00:00",
+  "generated_at": "2026-10-24T07:08:58.077393+00:00",
   "nodes": {
     "reailestate_maintainers_modular_monolith": {
-      "code_fingerprint": "4d272fb5aeb10653ce656e7bcbe9eb5b92e145fb4d6c903755064a89c408e5a0",
+      "code_fingerprint": "f7aebb2340d1800fa87bb0d7d74d3991b36a904ea33a9ce806ea2b5e6e64a515",
       "label": "Django Modular Monolith",
       "last": "2026-10-22T08:00:28.895916+00:00",
       "provenance": [
@@ -12,13 +12,13 @@
           "q": "Give me a run down of this project"
         }
       ],
-      "score": 0.999891542,
+      "score": 0.955631145,
       "source_file": "reailEstate/MAINTAINERS.md",
       "status": "tentative",
       "uses": 1
     },
     "reailestate_readme_perforated_monolith": {
-      "code_fingerprint": "3d09ed1951cf54f53729625e46e144af9165bcdfd6844400a02132e1a8faf480",
+      "code_fingerprint": "da0bb326a8269350cd44c5207bc475f538d78746ce3168124b55805872511563",
       "label": "Perforated Monolith Layout",
       "last": "2026-10-22T08:00:28.895916+00:00",
       "provenance": [
@@ -28,16 +28,69 @@
           "q": "Give me a run down of this project"
         }
       ],
-      "score": 0.999891542,
+      "score": 0.955631145,
       "source_file": "reailEstate/README.md",
+      "status": "tentative",
+      "uses": 1
+    },
+    "reailestate_reailestate_common_backend_platform_api_artifact_storage_routedstorage": {
+      "code_fingerprint": "2458ea582e089916f2a0d949a6369b00fe9c1a1614392f12038e098bca29ec15",
+      "label": "RoutedStorage",
+      "last": "2026-10-22T08:38:37.860309+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-22T08:38:37.860309+00:00",
+          "outcome": "useful",
+          "q": "explain with a flow chart how (with individual function calls) how a builder/admin can (1)add a project (2)upload a document (3)how a document is parsed into component floor plans and layouts (3b) can we replace parts of this flow with a rag based flow (3c) how are media files handelled"
+        }
+      ],
+      "score": 0.956216276,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/artifact_storage.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "reailestate_reailestate_common_backend_platform_api_builder_views_builderloginview": {
+      "code_fingerprint": "b2c08fca3885088907bc82d5fecfed628c3b1c47829c394b67fd1d8b4b2f480c",
+      "label": "BuilderLoginView",
+      "last": "2026-10-22T08:08:54.292261+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-22T08:08:54.292261+00:00",
+          "outcome": "useful",
+          "q": "Explain how login flow works here across all 3 portals"
+        }
+      ],
+      "score": 0.955760309,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/builder_views.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "reailestate_reailestate_common_backend_platform_api_business_ingestion_ragfactextractor": {
+      "code_fingerprint": "829e526ac003841f8dacc2250bf0e4b5ceb0774646535e04dcfc7bb51649f5ef",
+      "label": "RagFactExtractor",
+      "last": "2026-10-22T08:38:37.860309+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-22T08:38:37.860309+00:00",
+          "outcome": "useful",
+          "q": "explain with a flow chart how (with individual function calls) how a builder/admin can (1)add a project (2)upload a document (3)how a document is parsed into component floor plans and layouts (3b) can we replace parts of this flow with a rag based flow (3c) how are media files handelled"
+        }
+      ],
+      "score": 0.956216276,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/business_ingestion.py",
       "status": "tentative",
       "uses": 1
     },
     "reailestate_reailestate_common_backend_platform_api_floor_plan_agent_floorplanagent": {
       "code_fingerprint": "bf308cdfe10c323bd1099ff0d303d2f9cf41b98a97516d57edc6ff3914f41893",
       "label": "FloorPlanAgent",
-      "last": "2026-10-08T19:44:39.526619+00:00",
+      "last": "2026-10-22T08:38:37.860309+00:00",
       "provenance": [
+        {
+          "date": "2026-10-22T08:38:37.860309+00:00",
+          "outcome": "useful",
+          "q": "explain with a flow chart how (with individual function calls) how a builder/admin can (1)add a project (2)upload a document (3)how a document is parsed into component floor plans and layouts (3b) can we replace parts of this flow with a rag based flow (3c) how are media files handelled"
+        },
         {
           "date": "2026-10-08T19:44:39.526619+00:00",
           "outcome": "useful",
@@ -49,10 +102,10 @@
           "q": "check for A Wing Unit 03"
         }
       ],
-      "score": 1.462012075,
+      "score": 2.353512096,
       "source_file": "reailEstate/reailEstate_common/backend/platform_api/floor_plan_agent.py",
       "status": "preferred",
-      "uses": 2
+      "uses": 3
     },
     "reailestate_reailestate_common_backend_platform_api_floor_plan_layout_jobs_evaluate_floor_plan_layouts": {
       "code_fingerprint": "bed2cc55a860c83c4e25a06eef97908ffbfa3427699588808ee541bb1c0f998c",
@@ -65,7 +118,7 @@
           "q": "We ran the evaluations again but we dont see updated data"
         }
       ],
-      "score": 0.734068854,
+      "score": 0.701575151,
       "source_file": "reailEstate/reailEstate_common/backend/platform_api/floor_plan_layout_jobs.py",
       "status": "tentative",
       "uses": 1
@@ -102,7 +155,7 @@
           "q": "check for A Wing Unit 03"
         }
       ],
-      "score": 3.656846748,
+      "score": 3.494975702,
       "source_file": "reailEstate/reailEstate_common/backend/platform_api/floor_plan_vision.py",
       "status": "contested",
       "uses": 6,
@@ -124,13 +177,13 @@
           "q": "why are ai jobs still failing"
         }
       ],
-      "score": 1.463932082,
+      "score": 1.399130838,
       "source_file": "reailEstate/reailEstate_common/backend/platform_api/floor_plan_vision.py",
       "status": "preferred",
       "uses": 2
     },
     "reailestate_reailestate_common_backend_platform_api_layout_reanalysis_evaluate_layout_crop": {
-      "code_fingerprint": "4c61b6cf28907b7ef8ac4900bb82ffbe37af2cde71d5065187edb1b70161f358",
+      "code_fingerprint": "790c95003a1e41f01d24507c5eb768fbdabd1be3f56ac31af0de2d3f03fff2ad",
       "label": "evaluate_layout_crop()",
       "last": "2026-10-08T22:59:29.564627+00:00",
       "provenance": [
@@ -155,13 +208,13 @@
           "q": "please check why its failing"
         }
       ],
-      "score": 2.926270678,
+      "score": 2.796738726,
       "source_file": "reailEstate/reailEstate_common/backend/platform_api/layout_reanalysis.py",
       "status": "preferred",
       "uses": 4
     },
     "reailestate_reailestate_common_backend_platform_api_layout_reanalysis_queue_layout_evaluation": {
-      "code_fingerprint": "4c61b6cf28907b7ef8ac4900bb82ffbe37af2cde71d5065187edb1b70161f358",
+      "code_fingerprint": "790c95003a1e41f01d24507c5eb768fbdabd1be3f56ac31af0de2d3f03fff2ad",
       "label": "queue_layout_evaluation()",
       "last": "2026-10-08T22:59:29.564627+00:00",
       "provenance": [
@@ -176,7 +229,7 @@
           "q": "check why are we fetting PROVIDER_UNAVAILABLE errors , ollama is working"
         }
       ],
-      "score": 1.467884218,
+      "score": 1.402908032,
       "source_file": "reailEstate/reailEstate_common/backend/platform_api/layout_reanalysis.py",
       "status": "preferred",
       "uses": 2
@@ -192,7 +245,7 @@
           "q": "Integrity error on other floors, please check"
         }
       ],
-      "score": 0.75023505,
+      "score": 0.717025747,
       "source_file": "reailEstate/reailEstate_common/backend/platform_api/models.py",
       "status": "tentative",
       "uses": 1
@@ -208,7 +261,7 @@
           "q": "Why do selected configurations not restrict recommendation measurements, and why do catalogue filters still use HomeConfiguration?"
         }
       ],
-      "score": 0.725972325,
+      "score": 0.693837016,
       "source_file": "reailEstate/reailEstate_common/backend/platform_api/models.py",
       "status": "tentative",
       "uses": 1
@@ -224,13 +277,45 @@
           "q": "Why do selected configurations not restrict recommendation measurements, and why do catalogue filters still use HomeConfiguration?"
         }
       ],
-      "score": 0.725972325,
+      "score": 0.693837016,
       "source_file": "reailEstate/reailEstate_common/backend/platform_api/services.py",
       "status": "tentative",
       "uses": 1
     },
+    "reailestate_reailestate_common_backend_platform_api_views_developerprojectcreateview": {
+      "code_fingerprint": "7335c6db3f6e4520966ea10808e95eece3d675c0b2c0c93956b9518e8a853077",
+      "label": "DeveloperProjectCreateView",
+      "last": "2026-10-22T08:38:37.860309+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-22T08:38:37.860309+00:00",
+          "outcome": "useful",
+          "q": "explain with a flow chart how (with individual function calls) how a builder/admin can (1)add a project (2)upload a document (3)how a document is parsed into component floor plans and layouts (3b) can we replace parts of this flow with a rag based flow (3c) how are media files handelled"
+        }
+      ],
+      "score": 0.956216276,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/views.py",
+      "status": "tentative",
+      "uses": 1
+    },
+    "reailestate_reailestate_common_backend_platform_api_views_documentcompleteview": {
+      "code_fingerprint": "7335c6db3f6e4520966ea10808e95eece3d675c0b2c0c93956b9518e8a853077",
+      "label": "DocumentCompleteView",
+      "last": "2026-10-22T08:38:37.860309+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-22T08:38:37.860309+00:00",
+          "outcome": "useful",
+          "q": "explain with a flow chart how (with individual function calls) how a builder/admin can (1)add a project (2)upload a document (3)how a document is parsed into component floor plans and layouts (3b) can we replace parts of this flow with a rag based flow (3c) how are media files handelled"
+        }
+      ],
+      "score": 0.956216276,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/views.py",
+      "status": "tentative",
+      "uses": 1
+    },
     "reailestate_reailestate_common_backend_platform_api_views_projectviewset": {
-      "code_fingerprint": "a4914c00fba811bdc8ba8c89cae9ea9e61a6c58a6e7e28f00a85d3298b850abd",
+      "code_fingerprint": "7335c6db3f6e4520966ea10808e95eece3d675c0b2c0c93956b9518e8a853077",
       "label": "ProjectViewSet",
       "last": "2026-10-08T11:28:15.385505+00:00",
       "provenance": [
@@ -240,23 +325,44 @@
           "q": "Why do selected configurations not restrict recommendation measurements, and why do catalogue filters still use HomeConfiguration?"
         }
       ],
-      "score": 0.725972325,
+      "score": 0.693837016,
       "source_file": "reailEstate/reailEstate_common/backend/platform_api/views.py",
       "status": "tentative",
       "uses": 1
     },
     "reailestate_reailestate_common_backend_platform_api_views_sessionloginview": {
-      "code_fingerprint": "a4914c00fba811bdc8ba8c89cae9ea9e61a6c58a6e7e28f00a85d3298b850abd",
+      "code_fingerprint": "7335c6db3f6e4520966ea10808e95eece3d675c0b2c0c93956b9518e8a853077",
       "label": "SessionLoginView",
-      "last": "2026-10-22T08:02:37.851561+00:00",
+      "last": "2026-10-22T08:08:54.292261+00:00",
       "provenance": [
+        {
+          "date": "2026-10-22T08:08:54.292261+00:00",
+          "outcome": "useful",
+          "q": "Explain how login flow works here across all 3 portals"
+        },
         {
           "date": "2026-10-22T08:02:37.851561+00:00",
           "outcome": "useful",
           "q": "tell me how the login flow works for all 3 portals"
         }
       ],
-      "score": 0.999926024,
+      "score": 1.91142441,
+      "source_file": "reailEstate/reailEstate_common/backend/platform_api/views.py",
+      "status": "preferred",
+      "uses": 2
+    },
+    "reailestate_reailestate_common_backend_platform_api_views_uploadintentview": {
+      "code_fingerprint": "7335c6db3f6e4520966ea10808e95eece3d675c0b2c0c93956b9518e8a853077",
+      "label": "UploadIntentView",
+      "last": "2026-10-22T08:38:37.860309+00:00",
+      "provenance": [
+        {
+          "date": "2026-10-22T08:38:37.860309+00:00",
+          "outcome": "useful",
+          "q": "explain with a flow chart how (with individual function calls) how a builder/admin can (1)add a project (2)upload a document (3)how a document is parsed into component floor plans and layouts (3b) can we replace parts of this flow with a rag based flow (3c) how are media files handelled"
+        }
+      ],
+      "score": 0.956216276,
       "source_file": "reailEstate/reailEstate_common/backend/platform_api/views.py",
       "status": "tentative",
       "uses": 1
@@ -272,13 +378,13 @@
           "q": "Commute map is broken"
         }
       ],
-      "score": 0.733413525,
+      "score": 0.70094883,
       "source_file": "reailEstate/reailEstate_common/frontend/src/ProjectMap.tsx",
       "status": "tentative",
       "uses": 1
     },
     "workflows": {
-      "code_fingerprint": "fe691fcc38e738323074d2c8538a5e49a8a132ec488af39125fa47f9a2003096",
+      "code_fingerprint": "6f3f3efa358a4d07b7684d4dc8a8e38b20ecaf7755e52a34ce2ea4f669e5e54f",
       "label": "WORKFLOWS.md",
       "last": "2026-10-22T08:00:28.895916+00:00",
       "provenance": [
@@ -288,7 +394,7 @@
           "q": "Give me a run down of this project"
         }
       ],
-      "score": 0.999891542,
+      "score": 0.955631145,
       "source_file": "WORKFLOWS.md",
       "status": "tentative",
       "uses": 1

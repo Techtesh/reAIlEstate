@@ -3,6 +3,7 @@
 from unittest.mock import Mock
 
 import pytest
+from .legacy_admin_urls import legacy_admin_adapters  # noqa: F401 - opt-in adapter regression harness
 from django.contrib import admin
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory
@@ -25,89 +26,74 @@ def request(actor, method="get", data=None):
 
 
 def test_dashboard_shows_crop_previews_not_full_floor_sources(source):
-    from platform_api.crop_cart import stage_crops, attach_drafts
-    project, plan, actor = source
-    plan.plan_scope = "floor"
-    plan.save()
-    ids = stage_crops(plan, [REGION], actor)["draftIds"]
-    attached = attach_drafts(project, actor, ids)
-    response = ProjectAdmin(Project, admin.site).media_dashboard_view(request(actor), str(project.pk))
-    response.render()
-    context = response.context_data
-    assert len(context["carousel"]) == 1
-    assert str(plan.asset_id) not in context["carousel"][0]["imageUrl"]
-    card = context["layouts"][0]
-    assert str(card["plan"].pk) == attached[0]
-    assert card["isCroppedUnit"]
-    assert card["editCropUrl"] == reverse("admin:platform_api_floorplan_crop_update", args=[attached[0]])
-    html = response.content.decode()
-    assert 'form="layout-bulk-removal"' in html and "draft-cart-icon" in html
-    assert "Location:" in html and "Queue extraction" in html
+    from platform_api.crop_cart import stage_crops,attach_drafts
+    from .workspace_helpers import workspace_request,frontend_source
+    from django.test import Client
+    project,plan,actor=source
+    plan.plan_scope='floor';plan.save()
+    ids=stage_crops(plan,[REGION],actor)['draftIds'];attached=attach_drafts(project,actor,ids)
+    client=Client();client.force_login(actor)
+    response=workspace_request(client,project,'/media');assert response.status_code==200
+    layouts=[item for item in response.json()['items'] if item['category']=='layouts']
+    assert len(layouts)==1 and layouts[0]['planId']==attached[0]
+    assert str(plan.asset_id) not in layouts[0]['imageUrl'] and layouts[0]['sourceKind']=='unit_crop'
+    assert layouts[0]['canCrop'] and layouts[0]['canEvaluate']
+    ui=frontend_source();assert 'Crop drafts' in ui and 'Replace selected' in ui and 'Evaluation' in ui
 
 
 def test_dashboard_extract_action_only_queues_and_deduplicates(source, monkeypatch):
-    project, plan, actor = source
-    worker = Mock(side_effect=AssertionError("Click must not execute models or drain queue"))
-    monkeypatch.setattr("platform_api.workers.process_pending_outbox", worker)
-    monkeypatch.setattr("platform_api.admin.process_pending_outbox", worker)
-    from platform_api import layout_reanalysis
-    monkeypatch.setattr(layout_reanalysis, "resolve_vision_selection", lambda _: {"profileId": "test"})
-    view = ProjectAdmin(Project, admin.site)
+    from .workspace_helpers import workspace_request
+    from django.test import Client
+    from uuid import uuid4
+    project,plan,actor=source
+    worker=Mock(side_effect=AssertionError('Click must not execute models or drain queue'))
+    monkeypatch.setattr('platform_api.workers.process_pending_outbox',worker)
+    client=Client();client.force_login(actor)
+    body={'planId':str(plan.pk),'expectedUpdatedAt':plan.updated_at.isoformat(),'confirm':True,'requestId':str(uuid4())}
     for _ in range(3):
-        response = view.media_dashboard_view(request(actor, "post", {
-            "action": "run_layout_evaluation", "floor_plan_id": str(plan.pk),
-        }), str(project.pk))
-        assert response.status_code == 302
-    assert OutboxMessage.objects.filter(payload__floorPlanId=str(plan.pk)).count() == 1
+        response=workspace_request(client,project,'/media/evaluate',body,method='post')
+        assert response.status_code==202,response.content
+    assert OutboxMessage.objects.filter(payload__floorPlanId=str(plan.pk)).count()==1
     worker.assert_not_called()
 
 
 def test_global_cart_only_groups_current_owner_drafts(source):
     from platform_api.crop_cart import stage_crops
-    project, plan, actor = source
-    stage_crops(plan, [REGION], actor)
-    response = ProjectAdmin(Project, admin.site).layout_cart_view(request(actor))
-    response.render()
-    assert response.context_data["cart_count"] == 1
-    assert response.context_data["cart_projects"][0]["name"] == project.submitted_name
-    assert "#draft-crop-cart" in response.context_data["cart_projects"][0]["url"]
-    assert LayoutCropDraft.objects.count() == 1
+    from django.test import Client,override_settings
+    project,plan,actor=source
+    stage_crops(plan,[REGION],actor)
+    client=Client();client.force_login(actor)
+    with override_settings(ROOT_URLCONF='config.urls'):
+        response=client.get('/api/v1/admin/project-workspace/builder/crop-cart')
+    assert response.status_code==200
+    assert response.json()==[{'projectId':str(project.pk),'organizationId':str(project.organization_id),'name':project.submitted_name,'count':1}]
+    assert LayoutCropDraft.objects.count()==1
 
 
 def test_dashboard_cart_adds_selected_draft_through_admin_route(source, client):
     from platform_api.crop_cart import stage_crops
-
-    project, plan, actor = source
-    draft_id = stage_crops(plan, [REGION], actor)["draftIds"][0]
+    from .workspace_helpers import workspace_request
+    from uuid import uuid4
+    project,plan,actor=source
+    draft_id=stage_crops(plan,[REGION],actor)['draftIds'][0]
     client.force_login(actor)
-
-    response = client.post(
-        reverse("admin:platform_api_project_crop_cart", args=[project.pk]),
-        {"draft_action": "add", "draft_ids": [draft_id]},
-        follow=True,
-    )
-
-    assert response.status_code == 200
-    assert not LayoutCropDraft.objects.filter(pk=draft_id).exists()
-    assert b"Added 1 selected layout" in response.content
+    assert client.post(reverse('admin:platform_api_project_crop_cart',args=[project.pk]),{'draft_action':'add','draft_ids':[draft_id]}).status_code==405
+    response=workspace_request(client,project,'/media/drafts',{'action':'attach','draftIds':[draft_id],'confirm':True,'requestId':str(uuid4())},method='post')
+    assert response.status_code==202,response.content
+    assert not LayoutCropDraft.objects.filter(pk=draft_id).exists() and len(response.json()['planIds'])==1
 
 
 def test_dashboard_cart_explains_unselected_and_inapplicable_actions(source, client):
     from platform_api.crop_cart import stage_crops
-
-    project, plan, actor = source
-    draft_id = stage_crops(plan, [REGION], actor)["draftIds"][0]
+    from .workspace_helpers import workspace_request,frontend_source
+    from uuid import uuid4
+    project,plan,actor=source
+    draft_id=stage_crops(plan,[REGION],actor)['draftIds'][0]
     client.force_login(actor)
-    url = reverse("admin:platform_api_project_crop_cart", args=[project.pk])
-
-    response = client.post(url, {"draft_action": "add"}, follow=True)
-
-    assert response.status_code == 200
-    assert LayoutCropDraft.objects.filter(pk=draft_id).exists()
-    assert b"Select at least one draft crop." in response.content
-    assert b"Commit saved pages/updates (none available)" in response.content
-    assert b"data-draft-cart-feedback" in response.content
-    assert b'tabindex="-1" hidden' in response.content
+    response=workspace_request(client,project,'/media/drafts',{'action':'attach','draftIds':[],'confirm':True,'requestId':str(uuid4())},method='post')
+    assert response.status_code==400
+    assert LayoutCropDraft.objects.filter(pk=draft_id).exists() and not OutboxMessage.objects.exists()
+    assert 'selectedDrafts.length' in frontend_source() and 'Categories are retained' in frontend_source()
 
 
 def test_full_project_health_annotation_can_be_fetched(source):

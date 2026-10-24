@@ -134,7 +134,7 @@ def stage_crops(plan, raw_regions, actor, rotation_degrees=0):
     destination = crop_destination(plan.project)
     _authorize(actor, destination)
     require_enabled("media.crop_drafts", actor=actor, project=destination)
-    if type(rotation_degrees) is not int or rotation_degrees not in {-180, -90, 0, 90, 180}:
+    if type(rotation_degrees) is not int or not -180 <= rotation_degrees < 360 or rotation_degrees % 5:
         raise ValueError("Invalid rotation.")
     regions = validate_regions(raw_regions, allow_overlap=True)
     if not regions or len(regions) > CART_LIMIT:
@@ -162,7 +162,7 @@ def stage_crops(plan, raw_regions, actor, rotation_degrees=0):
         with Image.open(io.BytesIO(data)) as original:
             image = original.convert("RGB")
             if rotation_degrees:
-                rotated = image.rotate(rotation_degrees, expand=True, fillcolor="white")
+                rotated = image.rotate(rotation_degrees, expand=True, resample=Image.Resampling.BICUBIC, fillcolor="white")
                 image.close()
                 image = rotated
             try:

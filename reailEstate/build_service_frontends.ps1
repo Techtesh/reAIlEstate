@@ -15,4 +15,8 @@ if ($LASTEXITCODE -ne 0) {
 if ($LASTEXITCODE -ne 0) {
     throw 'Service static asset collection failed.'
 }
-Write-Host 'Buyer and builder frontend bundles and static assets are ready.'
+& $python (Join-Path $PSScriptRoot 'adminService\manage.py') collectstatic --noinput --settings=admin_service.settings
+if ($LASTEXITCODE -ne 0) {
+    throw 'Admin project workspace static asset collection failed.'
+}
+Write-Host 'Buyer, builder and admin project workspace assets are ready.'
