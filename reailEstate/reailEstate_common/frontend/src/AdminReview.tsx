@@ -35,16 +35,16 @@ export function ProjectReview({ projectId, disabled = false, onDirty }: { projec
       setDirty(false)
     } catch (e) { setError(errorMessage(e)) } finally { setBusy(false) }
   }
-  return <section className="builder-panel admin-review" aria-label="Project evidence review"><h2>Review project evidence</h2>
+  return <section className="admin-review project-evidence-review" aria-label="Project evidence review">
     {error && <p role="alert">{error}</p>}{!data ? <p role="status">Loading review evidence…</p> : <>
-      <h3>Amenities</h3>{!data.amenities.length && <p>No amenity claims.</p>}
-      {data.amenities.map(item => <details key={`${item.id}-${item.updatedAt}`} className="admin-review-row"><summary>{item.name} · {item.state}</summary><form onChange={() => setDirty(true)} onSubmit={event => void review(event, item, 'amenity')}>
+      <h3>Amenities <span className="data-note">{data.amenities.length}</span></h3>{!data.amenities.length && <p>No amenity claims.</p>}
+      <div className="amenity-review-list">{data.amenities.map(item => <details key={`${item.id}-${item.updatedAt}`} className="admin-review-row"><summary><span>{item.name}</span><span className="review-state">{item.state.replaceAll('_', ' ')}</span></summary><form onChange={() => setDirty(true)} onSubmit={event => void review(event, item, 'amenity')}>
         <h4>{item.name} <span className="data-note">{item.state}</span></h4><details><summary>Evidence and history</summary><pre>{JSON.stringify(item.evidence, null, 2)}</pre></details>
         <fieldset disabled={disabled || busy || !item.canReview}><div className="builder-form-grid"><label>Availability<input name="availability_state" required maxLength={32} defaultValue={item.availabilityState} /></label>
           <label>Distance (m)<input name="distance_meters" type="number" min="0" defaultValue={item.distanceMeters ?? ''} /></label><label>Travel (minutes)<input name="travel_minutes" type="number" min="0" defaultValue={item.travelMinutes ?? ''} /></label>
           <label>Review reason<input name="reason" required maxLength={1000} /></label></div><div className="button-row"><button className="primary" value="accept">Accept amenity</button><button className="secondary" value="reject">Reject amenity</button></div></fieldset>
         {!item.canReview && <p>{item.reason}</p>}
-      </form></details>)}
+      </form></details>)}</div>
       <h3>Source references</h3>{!data.references.length && <p>No source references.</p>}
       {data.references.map(item => <details key={`${item.id}-${item.version}`} className="admin-review-row"><summary>Source reference · {item.state}</summary><form onChange={() => setDirty(true)} onSubmit={event => void review(event, item, 'reference')}>
         <h4>Source reference · {item.state}</h4><details><summary>Inspect evidence</summary><pre>{JSON.stringify(item.evidence, null, 2)}</pre></details>
@@ -110,8 +110,8 @@ export function PlanReview({ plan, onSaved, onDirty, disabled = false }: { plan:
         <td>{room.length_ft && room.width_ft ? (Number(room.length_ft) * Number(room.width_ft)).toFixed(2) : 'Unknown'}</td><td><input type="checkbox" aria-label={`Remove room ${index + 1}`} checked={room.DELETE} onChange={event => setRooms(rows => rows.map((row, i) => i === index ? { ...row, DELETE: event.target.checked } : row))} /></td></tr>)}
     </tbody></table></div><button type="button" className="secondary" disabled={rooms.length >= 100} onClick={() => { setDirty(true); setExtractionDirty(true); onDirty(true); setRooms(rows => [...rows, { source_index: null, room: '', length_ft: '', width_ft: '', DELETE: false }]) }}>Add room</button>
     <label>Correction / review reason<input name="reason" required maxLength={1000} /></label><div className="button-row">
-      <button className="secondary" value="save-correction">Save corrections for review</button><button className="primary" disabled={!plan.canReview || extractionDirty} value="approve">Approve saved extraction</button><button className="secondary" disabled={!plan.canReview || extractionDirty} value="reject">Reject</button>
-    {extractionDirty && <p>Save these corrections for review before approving or rejecting the saved extraction.</p>}
+      {extractionDirty ? <button className="primary" value="save-correction">{busy ? 'Saving…' : 'Save for review'}</button> : <><button className="primary" disabled={!plan.canReview} value="approve">Approve extraction</button><button className="secondary" disabled={!plan.canReview} value="reject">Reject</button></>}
+    {extractionDirty && <p role="status">You have unsaved changes. Save for review to submit your updated values. Approval is available after saving.</p>}
     </div>{!plan.canReview && <p>{plan.reviewReason || 'Review permission or independent review is required.'}</p>}</fieldset>
     <button className="secondary" type="button" disabled={!dirty || busy} onClick={event => {
       event.currentTarget.form?.reset()
@@ -122,6 +122,51 @@ export function PlanReview({ plan, onSaved, onDirty, disabled = false }: { plan:
 }
 
 type FloorEvaluation = { flatsPerFloor?: number | null; liftCount?: number | null; staircaseCount?: number | null; evaluatedAt?: string; visualEvidence?: string; assetId?: string; refugeArea?: { presence: string; area?: number | null; unit?: string | null; evidence?: string }; commonAreas?: { kind: string; label: string; count: number | null; area: number | null; unit: string | null; evidence: string }[] }
+type CommonAreaDraft = { kind: string; label: string; count: string; area: string; unit: string; evidence: string }
+export function FloorPlanReview({ plan, onSaved, onDirty, disabled = false }: { plan: ReviewPlan & { features?: Record<string, unknown> }; onSaved: () => void; onDirty: (dirty: boolean) => void; disabled?: boolean }) {
+  const summary = plan.features?.floorEvaluation as FloorEvaluation | undefined
+  const initialAreas = (): CommonAreaDraft[] => (summary?.commonAreas ?? []).map(item => ({ ...item, count: String(item.count ?? ''), area: String(item.area ?? ''), unit: item.unit ?? '' }))
+  const [areas, setAreas] = useState(initialAreas)
+  const [refuge, setRefuge] = useState(summary?.refugeArea?.presence ?? 'unknown')
+  const [dirty, setDirty] = useState(false), [correctionDirty, setCorrectionDirty] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('')
+  useUnsavedChanges(dirty || busy)
+  function changed(event?: React.FormEvent<HTMLFormElement>) { setDirty(true); onDirty(true); if (!event || (event.target as HTMLInputElement).name !== 'reason') setCorrectionDirty(true) }
+  const numeric = (value: FormDataEntryValue | string | null) => value === '' || value == null ? null : Number(value)
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const fields = new FormData(event.currentTarget), decision = (event.nativeEvent as SubmitEvent).submitter?.getAttribute('value')
+    setBusy(true); setError(''); onDirty(true)
+    try {
+      await api(`/api/v1/admin/plans/${encodeURIComponent(plan.planId!)}/review`, { method: 'POST', body: json({
+        scope: 'floor', decision, reason: fields.get('reason'), expectedUpdatedAt: plan.updatedAt,
+        floorEvaluation: {
+          flatsPerFloor: numeric(fields.get('flatsPerFloor')), liftCount: numeric(fields.get('liftCount')), staircaseCount: numeric(fields.get('staircaseCount')),
+          refugeArea: { presence: refuge, area: refuge === 'present' ? numeric(fields.get('refugeArea')) : null, unit: refuge === 'present' && fields.get('refugeArea') ? fields.get('refugeUnit') || null : null, evidence: fields.get('refugeEvidence') },
+          commonAreas: areas.map(item => ({ ...item, count: numeric(item.count), area: numeric(item.area), unit: item.area ? item.unit || null : null })), visualEvidence: fields.get('visualEvidence'),
+        },
+      }) })
+      setDirty(false); setCorrectionDirty(false); onDirty(false); onSaved()
+    } catch (e) { setError(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return <form className="admin-review" onChange={changed} onSubmit={event => void submit(event)}><h3>Review and correct floor evaluation</h3>
+    {error && <p role="alert" className="field-error">{error}</p>}
+    <p className="data-note">Leave a count blank when unknown. Zero means confirmed absent. These observations describe the whole floor.</p>
+    <fieldset disabled={disabled || busy}><div className="builder-form-grid">
+      {([['flatsPerFloor', 'Flats on this floor'], ['liftCount', 'Lifts'], ['staircaseCount', 'Staircases']] as const).map(([key, label]) => <label key={key}>{label}<input name={key} type="number" min="0" max="10000" step="1" defaultValue={summary?.[key] ?? ''} placeholder="Unknown" /></label>)}
+      <label>Refuge presence<select name="refugePresence" value={refuge} onChange={event => setRefuge(event.target.value)}><option value="unknown">Unknown</option><option value="present">Present</option><option value="absent">Absent</option></select></label>
+      {refuge === 'present' && <><label>Refuge area<input name="refugeArea" type="number" min="0" max="1000000000" step="any" defaultValue={summary?.refugeArea?.area ?? ''} placeholder="Unknown" /></label><label>Refuge area unit<select name="refugeUnit" defaultValue={summary?.refugeArea?.unit ?? ''}><option value="">Unknown</option><option value="sqft">sq ft</option><option value="sqm">sq m</option></select></label></>}
+    </div><label>Refuge evidence<textarea name="refugeEvidence" maxLength={3000} rows={2} defaultValue={summary?.refugeArea?.evidence ?? ''} /></label>
+    <details className="floor-common-editor"><summary>Other common-floor features ({areas.length})</summary>{areas.map((item, index) => <div className="floor-common-row" key={index}><div className="builder-form-grid">
+      {(['kind', 'label', 'count', 'area', 'unit'] as const).map(key => <label key={key}>{key === 'kind' ? 'Feature type' : key === 'count' ? 'Count' : key === 'area' ? 'Area' : key === 'unit' ? 'Area unit' : 'Label'}{key === 'unit' ? <select value={item[key]} onChange={event => setAreas(rows => rows.map((row, i) => i === index ? { ...row, [key]: event.target.value } : row))}><option value="">Unknown</option><option value="sqft">sq ft</option><option value="sqm">sq m</option></select> : <input required={key === 'kind'} type={key === 'count' || key === 'area' ? 'number' : 'text'} min="0" max={key === 'count' ? '10000' : '1000000000'} step={key === 'count' ? '1' : 'any'} maxLength={key === 'kind' ? 64 : 200} value={item[key]} onChange={event => setAreas(rows => rows.map((row, i) => i === index ? { ...row, [key]: event.target.value } : row))} />}</label>)}
+    </div><label>Feature evidence<textarea maxLength={3000} rows={2} value={item.evidence} onChange={event => setAreas(rows => rows.map((row, i) => i === index ? { ...row, evidence: event.target.value } : row))} /></label><button className="secondary" type="button" onClick={() => { changed(); setAreas(rows => rows.filter((_, i) => i !== index)) }}>Remove feature</button></div>)}<button className="secondary" type="button" disabled={areas.length >= 50} onClick={() => { changed(); setAreas(rows => [...rows, { kind: 'other', label: '', count: '', area: '', unit: '', evidence: '' }]) }}>Add common-floor feature</button></details>
+    <label>Floor evidence<textarea name="visualEvidence" maxLength={10000} rows={3} defaultValue={summary?.visualEvidence ?? ''} /></label>
+    <label>Correction / review reason<input name="reason" required maxLength={1000} /></label>
+    <div className="button-row">{correctionDirty ? <button className="primary" value="save-correction">{busy ? 'Saving…' : 'Save for review'}</button> : <><button className="primary" value="approve" disabled={!plan.canReview || !summary}>Approve floor evaluation</button><button className="secondary" value="reject" disabled={!plan.canReview || !summary}>Reject floor evaluation</button></>}</div>
+    {correctionDirty && <p className="data-note">Save corrections before reviewing the saved floor evaluation.</p>}{!plan.canReview && <p>{plan.reviewReason || 'Independent review permission is required.'}</p>}</fieldset>
+    <button className="secondary" type="button" disabled={!dirty || busy} onClick={event => { event.currentTarget.form?.reset(); setAreas(initialAreas()); setRefuge(summary?.refugeArea?.presence ?? 'unknown'); setDirty(false); setCorrectionDirty(false); onDirty(false); setError('') }}>Discard unsaved floor review</button>
+  </form>
+}
+
 export function FloorSummary({ features }: { features?: Record<string, unknown> }) {
   const summary = features?.floorEvaluation as FloorEvaluation | undefined
   const refuge = summary?.refugeArea

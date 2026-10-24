@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { api, ApiError, cancelSessionRequests, collection, json, onSessionExpired } from './api'
 import { errorMessage } from './errors'
 import { ThemeControl } from './ThemeControl'
@@ -193,21 +193,44 @@ function PasswordScreen({ userId }: { userId?: string }) {
 type Job = { id: string; project: string; projectId: string; label: string; kind: string; state: string; attempts: number; retryAt?: string; error?: string; canRequeue: boolean; canDelete: boolean; deleteVersion: string; progress: unknown }
 type Queue = { updatedAt: string; canRun: boolean; capacity: { active: number; limit: number; available: number }; counts: Record<string, number>; jobs: Job[]; workers: { id: string; project: string; state: string; heartbeatAt: string }[] }
 function QueueScreen() {
-  const [data, setData] = useState<Queue | null>(null), [state, setState] = useState(''), [query, setQuery] = useState(''), [selected, setSelected] = useState<Job | null>(null)
+  const queueTabs = [{ id: 'running', label: 'Running' }, { id: 'dead_letter', label: 'Dead letter' }, { id: 'completed', label: 'Completed' }] as const
+  type QueueTab = typeof queueTabs[number]['id']
+  const prefix = useId()
+  const [search, setSearch] = useSearchParams()
+  const tab: QueueTab = queueTabs.find(item => item.id === search.get('tab'))?.id ?? 'running'
+  const query = search.get('q') ?? ''
+  const [data, setData] = useState<Queue | null>(null), [state, setState] = useState(''), [selected, setSelected] = useState<Job | null>(null)
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [revision, setRevision] = useState(0)
-  useEffect(() => { const scope = new AbortController(); api<Queue>(`${base}/queue`, { signal: scope.signal }).then(setData).catch(e => { if (!scope.signal.aborted) setError(errorMessage(e)) }); return () => scope.abort() }, [revision])
+  const [loading, setLoading] = useState(true)
+  const belongs = (job: Job, group: QueueTab) => group === 'running' ? ['queued', 'running', 'retrying'].includes(job.state) : job.state === group
+  useEffect(() => { const scope = new AbortController(); setLoading(true); setError(''); api<Queue>(`${base}/queue`, { signal: scope.signal }).then(setData).catch(e => { if (!scope.signal.aborted) setError(errorMessage(e)) }).finally(() => { if (!scope.signal.aborted) setLoading(false) }); return () => scope.abort() }, [revision])
+  useEffect(() => { setSelected(current => current ? data?.jobs.find(job => job.id === current.id && belongs(job, tab)) ?? null : null) }, [data, tab])
+  useEffect(() => { setState(''); setSelected(null) }, [tab])
+  function updateSearch(key: string, value: string) {
+    setSearch(current => { const next = new URLSearchParams(current); if (value) next.set(key, value); else next.delete(key); return next }, { replace: true })
+  }
+  function switchTab(next: QueueTab) { updateSearch('tab', next) }
+  const totalFor = (group: QueueTab) => data?.counts[group === 'running' ? 'pending' : group] ?? 0
+  const rows = data?.jobs.filter(job => belongs(job, tab) && (!state || job.state === state) && `${job.project} ${job.label} ${job.kind}`.toLowerCase().includes(query.toLowerCase())) ?? []
   async function act(action: string, job?: Job) {
     if (!window.confirm(`${action === 'run' ? 'Run your queued evaluations? This can incur model costs.' : `${action} this dead-letter job?`}`)) return
     setBusy(true); setError('')
     try { await api(`${base}/queue`, { method: 'POST', body: json({ action, id: job?.id, version: job?.deleteVersion, confirm: true }) }); setSelected(null); setRevision(n => n + 1) }
     catch (e) { setError(errorMessage(e)) } finally { setBusy(false) }
   }
-  return <section className="builder-panel"><h1>Processing queue</h1>{error && <p role="alert">{error}</p>}<div className="admin-toolbar"><label>Find a job<input type="search" value={query} onChange={e => setQuery(e.target.value)} /></label><label>State<select value={state} onChange={e => setState(e.target.value)}><option value="">All states</option>{['queued', 'running', 'retrying', 'completed', 'dead_letter'].map(s => <option key={s}>{s}</option>)}</select></label><button className="secondary" onClick={() => setRevision(n => n + 1)}>Refresh queue</button>{data?.canRun && <button className="primary" disabled={busy} onClick={() => void act('run')}>Run my queue</button>}</div>
-    {!data ? <p role="status">Loading queue…</p> : <><p>Updated {new Date(data.updatedAt).toLocaleTimeString()} · Workers {data.capacity.active}/{data.capacity.limit} · {data.capacity.available} slots available</p><div className="button-row">{Object.entries(data.counts).map(([key, count]) => <span key={key}>{key}: {count}</span>)}</div>
-      <div className="admin-list-detail"><div className="admin-table"><table><thead><tr><th>Project / item</th><th>Kind / state</th><th>Attempts</th><th>Details</th></tr></thead><tbody>{data.jobs.filter(job => (!state || job.state === state) && `${job.project} ${job.label} ${job.kind}`.toLowerCase().includes(query.toLowerCase())).map(job => <tr key={job.id}><td>{job.project}<br />{job.label}</td><td>{job.kind}<br />{job.state}</td><td>{job.attempts}</td><td><button className="secondary" onClick={() => setSelected(job)}>Inspect</button></td></tr>)}</tbody></table></div>
-      {selected && <section className="admin-detail"><h2>{selected.label}</h2><p>{selected.error || 'No reported error'}</p><p>Retry: {selected.retryAt || 'Not scheduled'}</p><pre>{JSON.stringify(selected.progress, null, 2)}</pre><div className="button-row">{selected.canRequeue && <button className="primary" disabled={busy} onClick={() => void act('requeue', selected)}>Requeue</button>}{selected.canDelete && <button className="secondary" disabled={busy} onClick={() => void act('delete', selected)}>Delete dead letter</button>}</div></section>}</div>
-      <h2>Worker status</h2><ul>{data.workers.map(worker => <li key={worker.id}>{worker.project} · {worker.state} · heartbeat {new Date(worker.heartbeatAt).toLocaleString()}</li>)}</ul>
-    </>}
+  return <section className="builder-panel"><h1>Processing queue</h1>{error && <p role="alert">{error}</p>}
+    <div className="project-section-tabs" role="tablist" aria-label="Processing queue states">{queueTabs.map((item, index) => <button key={item.id} id={`${prefix}-${item.id}-tab`} role="tab" aria-selected={tab === item.id} aria-controls={`${prefix}-panel`} tabIndex={tab === item.id ? 0 : -1} onClick={() => switchTab(item.id)} onKeyDown={event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+      event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? queueTabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + queueTabs.length) % queueTabs.length
+      switchTab(queueTabs[next].id); document.getElementById(`${prefix}-${queueTabs[next].id}-tab`)?.focus()
+    }}>{item.label} <span>{data ? totalFor(item.id) : '…'}</span></button>)}</div>
+    <div className="admin-toolbar queue-toolbar"><label>Find a job<input type="search" value={query} onChange={e => updateSearch('q', e.target.value)} /></label>{tab === 'running' && <label>State<select value={state} onChange={e => setState(e.target.value)}><option value="">All active states</option>{['queued', 'running', 'retrying'].map(s => <option key={s}>{s}</option>)}</select></label>}<button className="secondary" disabled={loading || busy} onClick={() => setRevision(n => n + 1)}>Refresh queue</button>{tab === 'running' && data?.canRun && <button className="primary" disabled={busy || loading} onClick={() => void act('run')}>Run my queue</button>}</div>
+    {loading && <p role="status">Loading queue…</p>}{data && <div id={`${prefix}-panel`} role="tabpanel" aria-labelledby={`${prefix}-${tab}-tab`} aria-busy={loading}>
+      <p className="data-note">Updated {new Date(data.updatedAt).toLocaleTimeString()} · Showing {rows.length} matching jobs from the loaded snapshot · {totalFor(tab)} total in this tab.</p>{tab === 'running' && <p>Queued, running and retrying jobs · Workers {data.capacity.active}/{data.capacity.limit} · {data.capacity.available} slots available</p>}
+      <div className="admin-list-detail"><div className="admin-table"><table><thead><tr><th>Project / item</th><th>Kind / state</th><th>Attempts</th><th>Details</th></tr></thead><tbody>{rows.map(job => <tr key={job.id}><td>{job.project}<br />{job.label}</td><td>{job.kind}<br />{job.state.replaceAll('_', ' ')}</td><td>{job.attempts}</td><td><button className="secondary" onClick={() => setSelected(job)}>Inspect</button></td></tr>)}</tbody></table>{!rows.length && <p role="status">{query || state ? 'No loaded jobs match these filters.' : `No ${tab === 'running' ? 'active' : tab.replaceAll('_', ' ')} jobs in the loaded snapshot.`}</p>}</div>
+      {selected && <section className="admin-detail"><h2>{selected.label}</h2><p>{selected.error || 'No reported error'}</p><p>Retry: {selected.retryAt || 'Not scheduled'}</p><pre>{JSON.stringify(selected.progress, null, 2)}</pre><div className="button-row">{selected.canRequeue && <button className="primary" disabled={busy || loading} onClick={() => void act('requeue', selected)}>Requeue</button>}{selected.canDelete && <button className="secondary" disabled={busy || loading} onClick={() => void act('delete', selected)}>Delete dead letter</button>}</div></section>}</div>
+      {tab === 'running' && <details className="builder-media-utility"><summary>Worker status</summary><ul>{data.workers.map(worker => <li key={worker.id}>{worker.project} · {worker.state} · heartbeat {new Date(worker.heartbeatAt).toLocaleString()}</li>)}</ul></details>}
+    </div>}
   </section>
 }
 

@@ -50,9 +50,11 @@ export function ProjectContent({ projectId, version, registration, locked, onDir
     finally { if (!controller.current?.signal.aborted) setBusy(false) }
   }
   return <section className="builder-panel project-content" aria-label="Project sources and amenities">
-    <h2>Project sources and amenities</h2><p>Set a pin or coordinates in Project details above. Submit Google project matches, dated registry evidence, and amenity claims here for independent review.</p>
+    <h2>{admin ? 'Sources & review' : 'Project sources and amenities'}</h2><p>{admin ? 'Review amenity claims and source evidence. Open a row to inspect, correct and validate it.' : 'Set a pin or coordinates in Project details. Submit project matches, dated registry evidence and amenity claims for independent review.'}</p>
     {error && <div role="alert"><p>{error}</p><button className="secondary" disabled={busy} onClick={() => { setError(''); setRevision(value => value + 1) }}>Refresh sources</button></div>}
     {!content ? <p role="status">Loading sources…</p> : <>
+      {admin && <ProjectReview projectId={projectId} disabled={locked} onDirty={setReviewDirty} />}
+      <details className="project-add-evidence" open={!admin || undefined}><summary>Add source references or amenity claims</summary>
       <form onSubmit={event => { event.preventDefault(); void act('search') }}><fieldset disabled={locked || busy || !content.mapsConfigured}>
         <legend>Find Google Maps project</legend><label>Project name and address<input required minLength={3} maxLength={500} value={query} onChange={event => setQuery(event.target.value)} /></label>
         <button className="secondary" type="submit">Find project</button>
@@ -74,9 +76,9 @@ export function ProjectContent({ projectId, version, registration, locked, onDir
         <label><span><input type="checkbox" checked={claimsConfirmed} onChange={event => setClaimsConfirmed(event.target.checked)} /> Submit these amenities as unreviewed claims.</span></label>
         <button className="primary" type="submit" disabled={!claimsConfirmed || !amenities.trim()}>Submit amenities</button>
       </fieldset></form>
+      </details>
       {!admin && content.amenities.length > 0 && <><h3>Saved amenities</h3><ul>{content.amenities.map(item => <li key={item.name}>{item.name} · {item.state.replaceAll('_', ' ')}</li>)}</ul></>}
       {!admin && <><h3>Submitted source references</h3><ul>{content.references.map(reference => <li key={reference.id}>{reference.registry?.registrationNumber ?? (reference.placeId ? 'Google project match' : 'Project location')} · {reference.state.replaceAll('_', ' ')}{reference.registry?.checkedOn && ` · ${reference.registry.checkedOn}`}</li>)}</ul></>}
-      {admin && <ProjectReview projectId={projectId} disabled={locked} onDirty={setReviewDirty} />}
     </>}
   </section>
 }

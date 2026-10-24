@@ -698,6 +698,8 @@ class FallbackFloorPlanVisionProvider:
             raise AttributeError(method)
 
         def invoke(*args, **kwargs):
+            if not self._order:
+                raise ProviderUnavailable("A floor-plan vision profile must be configured.")
             attempts = []
             precheck_used = False
             self._winner = {}

@@ -39,7 +39,7 @@ class WorkspaceDocumentView(BuilderView):
                     error = "Original preview is unavailable or failed its integrity check."
             else:
                 error = "No page preview is available for this format. Open/download the original instead."
-            return Response({"pageCount": pages, "previewError": error, "mediaType": document.declared_media_type})
+            return Response({"pageCount": pages, "previewError": error, "mediaType": document.declared_media_type, "sha256": document.sha256})
         try:
             with storage.open(document.object_key, "rb") as stream:
                 data = stream.read(document.byte_length + 1)
@@ -163,9 +163,11 @@ class PlanReviewView(AdminAPIView):
     def handle_exception(self, exc):
         from .ingestion_runtime import WorkAlreadyClaimed
         if isinstance(exc, WorkAlreadyClaimed):
-            exc = BuilderConflict("This layout has pending evaluation work. Refresh before editing it.")
+            exc = BuilderConflict("This plan has pending evaluation work. Refresh before editing it.")
         elif isinstance(exc, DjangoValidationError):
             exc = ValidationError(exc.messages)
+        elif isinstance(exc, ValueError):
+            exc = ValidationError(str(exc))
         return super().handle_exception(exc)
 
     def post(self, request, plan_id):
@@ -177,6 +179,13 @@ class PlanReviewView(AdminAPIView):
         if not plan.active or plan.review_state == "removed_by_user" or plan.project.status in {"retired", "merged"} or plan.document.scan_status != "clean":
             raise ValidationError("Review requires an active plan and a clean source document.")
         reason = serializers.CharField(max_length=1000).run_validation(request.data.get("reason"))
+        if plan.plan_scope == "floor":
+            from .floor_evaluation_review import review_floor_evaluation
+            return Response(review_floor_evaluation(request, plan, reason))
+        if plan.plan_scope != "flat":
+            raise ValidationError("Classify this plan as a whole floor or individual layout before reviewing it.")
+        if request.data.get("scope") == "floor" or "floorEvaluation" in request.data:
+            raise ValidationError("Floor evaluation fields cannot be applied to an individual layout.")
         if request.data.get("decision") == "save-correction":
             from .layout_extraction_admin import ExtractionForm, RoomFormSet, save_extraction
             values = request.data.get("fields", {})
@@ -190,8 +199,16 @@ class PlanReviewView(AdminAPIView):
             for index, row in enumerate(rows):
                 payload.update({f"rooms-{index}-{key}": value for key, value in row.items()})
             rooms = RoomFormSet(payload, prefix="rooms")
-            if not form.is_valid() or not rooms.is_valid():
-                raise ValidationError({"fields": form.errors, "rooms": rooms.errors})
+            valid_fields, valid_rooms = form.is_valid(), rooms.is_valid()
+            if not valid_fields or not valid_rooms:
+                messages = [f"{form.fields[name].label or name}: {error}" for name, errors in form.errors.items()
+                    for error in errors if name in form.fields]
+                messages += [f"Room {index + 1}, {RoomFormSet.form.base_fields[name].label or name}: {error}"
+                    for index, row_errors in enumerate(rooms.errors) for name, field_errors in row_errors.items()
+                    for error in field_errors if name in RoomFormSet.form.base_fields]
+                messages += [str(error) for error in rooms.non_form_errors()]
+                raise ValidationError({"detail": " ".join(messages[:8]) or "Review the highlighted extraction fields.",
+                    "fields": form.errors, "rooms": rooms.errors})
             try:
                 save_extraction(plan.pk, request.user, form.cleaned_data, rooms)
             except ValueError as exc:

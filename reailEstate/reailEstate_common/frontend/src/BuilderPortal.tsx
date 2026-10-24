@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { workspaceOrder, inactiveProject } from './workspaceOrdering'
 import { DocumentBrowser } from './DocumentBrowser'
 import { AdminPortal } from './AdminPortal'
@@ -32,6 +32,8 @@ type Upload = { file: File; mediaType: string; key: string; intent: UploadIntent
 const message = (error: unknown) => errorMessage(error, 'The action could not be completed.')
 const pathFor = (id: string) => `/api/v1/builder/projects/${encodeURIComponent(id)}`
 const documentsFor = (id: string) => `/api/v1/developer-projects/${encodeURIComponent(id)}/documents`
+const projectSections = [{ id: 'details', label: 'Project details' }, { id: 'sources', label: 'Sources & review' }, { id: 'documents', label: 'Documents' }, { id: 'media', label: 'Images & plans' }] as const
+type ProjectSection = typeof projectSections[number]['id']
 const locationEntry = (project?: Project): LocationEntry => ({
   method: 'unchanged', latitude: String(project?.location?.latitude ?? ''),
   longitude: String(project?.location?.longitude ?? ''), mapsUrl: '',
@@ -180,7 +182,7 @@ function BuilderWorkspace({ organizations }: { organizations: Organization[] }) 
   const [dirty, setDirty] = useState(false)
   const organization = organizations.find(item => item.id === organizationId)!
   return <>
-    <div className="builder-heading"><div><p className="eyebrow">Organization workspace</p><h1>{admin ? 'Project workspace' : 'Your projects'}</h1><p>{organization.legalName} · {admin ? 'Platform editor' : organization.role}</p></div><label>Active organization<select value={organizationId} onChange={event => { if (!dirty || window.confirm('Discard unsaved project, layout or crop entries and switch organization? An in-flight action may still finish on the server.')) { setDirty(false); setOrganizationId(event.target.value) } }}>{organizations.map(item => <option value={item.id} key={item.id}>{item.legalName} ({admin ? 'Platform editor' : item.role})</option>)}</select></label></div>
+    <div className="builder-heading"><div><h1>{admin ? 'Project workspace' : 'Your projects'}</h1><p>{organization.legalName} · {admin ? 'Platform editor' : organization.role}</p></div><label>Active organization<select value={organizationId} onChange={event => { if (!dirty || window.confirm('Discard unsaved project, layout or crop entries and switch organization? An in-flight action may still finish on the server.')) { setDirty(false); setOrganizationId(event.target.value); const url = new URL(window.location.href); url.searchParams.set('organization', event.target.value); url.searchParams.delete('project'); url.searchParams.delete('plan'); window.history.replaceState(window.history.state, '', url) } }}>{organizations.map(item => <option value={item.id} key={item.id}>{item.legalName} ({admin ? 'Platform editor' : item.role})</option>)}</select></label></div>
     {!admin && (organization.role === 'owner' || organization.role === 'admin') && <OrganizationRoles key={`roles-${organizationId}`} organizationId={organizationId} canManageOwners={organization.role === 'owner'} />}
     <OrganizationProjects key={organizationId} organization={organization} dirty={dirty} onDirty={setDirty} />
   </>
@@ -215,11 +217,19 @@ function OrganizationProjects({ organization, dirty, onDirty }: { organization: 
     if (project.organizationId !== organization.id) return
     setProjects(current => [project, ...current.filter(item => item.id !== project.id)])
     setSelected(project)
+    const url = new URL(window.location.href)
+    url.searchParams.set('project', project.id); url.searchParams.set('organization', organization.id); url.searchParams.delete('new')
+    window.history.replaceState(window.history.state, '', url)
   }
   function select(project: Project | 'new') {
     if (project === 'new' ? selected === 'new' : selected !== 'new' && selected?.id === project.id) return
     if (dirty && !window.confirm('Discard unsaved project, layout or crop entries and switch project? An in-flight action may still finish on the server.')) return
     onDirty(false); setSelected(project)
+    const url = new URL(window.location.href)
+    url.searchParams.set('organization', organization.id); url.searchParams.delete('plan')
+    if (project === 'new') { url.searchParams.delete('project'); url.searchParams.set('new', '1'); url.searchParams.set('section', 'details') }
+    else { url.searchParams.set('project', project.id); url.searchParams.delete('new') }
+    window.history.replaceState(window.history.state, '', url)
   }
   const localities = [...new Set(projects.map(project => project.locality).filter(Boolean))].sort((a, b) => a.localeCompare(b))
   const visibleProjects = workspaceOrder(projects.filter(project => project.submittedName.toLocaleLowerCase().includes(projectSearch.toLocaleLowerCase()) && (!locality || project.locality === locality)), project => project.submittedName, inactiveProject)
@@ -238,6 +248,19 @@ function OrganizationProjects({ organization, dirty, onDirty }: { organization: 
 
 function ProjectEditor({ organization, initial, onSaved, onDirty }: { organization: Organization; initial: Project | null; onSaved: (project: Project) => void; onDirty: (dirty: boolean) => void }) {
   const { api } = useProjectWorkspace()
+  const sectionId = useId()
+  const [section, setSection] = useState<ProjectSection>(() => {
+    const requested = new URLSearchParams(window.location.search).get('section')
+    return !initial || !requested ? 'details' : projectSections.find(item => item.id === requested)?.id ?? 'media'
+  })
+  const lastMediaSection = useRef(new URLSearchParams(window.location.search).get('section') ?? 'project-images')
+  function showSection(next: ProjectSection) {
+    if (section === 'media') lastMediaSection.current = new URLSearchParams(window.location.search).get('section') ?? 'project-images'
+    setSection(next)
+    const url = new URL(window.location.href)
+    url.searchParams.set('section', next === 'media' ? ['project-images', 'amenities', 'floor-plans', 'layouts'].includes(lastMediaSection.current) ? lastMediaSection.current : 'project-images' : next)
+    window.history.replaceState(window.history.state, '', url)
+  }
   const signal = useRequestScope()
   const [project, setProject] = useState(initial)
   const [draft, setDraft] = useState<ProjectDraft>(() => initial ? projectDraft(initial) : emptyDraft())
@@ -319,10 +342,16 @@ function ProjectEditor({ organization, initial, onSaved, onDirty }: { organizati
     catch (error) { failure(error) } finally { if (!signal.aborted) setBusy(false) }
   }
   return <div className="builder-editor">
-    <section className="builder-panel"><h2>{project ? 'Project details' : 'Create project'}</h2>{project && <p className="builder-status">Status: <strong>{project.status.replaceAll('_', ' ')}</strong> · Registry: {project.verificationStatus.replaceAll('_', ' ')}</p>}
-      <p>Organization: {organization.legalName}. Organization assignment and publication status cannot be changed here.</p>
+    {project && <header className="project-context"><div><h2>{project.submittedName}</h2><p>{project.locality || 'Locality not supplied'} · {project.mahaReraId}</p></div><span className="project-state">{project.status.replaceAll('_', ' ')}</span></header>}
+    {project && <div className="project-section-tabs" role="tablist" aria-label="Project sections">{projectSections.map((item, index) => <button key={item.id} id={`${sectionId}-${item.id}-tab`} role="tab" aria-selected={section === item.id} aria-controls={`${sectionId}-${item.id}-panel`} tabIndex={section === item.id ? 0 : -1} onClick={() => showSection(item.id)} onKeyDown={event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+      event.preventDefault()
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? projectSections.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + projectSections.length) % projectSections.length
+      showSection(projectSections[next].id); document.getElementById(`${sectionId}-${projectSections[next].id}-tab`)?.focus()
+    }}>{item.label}</button>)}</div>}
+    {error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status" className="builder-notice">{notice}</p>}
+    <section className="builder-panel project-details" id={`${sectionId}-details-panel`} role={project ? 'tabpanel' : undefined} aria-labelledby={project ? `${sectionId}-details-tab` : undefined} hidden={section !== 'details'}><h2>{project ? 'Project details' : 'Create project'}</h2>{project && <p className="data-note">Registry: {project.verificationStatus.replaceAll('_', ' ')} · {organization.legalName}</p>}
       {locked && <p role="status">This project is {project?.status}; editing and uploads are unavailable.</p>}
-      {error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status" className="builder-notice">{notice}</p>}
       {conflict && <div role="alert" className="builder-conflict"><h3>Changes were not overwritten</h3><p>The saved version or project state changed. Your entries remain below. Copy anything you need before reloading. Saving is blocked until you load the latest version.</p><button className="secondary" disabled={busy} onClick={() => setConfirmReload(true)}>Reload latest version</button></div>}
       {confirmReload && <div className="builder-confirm" role="group" aria-label="Confirm reload"><p>Replace your unsaved project, layout and crop entries with the latest saved project? An in-flight media action may still finish on the server.</p><div className="button-row"><button className="primary" disabled={busy} onClick={() => void reloadProject()}>Discard entries and reload</button><button className="secondary" disabled={busy} onClick={() => setConfirmReload(false)}>Keep editing locally</button></div></div>}
       <form onSubmit={event => void save(event)}><fieldset disabled={busy || locked}><div className="builder-form-grid">
@@ -351,7 +380,11 @@ function ProjectEditor({ organization, initial, onSaved, onDirty }: { organizati
       {project && !locked && <div className="builder-actions"><button className="secondary" disabled={busy || conflict || dirty || mediaDirty || contentDirty} onClick={() => void submitReview()}>Submit for review</button><button className="secondary" disabled={busy || conflict || dirty || mediaDirty || contentDirty} onClick={() => setConfirmArchive(true)}>Archive project</button>{(dirty || mediaDirty || contentDirty) && <p>Save your project, source and layout changes and finish crop editing before submitting or archiving.</p>}</div>}
       {confirmArchive && <div className="builder-confirm" role="group" aria-label="Confirm archive"><h3>Archive this project?</h3><p>This retires the project and prevents further edits. It does not delete documents or evidence.</p><div className="button-row"><button className="primary" disabled={busy || conflict || dirty || mediaDirty || contentDirty} onClick={() => void archive()}>Confirm archive</button><button className="secondary" disabled={busy} onClick={() => setConfirmArchive(false)}>Cancel archive</button></div></div>}
     </section>
-    {project && <><ProjectContent key={`${project.id}-content-${evidenceVersion}`} projectId={project.id} version={project.updatedAt} registration={project.mahaReraId} locked={locked || conflict || busy || dirty || mediaDirty} onDirty={setContentDirty} onChanged={noticeMessage => void layoutChanged(noticeMessage)} /><ProjectDocuments key={`${project.id}-${evidenceVersion}`} projectId={project.id} locked={locked || conflict} /><BuilderMediaWorkspace key={`${project.id}-media-${evidenceVersion}`} projectId={project.id} locked={locked || conflict || busy || dirty || contentDirty} onChanged={noticeMessage => void layoutChanged(noticeMessage)} onDirty={setMediaDirty} renderLayout={(layout, layoutLocked, onSavedLayout, onDirtyLayout) => <LayoutEditor layout={layout} projectId={project.id} locked={layoutLocked} onSaved={onSavedLayout} onDirty={onDirtyLayout} />} /></>}
+    {project && <>
+      <div id={`${sectionId}-sources-panel`} role="tabpanel" aria-labelledby={`${sectionId}-sources-tab`} hidden={section !== 'sources'}><ProjectContent key={`${project.id}-content-${evidenceVersion}`} projectId={project.id} version={project.updatedAt} registration={project.mahaReraId} locked={locked || conflict || busy || dirty || mediaDirty} onDirty={setContentDirty} onChanged={noticeMessage => void layoutChanged(noticeMessage)} /></div>
+      <div id={`${sectionId}-documents-panel`} role="tabpanel" aria-labelledby={`${sectionId}-documents-tab`} hidden={section !== 'documents'}><ProjectDocuments key={`${project.id}-${evidenceVersion}`} projectId={project.id} locked={locked || conflict} /></div>
+      <div id={`${sectionId}-media-panel`} role="tabpanel" aria-labelledby={`${sectionId}-media-tab`} hidden={section !== 'media'}><BuilderMediaWorkspace key={`${project.id}-media-${evidenceVersion}`} projectId={project.id} locked={locked || conflict || busy || dirty || contentDirty} onChanged={noticeMessage => void layoutChanged(noticeMessage)} onDirty={setMediaDirty} renderLayout={(layout, layoutLocked, onSavedLayout, onDirtyLayout) => <LayoutEditor layout={layout} projectId={project.id} locked={layoutLocked} onSaved={onSavedLayout} onDirty={onDirtyLayout} />} /></div>
+    </>}
   </div>
 }
 
@@ -422,9 +455,9 @@ function ProjectDocuments({ projectId, locked }: { projectId: string; locked: bo
     finally { if (!signal.aborted) setBusy(false) }
   }
   const pending = upload && upload.phase !== 'done'
-  return <section className="builder-panel"><h2>Project documents</h2><p>Upload PDFs, PNG/JPEG images, Word/Office documents, RTF, ODT, Markdown, text, CSV or JSON evidence. Some Office formats require server-side conversion. Files are private until reviewed. Uploading only queues processing.</p>{error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status" className="builder-notice">{notice}</p>}<label>Evidence file<input ref={fileInput} type="file" accept={documentAccept} disabled={busy || locked || !!(pending && upload.intent)} onChange={event => select(event.target.files?.[0])} /></label>
+  return <section className="builder-panel project-documents"><div className="document-heading"><h2>Project documents</h2><button className="secondary" disabled={loading || busy} onClick={() => void refresh()}>Refresh documents</button></div>{error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status" className="builder-notice">{notice}</p>}<details className="document-upload"><summary>Upload evidence</summary><p className="data-note">PDF, images, Office, RTF, ODT, Markdown, text, CSV or JSON. Files remain private until reviewed. Uploads queue processing; some Office formats require conversion.</p><label>Evidence file<input ref={fileInput} type="file" accept={documentAccept} disabled={busy || locked || !!(pending && upload.intent)} onChange={event => select(event.target.files?.[0])} /></label>
     {pending && <p>{upload.file.name} · {upload.file.size.toLocaleString()} bytes · {upload.phase === 'intent' ? 'Ready to request upload' : upload.phase === 'put' ? 'Ready to transfer file' : 'File transferred; completion pending'}</p>}
-    <div className="button-row"><button className="primary" disabled={!pending || busy || locked} onClick={() => void send()}>{busy ? 'Uploading…' : error && pending ? upload.phase === 'intent' ? 'Retry upload request' : 'Retry same upload' : 'Upload evidence'}</button><button className="secondary" disabled={loading || busy} onClick={() => void refresh()}>Refresh documents</button>{pending && upload.intent && <button className="secondary" disabled={busy} onClick={() => { setUpload(null); setError(''); if (fileInput.current) fileInput.current.value = '' }}>Cancel local upload</button>}</div>
+    <div className="button-row"><button className="primary" disabled={!pending || busy || locked} onClick={() => void send()}>{busy ? 'Uploading…' : error && pending ? upload.phase === 'intent' ? 'Retry upload request' : 'Retry same upload' : 'Upload evidence'}</button>{pending && upload.intent && <button className="secondary" disabled={busy} onClick={() => { setUpload(null); setError(''); if (fileInput.current) fileInput.current.value = '' }}>Cancel local upload</button>}</div></details>
     {loading ? <p role="status">Loading documents…</p> : <DocumentBrowser projectId={projectId} documents={documents} />}
   </section>
 }

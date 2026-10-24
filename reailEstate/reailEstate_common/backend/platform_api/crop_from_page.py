@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import math
 from uuid import UUID
 
 from PIL import Image
@@ -30,16 +31,24 @@ def checked_document(project, document_id, source_sha256, *, lock=False):
     return document
 
 
-def original_page_bounds(region, rotation):
-    """Map displayed (rotated) normalized coordinates back to the original page."""
-    x, y, w, h = region.x, region.y, region.width, region.height
-    if rotation == 90:
-        x, y, w, h = 1 - y - h, x, h, w
-    elif rotation == -90:
-        x, y, w, h = y, 1 - x - w, h, w
-    elif abs(rotation) == 180:
-        x, y = 1 - x - w, 1 - y - h
-    return {"unit": "normalized", "x": max(0, x), "y": max(0, y), "width": w, "height": h}
+def original_page_bounds(region, rotation, original_size, rotated_size):
+    """Retain the inverse-rotated polygon as well as its clipped bounding box."""
+    width, height = original_size
+    rotated_width, rotated_height = rotated_size
+    angle = math.radians(rotation)
+    cosine, sine = math.cos(angle), math.sin(angle)
+    polygon = []
+    for x, y in ((region.x, region.y), (region.x + region.width, region.y),
+                 (region.x + region.width, region.y + region.height), (region.x, region.y + region.height)):
+        dx, dy = x * rotated_width - rotated_width / 2, y * rotated_height - rotated_height / 2
+        polygon.append([(cosine * dx - sine * dy + width / 2) / width,
+                        (sine * dx + cosine * dy + height / 2) / height])
+    # Polygon corners may include the rotated canvas padding; page bounds cannot.
+    clamp = lambda value: min(1, max(0, value))
+    left, right = clamp(min(p[0] for p in polygon)), clamp(max(p[0] for p in polygon))
+    top, bottom = clamp(min(p[1] for p in polygon)), clamp(max(p[1] for p in polygon))
+    return {"unit": "normalized", "x": left, "y": top, "width": right - left,
+            "height": bottom - top, "polygon": polygon}
 
 
 def stage_page_crops(project, document_id, page_number, raw_regions, actor, source_sha256, rotation_degrees=0):
@@ -52,7 +61,7 @@ def stage_page_crops(project, document_id, page_number, raw_regions, actor, sour
         raise ValueError("Choose a valid source document.") from None
     if type(page_number) is not int or page_number < 1:
         raise ValueError("Select a valid source page.")
-    if type(rotation_degrees) is not int or rotation_degrees not in {-180, -90, 0, 90, 180}:
+    if type(rotation_degrees) is not int or not -180 <= rotation_degrees < 360 or rotation_degrees % 5:
         raise ValueError("Invalid rotation.")
     regions = validate_regions(raw_regions, allow_overlap=True)
     if len({(r.x, r.y, r.width, r.height) for r in regions}) != len(regions):
@@ -82,7 +91,7 @@ def _save_page_drafts(current_project, document, page_number, regions, actor, so
             original_size = original.size
             image = original.convert("RGB")
             if rotation_degrees:
-                rotated = image.rotate(rotation_degrees, expand=True, fillcolor="white")
+                rotated = image.rotate(rotation_degrees, expand=True, resample=Image.Resampling.BICUBIC, fillcolor="white")
                 image.close()
                 image = rotated
             try:
@@ -102,7 +111,7 @@ def _save_page_drafts(current_project, document, page_number, regions, actor, so
                         bounds={"unit": "normalized", "x": region.x, "y": region.y,
                                 "width": region.width, "height": region.height, "pixelBox": list(box),
                                 "rotationDegreesCounterClockwise": rotation_degrees,
-                                "originalPageBounds": original_page_bounds(region, rotation_degrees),
+                                "originalPageBounds": original_page_bounds(region, rotation_degrees, original_size, image.size),
                                 "originalPageSize": list(original_size), "sourcePageSha256": page_sha256,
                                 "sourceDocumentId": str(document.pk), "sourceSha256": source_sha256,
                                 "pageNumber": page_number, "floors": region.floors,

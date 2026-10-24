@@ -3,6 +3,7 @@
 import hashlib
 import io
 import json
+import math
 from datetime import timedelta
 from unittest.mock import Mock
 from uuid import uuid4
@@ -134,6 +135,32 @@ def test_save_writes_only_drafts_from_selected_page(page_source, monkeypatch):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("rotation", [5, 10, 175, 185, 270, 355])
+def test_rotated_draft_retains_original_page_geometry(page_source, rotation):
+    _, document, _, *_ = page_source
+    result = save(page_source, rotation=rotation)
+    draft = LayoutCropDraft.objects.get(pk=result["draftIds"][0])
+    data = crop_from_page.render_source_pages(document, [2])[0][1]
+    with Image.open(io.BytesIO(data)) as original:
+        rotated = original.convert("RGB").rotate(rotation, expand=True, resample=Image.Resampling.BICUBIC, fillcolor="white")
+        try:
+            box = tuple(round(value * axis) for value, axis in zip((.1, .2, .4, .6), rotated.size * 2))
+            with Image.open(io.BytesIO(bytes(draft.image))) as saved:
+                assert saved.size == (box[2] - box[0], box[3] - box[1])
+                assert saved.convert("RGB").tobytes() == rotated.crop(box).tobytes()
+            cosine, sine = math.cos(math.radians(rotation)), math.sin(math.radians(rotation))
+            corners = [(REGION["x"], REGION["y"]), (.4, .2), (.4, .6), (.1, .6)]
+            for (x, y), expected in zip(draft.bounds["originalPageBounds"]["polygon"], corners):
+                dx, dy = (x - .5) * original.width, (y - .5) * original.height
+                displayed = ((cosine * dx + sine * dy) / rotated.width + .5,
+                             (-sine * dx + cosine * dy) / rotated.height + .5)
+                assert displayed == pytest.approx(expected)
+        finally:
+            rotated.close()
+    assert result["planIds"] == result["queued"] == []
+
+
+@pytest.mark.django_db
 def test_attach_only_selected_page_crops_no_whole_page_layout(page_source, monkeypatch):
     project, document, actor, *_ = page_source
     selected = save(page_source, regions=[REGION, SECOND])["draftIds"]
@@ -194,7 +221,7 @@ def test_preview_original_checksum_is_mandatory(page_source, checksum):
 @pytest.mark.django_db
 @pytest.mark.parametrize("page,regions,rotation", [
     (0, [REGION], 0), (4, [REGION], 0), (True, [REGION], 0),
-    (2, [], 0), (2, [REGION], 45), (2, [REGION], True),
+    (2, [], 0), (2, [REGION], 7), (2, [REGION], True),
     (2, [{"x": 0, "y": 0, "width": 1, "height": 1}], 0),
     (2, [REGION, REGION], 0),
 ])

@@ -1,6 +1,104 @@
 # Admin UX migration plan
 
-Date: 2026-10-24. Status: proposed implementation plan; source inventory completed, implementation not started.
+Date: 2026-10-24. Status: the seven follow-up UX changes below are implemented locally in source. Frontend builds and Django startup checks pass; automated tests remain deferred at the user's request, and browser acceptance is pending.
+
+## Follow-up UX changes — implemented in source
+
+The shared media workspace now has per-entry activation, separate floor/layout review forms, a dedicated crop-editing state and 5-degree rotation buttons. The processing queue has Running, Dead letter and Completed tabs. The requirements below remain the acceptance checklist; source implementation does not establish runtime acceptance.
+
+### Review action clarification
+
+- Editing an extracted value makes **Save for review** the primary action. Approval/rejection actions return after a successful save, subject to independent-review permissions.
+- Approval is labelled **Approve extraction** or **Approve floor evaluation**. Saving corrections does not approve or publish them.
+- Room measurement validation accepts saved floating-point precision from feet/inches conversion. Filling one missing dimension must not require manually rounding other rooms first.
+- Validation responses identify the room and field involved and preserve the user's local entries on failure.
+
+### 1. Activation controls on each plan
+
+- Remove the separate Plan management list from the project workspace.
+- Place an accessible Active checkbox beside each floor-plan/layout entry in its existing directory. Keep selection and activation as separate controls so toggling activity does not accidentally select another plan.
+- Preserve active-first ordering. Keep the selected plan visible after it moves into the inactive group; do not silently switch selection.
+- Reuse the current confirmed, version-checked activation action. Explain that disabling a floor plan also disables its derived layouts, while enabling it does not automatically enable them.
+- Retain remove/restore controls on the selected plan and retain draft-replacement controls beside crop drafts. Removing the duplicate list must not remove those operations.
+
+### 2. Floor-specific evaluation correction
+
+- Floor plans get a dedicated Review and correct floor evaluation form: flats on this floor, lifts, staircases, refuge presence/area/unit, and other common-floor features with supporting evidence.
+- Keep bedrooms, bathrooms, balconies, carpet area and room-dimension editing in the layout form. Choose the form using the actual plan scope; the server must also reject a payload for the wrong scope.
+- Keep unknown values distinct from confirmed zero. Derive flats per lift from the corrected counts; do not make it a second independently editable value. Flat count describes homes visible on the floor, not the number of generated crops.
+- Save floor corrections into the floor-evaluation data while preserving source checksums, original extraction provenance and before/after history. Record actor, reason and correction time; return the record to review.
+- Preserve permission, stale-version, source-integrity, pending/running-work and independent-review safeguards. Saving a correction and approving it remain separate actions; corrections must not silently alter individual layouts or published facts.
+- Approve/reject must target the floor evaluation and its review task. Verify the existing generic resolution path before reusing it so layout-specific fact generation is not triggered accidentally.
+
+### 3. Remove redundant plan image navigation
+
+- Remove Previous image and Next image under Floor plans and Layouts; use their existing searchable directories for selection.
+- Keep image navigation for Project images and Amenities, where thumbnail browsing still applies.
+
+### 4. Floor-plan crop editor placement
+
+- Opening Update crop enters a dedicated crop-editing state in the selected plan's detail area. Temporarily replace the usual preview/review content instead of placing a new ribbon beneath sticky content.
+- Keep the plan directory and selected plan context visible. Give the editor an explicit title and Save draft / Cancel controls; move focus to it on entry and return focus on exit.
+- Distinguish editing/resetting a crop draft from Restore original crop, which changes saved media and can queue evaluation. Retain the appropriate confirmation for each operation.
+
+### 5. Layout crop overlap
+
+- Apply the same crop-editing state to layouts. Suspend the normal sticky preview and multi-row grid placement while cropping so headings, actions and fields cannot render over one another.
+- Cancel restores the normal image/review view without losing saved data. Preserve warnings for unsaved crop selections and review edits.
+- Check both floor plans and layouts at desktop and narrow widths, with long titles and browser zoom. A higher z-index alone does not satisfy this fix.
+
+### 6. Rotation in 5-degree steps
+
+- Replace the source-rotation dropdown with two buttons, −5° and +5°, plus a visible current-angle readout. Label clockwise/counterclockwise direction accessibly and consistently with the preview.
+- Normalize angles through a full turn. Each click updates only the local preview; it does not save media, start evaluation or incur model costs.
+- Use the same increments for new crops and updates to existing crops. Align server validation and saved crop geometry with the rendered rotation.
+- A rotation changes the crop coordinate system: reset the current unsaved rectangle with a clear explanation, and prevent rotation while retained multi-layout rectangles exist until they are explicitly cleared.
+
+### 7. Processing queue tabs
+
+- Reuse the project-workspace tab style for Running, Dead letter and Completed, including keyboard navigation, selected state and counts.
+- Running includes queued, currently running and retrying jobs, with their actual states clearly labelled and optional filtering within the tab. Pending work must not disappear merely because it has not started.
+- Keep search and refresh available across tabs. Show live worker/capacity information with Running; keep Inspect and permitted requeue/delete actions with the relevant job details.
+- Preserve the selected tab in the URL. Clear an inspected job when leaving its tab or when refreshed data moves it elsewhere; show useful loading, empty, denied and error states.
+- Distinguish total queue counts from the number of loaded rows in the existing bounded snapshot, especially for completed/dead-letter history. Do not imply that the latest rows are the entire history.
+- Keep current permissions, confirmations and version checks. Changing tabs must never start workers, retry jobs or change queue state.
+
+### Implementation order and acceptance
+
+Implementation covers the shared crop layout, rotation controls and backend parity, activation controls and navigation, the floor-specific correction API/form, and queue tabs.
+
+Continuation fixes preserve the selected plan during activation and defer discarding local edits until all navigation confirmations pass. Review forms use the API's actual plan scope. Angled previews use the saved renderer's expanded canvas dimensions; source-page drafts retain an inverse-rotated polygon and clipped original-page bounds. Floor review verifies original and asset bytes outside its database transaction, rechecks versions under row locks, preserves correction history, and clears old approval metadata after a correction. Queue tabs/search use router query parameters and keep loaded-row counts separate from totals.
+
+Acceptance requires every plan to retain its activation/removal/restoration operations, floor correction to show only floor-level fields, no Previous/Next controls in plan tabs, no overlapping crop content, consistent 5-degree preview/save behavior, and all queue states reachable through the three tabs. Check light/dark styling, keyboard use, selected-item retention and unsaved changes across these journeys.
+
+Implementation continued on the user's request to resume. Builds and test execution stay deferred; use the saved commands below when requested, then inspect the resulting failures. Focused regression cases have been added for rotation geometry, floor correction integrity/version checks, correction history and wrong-scope payloads; they have not been run.
+
+Static checks: the changed frontend files parse without TypeScript syntax diagnostics, and `git diff --check` reports no whitespace errors. These checks do not establish type correctness or runtime behavior. The AST-only graph refresh completed; optional Terraform/HCL and SQL parsers remain unavailable, so those unrelated sources are not represented by this refresh.
+
+## Current UX implementation
+
+- The custom administration shell replaces production Django admin panels and exposes project, review, access, reference-data and processing destinations.
+- Project details, sources/review, documents and images/plans have separate sections. Media deep links open the requested section directly; switching sections keeps local entries mounted.
+- Project selection is retained in the URL. Name/locality filters stay above the scrolling project list; active projects and plans sort before inactive records.
+- Admin amenity/source review appears before collapsed submission forms. Layout images and compact extraction-correction forms share a row when space permits.
+- Documents use a compact list/preview layout with original-file access in a new tab. Protected page previews include the source checksum; image preview was confirmed locally. Office formats without a page renderer offer the original download.
+- Activation controls sit beside plan directory entries; removal/restoration stays with the selected plan, and replacement stays beside crop drafts. Processing controls remain in expandable sections. Extraction errors and measurement warnings remain visible beside the review form.
+- Earlier frontend production builds passed before these follow-up changes; the current source has not been rebuilt. The backend suite has not completed: the long run encountered a Windows Python access violation, and subsequent fixes have not had a final regression run. Do not treat this as release approval.
+
+### Deferred test commands
+
+From the repository root, run backend modules in separate Python processes to avoid the crash seen during the long combined run. The command keeps the complete output in the temporary directory for failure review.
+
+```powershell
+Push-Location reailEstate/reailEstate_common/backend
+Get-ChildItem platform_api/tests/test_*.py | Sort-Object Name | ForEach-Object {
+    & ./.venv/Scripts/python.exe -m pytest $_.FullName --tb=short --show-capture=no -p no:cacheprovider 2>&1
+} | Tee-Object -FilePath (Join-Path $env:TEMP 'admin-backend-tests.log')
+Pop-Location
+Push-Location reailEstate/reailEstate_common/frontend
+npm test
+Pop-Location
+```
 
 ## Goal and scope
 
@@ -296,7 +394,7 @@ Example default order: active `Flat 1`, `Flat 2`, `Flat 10`, then inactive `Flat
 - Run focused backend/frontend checks and browser acceptance for representative project, review, access and queue flows. Check keyboard/focus, responsive layouts, theme and readable errors.
 - Validate admin-service isolation and the common development URL configuration; Builder/Buyer permissions and workflows must continue working.
 - Build and smoke-test through the existing GitHub Actions release path, including custom admin login/readiness checks.
-- Run `graphify update .` after implementation changes, once the local graphify executable environment is repaired. Its current CLI fails because its configured Python cannot import the package.
+- Run `graphify update .` after implementation changes. The 2026-10-24 continuation refreshed the code graph successfully; documentation semantics and optional Terraform/HCL/SQL extraction were not refreshed.
 
 ## Boundaries and decisions recorded by this plan
 
@@ -304,4 +402,4 @@ Example default order: active `Flat 1`, `Flat 2`, `Flat 10`, then inactive `Flat
 - Backend Django remains. User-facing Django default administration does not.
 - Generic raw CRUD on processing/evidence/audit/privacy records is not automatically a required product feature. The proposed policy is read-only history plus named audited actions; review these explicit restrictions during phase 1 rather than silently copying unsafe generic forms.
 - Existing hard-delete APIs, particularly organizations and taxonomies, require dependency-aware behavior before the new UI exposes them. Account deactivation and role revocation should be primary controls; permanent deletion requires an explicit retention/dependency policy.
-- No implementation or runtime tests were performed for this planning document. Live registration/field verification and browser validation remain implementation gates.
+- The original inventory below records planning-time findings. Use the current implementation status above for delivered UX; complete the deferred regression suite and remaining acceptance cases before release.

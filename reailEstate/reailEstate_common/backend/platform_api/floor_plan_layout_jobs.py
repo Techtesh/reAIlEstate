@@ -73,7 +73,8 @@ def _record_floor_observations(plan, provider, metadata, regions):
         "assetId": str(plan.asset_id), "assetSha256": plan.asset.sha256,
     }
     plan.features = {**plan.features, "floorEvaluation": observation}
-    plan.review_state = "needs_review"
+    if plan.review_state == "approved":
+        plan.review_state = "needs_review"
     plan.save(update_fields=["features", "review_state", "updated_at"])
     return observation
 

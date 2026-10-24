@@ -6,9 +6,9 @@
     "semantic_hash": "9e1066ba420d22f7cc9ec434c414549e"
   },
   "reailEstate/adminService/admin_service/api_urls.py": {
-    "mtime": 1792666853.0308473,
-    "seen": 1792667856.323722,
-    "ast_hash": "a2164eab87073cae4a7ac3d60a13494e",
+    "mtime": 1792835345.861902,
+    "seen": 1792850121.1397197,
+    "ast_hash": "9dc6b7d58fa19aa467fefdbc0e59ba3e",
     "semantic_hash": ""
   },
   "reailEstate/adminService/admin_service/asgi.py": {
@@ -24,9 +24,9 @@
     "semantic_hash": "46e171dfcf877946603643de5dc49b99"
   },
   "reailEstate/adminService/admin_service/urls.py": {
-    "mtime": 1792666853.031849,
-    "seen": 1792667856.323928,
-    "ast_hash": "cdac5cd1b3aa75172166a5d8036aab29",
+    "mtime": 1792835698.2875042,
+    "seen": 1792850121.139989,
+    "ast_hash": "f1ef7eeeeec458fd6ace771bfc43588a",
     "semantic_hash": ""
   },
   "reailEstate/adminService/admin_service/wsgi.py": {
@@ -168,16 +168,16 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/config/service_settings.py": {
-    "mtime": 1792667436.4359934,
-    "seen": 1792667856.3260374,
-    "ast_hash": "c35e1bbc4d0cf96ae5ba3c552f1cefb4",
+    "mtime": 1792847184.162158,
+    "seen": 1792850121.1423473,
+    "ast_hash": "1174a0ed0f8685fbf1ad19ceab1606ce",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/config/service_urls.py": {
-    "mtime": 1790610002.8481493,
-    "seen": 1791458163.3158195,
-    "ast_hash": "da578735ec62cae5e14f2d71e2a5699d",
-    "semantic_hash": "da578735ec62cae5e14f2d71e2a5699d"
+    "mtime": 1792839413.9469922,
+    "seen": 1792850121.142349,
+    "ast_hash": "b9d6a315db9e0264b57a1dd1389d776b",
+    "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/config/settings.py": {
     "mtime": 1792675061.481204,
@@ -186,9 +186,9 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/config/urls.py": {
-    "mtime": 1792667018.469392,
-    "seen": 1792667856.3262389,
-    "ast_hash": "adf2ff7293fd51c2c4a30c4e7504ccca",
+    "mtime": 1792835698.2875042,
+    "seen": 1792850121.1424575,
+    "ast_hash": "8f86e9663765125d7a58c991e91863b2",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/config/wsgi.py": {
@@ -228,10 +228,10 @@
     "semantic_hash": "1953f6a7d0b935b0781364b5a60e0cb8"
   },
   "reailEstate/reailEstate_common/backend/platform_api/api_common.py": {
-    "mtime": 1791219385.9568574,
-    "seen": 1791458163.315829,
-    "ast_hash": "af2d63ec047847e8a41341c22e0806bf",
-    "semantic_hash": "af2d63ec047847e8a41341c22e0806bf"
+    "mtime": 1792847184.1619444,
+    "seen": 1792850121.1431897,
+    "ast_hash": "12779133cbb751cff1608605511d418b",
+    "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/apps.py": {
     "mtime": 1792044260.209565,
@@ -258,9 +258,9 @@
     "semantic_hash": "19144ea98a3a15f28197d045c2dbcdf2"
   },
   "reailEstate/reailEstate_common/backend/platform_api/builder_media.py": {
-    "mtime": 1792826476.9498286,
-    "seen": 1792826775.934201,
-    "ast_hash": "5d1b4e28eb85f67548531758e0b821ad",
+    "mtime": 1792860022.645158,
+    "seen": 1792860586.208912,
+    "ast_hash": "8390d15378bf65e2b4eaf3b18555a0c1",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/builder_scan_policy.py": {
@@ -306,10 +306,10 @@
     "semantic_hash": "5487c8066224e01cb47f6acf27d9f054"
   },
   "reailEstate/reailEstate_common/backend/platform_api/crop_cart.py": {
-    "mtime": 1790610002.900148,
-    "seen": 1791458163.315845,
-    "ast_hash": "e09d4aa4d63889994d93a3cb2b592ec8",
-    "semantic_hash": "e09d4aa4d63889994d93a3cb2b592ec8"
+    "mtime": 1792860122.0664887,
+    "seen": 1792860586.2096355,
+    "ast_hash": "d9f0e4551a3f7b93b40b83f9e2334032",
+    "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/crop_cart_admin.py": {
     "mtime": 1792669315.6170757,
@@ -318,9 +318,9 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/crop_from_page.py": {
-    "mtime": 1792670755.2371602,
-    "seen": 1792672514.7486267,
-    "ast_hash": "b4296676be6d2717d1b79de0fbe44eea",
+    "mtime": 1792860122.0656137,
+    "seen": 1792860586.2097418,
+    "ast_hash": "928392a704f98821b6dfe1c3e6933ba5",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/document_formats.py": {
@@ -450,9 +450,9 @@
     "semantic_hash": "0c11fa77aa1b71f507edf606dfe67425"
   },
   "reailEstate/reailEstate_common/backend/platform_api/floor_plan_layout_jobs.py": {
-    "mtime": 1792045244.6372342,
-    "seen": 1792045654.8025994,
-    "ast_hash": "2d7f4aad8185581f800070b73f5282e5",
+    "mtime": 1792847632.6842196,
+    "seen": 1792850121.1468673,
+    "ast_hash": "4b27e85708d1b62728e834060e3ecc20",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/floor_plan_pages.py": {
@@ -486,9 +486,9 @@
     "semantic_hash": "26351a1bc960013f5e13d2943f63537c"
   },
   "reailEstate/reailEstate_common/backend/platform_api/floor_plan_vision.py": {
-    "mtime": 1792045986.568765,
-    "seen": 1792046163.5037963,
-    "ast_hash": "f7a649a18658503cd62ff28267f28001",
+    "mtime": 1792849150.6412454,
+    "seen": 1792850121.1473925,
+    "ast_hash": "9dfd3c0e33a8cd8df36a4bf20e0af678",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/google_route_batches.py": {
@@ -576,9 +576,9 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/layout_extraction_admin.py": {
-    "mtime": 1791488485.8517556,
-    "seen": 1791488778.683244,
-    "ast_hash": "f4331da50bfcfff246621b0e201d3c26",
+    "mtime": 1792861685.3750076,
+    "seen": 1792862018.0583389,
+    "ast_hash": "b2335dd22f9719cc1b46cef9715bbe00",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/layout_image_normalization.py": {
@@ -750,9 +750,9 @@
     "semantic_hash": "7a00da87321e77b70190fd36f06fc955"
   },
   "reailEstate/reailEstate_common/backend/platform_api/middleware.py": {
-    "mtime": 1792671471.398585,
-    "seen": 1792672514.756705,
-    "ast_hash": "0b4c0e584267dd5f0abb37592133167f",
+    "mtime": 1792843592.9637322,
+    "seen": 1792850121.152377,
+    "ast_hash": "e64b02ce08208f746a450a201ede2f6b",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/migrations/0001_initial.py": {
@@ -1092,21 +1092,21 @@
     "semantic_hash": "86abdc4fe4394bb86b3066b88fccfa8b"
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_admin_media.py": {
-    "mtime": 1792669945.4345276,
-    "seen": 1792672514.7629194,
-    "ast_hash": "0ecadfe04d316b901e147fd931d6d6dc",
+    "mtime": 1792838671.9274914,
+    "seen": 1792850121.1599212,
+    "ast_hash": "a65e3e8a5e16e7f4c25f1aef11a16c91",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_admin_navigation.py": {
-    "mtime": 1792670755.239159,
-    "seen": 1792672514.7629218,
-    "ast_hash": "47585d4b60a23184ffa1c619f94c6ec2",
+    "mtime": 1792838671.927801,
+    "seen": 1792850121.1599233,
+    "ast_hash": "7cfabd46dbab8bf146401d09b63dec6f",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_ai_plan_classification.py": {
-    "mtime": 1791488485.8547544,
-    "seen": 1791488778.6931498,
-    "ast_hash": "de4ac4ec092fcfa6b455fbbe920dd541",
+    "mtime": 1792844534.6368275,
+    "seen": 1792850121.1599274,
+    "ast_hash": "875ceab98cef05d144bfc727bdcafa50",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_amenity_matching.py": {
@@ -1140,9 +1140,9 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_builder_portal.py": {
-    "mtime": 1792667436.434991,
-    "seen": 1792667856.3436775,
-    "ast_hash": "e001f5ed8331ee7a054f7b21a926c9d4",
+    "mtime": 1792843592.9647322,
+    "seen": 1792850121.1604495,
+    "ast_hash": "c4ebc7c3e1eaeb4c246e13551cac0627",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_business_ingestion.py": {
@@ -1170,15 +1170,15 @@
     "semantic_hash": "69f70b8545fa3201226fbf84b8eecb09"
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_crop_cart.py": {
-    "mtime": 1792670755.2381594,
-    "seen": 1792672514.7640414,
-    "ast_hash": "9eddb9a6f05c0c22cb6aa66eb52ba77b",
+    "mtime": 1792856572.1807582,
+    "seen": 1792860586.2258387,
+    "ast_hash": "9fb6a39ac71ff67ee00797c13a94fc72",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_crop_from_page.py": {
-    "mtime": 1792670755.2381594,
-    "seen": 1792672514.7640433,
-    "ast_hash": "e6738c6170a5eea792ae25f92f0a0796",
+    "mtime": 1792860392.4132707,
+    "seen": 1792860586.22584,
+    "ast_hash": "94ad8db30f3875b7ead5bbbf9fa0e245",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_domain_boundaries.py": {
@@ -1188,9 +1188,9 @@
     "semantic_hash": "b60108524f089892694a459c19e3b94e"
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_external_sources.py": {
-    "mtime": 1792670218.7897618,
-    "seen": 1792672514.7641525,
-    "ast_hash": "8a7c3e6573681a7719277d14bbfdad3f",
+    "mtime": 1792838671.9298036,
+    "seen": 1792850121.1610749,
+    "ast_hash": "ce8249eddb1986e014f9f88a3e1e3b52",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_feature_flag_adapters.py": {
@@ -1212,9 +1212,9 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_floor_plan_layout_jobs.py": {
-    "mtime": 1792670601.945954,
-    "seen": 1792672514.7643664,
-    "ast_hash": "ec00acf0c5b5507663ead49ec4703078",
+    "mtime": 1792846887.6433136,
+    "seen": 1792850121.1613836,
+    "ast_hash": "0924abf22fe1ce5d943dbf1d75073cbc",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_floor_plan_modes.py": {
@@ -1242,9 +1242,9 @@
     "semantic_hash": "4488c950b1a7a84574cadae094c9436a"
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_floor_plan_removal.py": {
-    "mtime": 1792675350.184677,
-    "seen": 1792675703.275852,
-    "ast_hash": "eb0be7d703cd98cf067fd46a4fffe32b",
+    "mtime": 1792838671.9298036,
+    "seen": 1792850121.1617973,
+    "ast_hash": "a09c634022b91dd69350e424b094994f",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_floor_plan_vision.py": {
@@ -1290,15 +1290,15 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_layout_evaluation_status.py": {
-    "mtime": 1792671193.1193812,
-    "seen": 1792672514.7654004,
-    "ast_hash": "819acd6b2fc2762f424f6626acdf2756",
+    "mtime": 1792838671.9308038,
+    "seen": 1792850121.1625235,
+    "ast_hash": "0ac4c03a4733e5937fc52af73c1a4488",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_layout_names.py": {
-    "mtime": 1792671516.242386,
-    "seen": 1792672514.7654016,
-    "ast_hash": "6ec1a7feccebbae1e0a46fab4f783a28",
+    "mtime": 1792838671.9318044,
+    "seen": 1792850121.1625247,
+    "ast_hash": "5e51bdf2ea85538556bc57ba3253fdf6",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_layout_pricing.py": {
@@ -1308,28 +1308,28 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_layout_pricing_admin.py": {
-    "mtime": 1792669945.446527,
-    "seen": 1792672514.7655299,
-    "ast_hash": "3b1fa75948798a4879507c0ab6373bcc",
+    "mtime": 1792838671.932804,
+    "seen": 1792850121.162629,
+    "ast_hash": "307dfe8e6b5725b30d7b64bca454e603",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_media_tools_integration.py": {
-    "mtime": 1792671106.6764398,
-    "seen": 1792672514.7655315,
-    "ast_hash": "a835c5854bb573e927286a5d8f3e90f5",
+    "mtime": 1792838671.932804,
+    "seen": 1792850121.1626303,
+    "ast_hash": "350504465e281a9f1e1575f2067985e1",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_merged_crop_destination.py": {
-    "mtime": 1792672426.3052073,
-    "seen": 1792672514.7655332,
-    "ast_hash": "1d179790c7b00b701b26f7ace50b8ed9",
+    "mtime": 1792838671.93386,
+    "seen": 1792850121.162632,
+    "ast_hash": "aafd55581e6a73b9fe52ab8d3ebfeea9",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_organization_roles.py": {
-    "mtime": 1791356935.6674275,
-    "seen": 1791458163.3160403,
-    "ast_hash": "2c3bf8da71f9525c86a5661524c164c6",
-    "semantic_hash": "2c3bf8da71f9525c86a5661524c164c6"
+    "mtime": 1792843592.9637322,
+    "seen": 1792850121.1626332,
+    "ast_hash": "58da3fcb42a0a3bc3964dd057a27b395",
+    "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_process_outbox_command.py": {
     "mtime": 1790652136.6533377,
@@ -1350,15 +1350,15 @@
     "semantic_hash": "3e53996c994ce53cdb291019f003b77a"
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_project_outputs.py": {
-    "mtime": 1792675925.0844247,
-    "seen": 1792676010.2041295,
-    "ast_hash": "3372d3f2a0c881ec8972ae18b8b67ab2",
+    "mtime": 1792843592.9647322,
+    "seen": 1792850121.1630607,
+    "ast_hash": "c8e333133a66cf2185523c595ba598ff",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_queue_monitor.py": {
-    "mtime": 1792671106.6834404,
-    "seen": 1792672514.765998,
-    "ast_hash": "99d106be90886f97af0f2900f050240a",
+    "mtime": 1792838671.935213,
+    "seen": 1792850121.163165,
+    "ast_hash": "de67aff96c1bc2e9831927ae711923d5",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_room_dimensions.py": {
@@ -1392,9 +1392,9 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_source_page_additions.py": {
-    "mtime": 1791488295.409397,
-    "seen": 1791488778.6976771,
-    "ast_hash": "2ab8ebd84d18a3618d6ac90821d027fa",
+    "mtime": 1792838671.9362168,
+    "seen": 1792850121.1637695,
+    "ast_hash": "2a7e976b01a34f4d293bcfc0ba839e7a",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_travel.py": {
@@ -1440,9 +1440,9 @@
     "semantic_hash": "1ab21aadca78967fcd3efcf26bcf9158"
   },
   "reailEstate/reailEstate_common/backend/platform_api/views.py": {
-    "mtime": 1792666853.0288494,
-    "seen": 1792667856.3490973,
-    "ast_hash": "ab6ef75060e2fa32b2a6eee60228ccde",
+    "mtime": 1792836992.8732848,
+    "seen": 1792850121.164698,
+    "ast_hash": "6c8caeae9bf631c54b2418de3adb089e",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/vision_errors.py": {
@@ -1506,9 +1506,9 @@
     "semantic_hash": "f5af410186be716910c0c76a0d47e1d5"
   },
   "reailEstate/reailEstate_common/backend/realestate_common/room_dimensions.py": {
-    "mtime": 1791488295.4083927,
-    "seen": 1791488778.699615,
-    "ast_hash": "508952b37508095b524026680dd8dc67",
+    "mtime": 1792849150.627517,
+    "seen": 1792850121.1657,
+    "ast_hash": "36b807e2744d4f907a9249fe6386f0d6",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/run_google_routes_all.ps1": {
@@ -1572,9 +1572,9 @@
     "semantic_hash": "cdb2ff5ee25eac254bdc417b1933b579"
   },
   "reailEstate/reailEstate_common/frontend/src/App.tsx": {
-    "mtime": 1792666935.9428658,
-    "seen": 1792667856.3511088,
-    "ast_hash": "59ffddef46adb7595c1596978e578766",
+    "mtime": 1792847000.779627,
+    "seen": 1792850121.1666064,
+    "ast_hash": "9be4bd8a940b5445008f04665421e6a1",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/frontend/src/Browse.tsx": {
@@ -1584,15 +1584,15 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/frontend/src/BuilderMediaWorkspace.tsx": {
-    "mtime": 1792826476.9508288,
-    "seen": 1792826775.9600172,
-    "ast_hash": "e80ef05fc15b7209ec7ae1f33a02be3c",
+    "mtime": 1792860328.6136308,
+    "seen": 1792860586.2335641,
+    "ast_hash": "2a282d6c1c404fff3960eade116d5fd9",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/frontend/src/BuilderPortal.tsx": {
-    "mtime": 1792671471.3969667,
-    "seen": 1792672514.7702618,
-    "ast_hash": "e5f9ec43a22a0df9d7b1875477087cc1",
+    "mtime": 1792850000.4891727,
+    "seen": 1792850121.1667118,
+    "ast_hash": "ce74172c2211de9ffcfe8b059388f3c2",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/frontend/src/CommuteLocations.tsx": {
@@ -1650,9 +1650,9 @@
     "semantic_hash": "9c28ada444824cdac52312a391fd75c3"
   },
   "reailEstate/reailEstate_common/frontend/src/api.ts": {
-    "mtime": 1791458623.8579717,
-    "seen": 1791458919.3738987,
-    "ast_hash": "6a94a2eca0f35e9e98518addd2f59a06",
+    "mtime": 1792839510.2986205,
+    "seen": 1792850121.167753,
+    "ast_hash": "a6a6b0ebc16f47b8ec12ece27da53840",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/frontend/src/buyer.test.ts": {
@@ -4350,9 +4350,9 @@
     "semantic_hash": ""
   },
   ".vscode/tasks.json": {
-    "mtime": 1792675113.7247217,
-    "seen": 1792675703.2514637,
-    "ast_hash": "07ec1cedfff2c4f878f15ecea363586e",
+    "mtime": 1792837672.207016,
+    "seen": 1792850121.1394193,
+    "ast_hash": "aea4e26effda5fbdb977d858d5f53cd2",
     "semantic_hash": ""
   },
   "package.json": {
@@ -6048,9 +6048,9 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_fresh_evaluations.py": {
-    "mtime": 1792670601.9479527,
-    "seen": 1792672514.7649364,
-    "ast_hash": "395a871c5004f5397729f4adf3da53c1",
+    "mtime": 1792838671.9308038,
+    "seen": 1792850121.1619027,
+    "ast_hash": "2c749e59d2fde045266d27cc8ac552dd",
     "semantic_hash": ""
   },
   "graphify-out/memory/query_20261008_223758_2540adf7_check_why_are_we_fetting_provider_unavailable_erro.md": {
@@ -6162,9 +6162,9 @@
     "semantic_hash": ""
   },
   "todo.md": {
-    "mtime": 1792677003.7416084,
-    "seen": 1792677891.1459093,
-    "ast_hash": "bed24904c4861bc891a60e8407bc9525",
+    "mtime": 1792830303.2465413,
+    "seen": 1792850121.2037363,
+    "ast_hash": "faebda551e1a97cf05aa99366ba95612",
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/deploy-release.sh": {
@@ -6198,21 +6198,21 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/project_workspace.py": {
-    "mtime": 1792826602.1424432,
-    "seen": 1792826775.9480631,
-    "ast_hash": "71515f3b65374f318523cc55bc73a4d5",
+    "mtime": 1792837729.413285,
+    "seen": 1792850121.1578562,
+    "ast_hash": "86b97c2634975ade98597f89a294cbe3",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_admin_project_workspace.py": {
-    "mtime": 1792826784.979324,
-    "seen": 1792826835.700738,
-    "ast_hash": "23279e857124f648def66eb72cac8162",
+    "mtime": 1792837838.4685667,
+    "seen": 1792850121.1599245,
+    "ast_hash": "f234f7a048c5ae50e0b9050e431605b9",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/urls_project_workspace.py": {
-    "mtime": 1792669207.9912252,
-    "seen": 1792672514.767736,
-    "ast_hash": "2f3a5b9309c643e49c480fe705532732",
+    "mtime": 1792838015.5959032,
+    "seen": 1792850121.1646957,
+    "ast_hash": "cb1bec82f7331f8a7663f779a3c947d3",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/frontend/src/projectWorkspace.tsx": {
@@ -6276,9 +6276,9 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/frontend/src/ProjectContent.tsx": {
-    "mtime": 1792671979.259587,
-    "seen": 1792672514.770608,
-    "ast_hash": "68abf1773caa4d554e5ffb61b6ab3333",
+    "mtime": 1792849841.6364546,
+    "seen": 1792850121.1670482,
+    "ast_hash": "0507b233ee81b53d3f34be208bc894cd",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_postgres_configuration.py": {
@@ -6339,6 +6339,156 @@
     "mtime": 1792825964.0465329,
     "seen": 1792826775.9945035,
     "ast_hash": "aff9b4712ac23b4f48ad94ba0f116df9",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/backend/config/admin_frontend_urls.py": {
+    "mtime": 1792846204.830113,
+    "seen": 1792850121.1420274,
+    "ast_hash": "b9317dae9e2c4595bcac05039ad85086",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/backend/platform_api/admin_console.py": {
+    "mtime": 1792846735.5190296,
+    "seen": 1792850121.143082,
+    "ast_hash": "26eb35117a6c91a977c0c2e74a48b9a7",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/backend/platform_api/admin_console_actions.py": {
+    "mtime": 1792840985.2967148,
+    "seen": 1792850121.1430838,
+    "ast_hash": "fbb91e54c5ddc86dd1f81fcf5b9ebae8",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/backend/platform_api/admin_workspace_views.py": {
+    "mtime": 1792861748.1795535,
+    "seen": 1792862018.0521722,
+    "ast_hash": "d6c8d38d244b4e832d9da40163241614",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/backend/platform_api/authentication.py": {
+    "mtime": 1792847184.1613884,
+    "seen": 1792850121.1434052,
+    "ast_hash": "3930b91c291ac7243d19c1a3a6b4e306",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/backend/platform_api/tests/legacy_admin_urls.py": {
+    "mtime": 1792838574.673253,
+    "seen": 1792850121.1599174,
+    "ast_hash": "e50d017f91a85344fa92c3625870fba3",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/backend/platform_api/tests/test_admin_console.py": {
+    "mtime": 1792847184.1627998,
+    "seen": 1792850121.1599193,
+    "ast_hash": "283d729434847372eadba398ff1722ed",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/backend/platform_api/tests/test_admin_workspace_review.py": {
+    "mtime": 1792834989.510057,
+    "seen": 1792850121.159926,
+    "ast_hash": "76c5866e5ce90c2500ee5cbb69eccd80",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/backend/platform_api/urls_admin_console.py": {
+    "mtime": 1792839413.9469922,
+    "seen": 1792850121.164592,
+    "ast_hash": "b2d7bcbccdbb277232c3a8cf64e085ad",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/frontend/src/AdminPortal.tsx": {
+    "mtime": 1792860188.4048202,
+    "seen": 1792860586.2333555,
+    "ast_hash": "664d174d14c5fa0f64f4f28298f9e826",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/frontend/src/AdminReview.tsx": {
+    "mtime": 1792861685.3750076,
+    "seen": 1792862018.077365,
+    "ast_hash": "9dce1a26277887a48d327ae40d527e44",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/frontend/src/DocumentBrowser.tsx": {
+    "mtime": 1792849657.156925,
+    "seen": 1792850121.166815,
+    "ast_hash": "509d998cd36bf474f1cc1ad902eaee9d",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/frontend/src/useUnsavedChanges.ts": {
+    "mtime": 1792845855.3567274,
+    "seen": 1792850121.1689749,
+    "ast_hash": "5b03a8198fb3bab3e9ae4629d9516d49",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/frontend/src/workspaceOrdering.test.ts": {
+    "mtime": 1792833453.1100204,
+    "seen": 1792850121.1689777,
+    "ast_hash": "feb3d29d7a776a02b98e6cab4f0b1960",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/frontend/src/workspaceOrdering.ts": {
+    "mtime": 1792833453.1090207,
+    "seen": 1792850121.1689796,
+    "ast_hash": "f6d7fdb678a886081a01edfe1923bbc0",
+    "semantic_hash": ""
+  },
+  "docs/admin-ux-migration-plan.md": {
+    "mtime": 1792861975.6149158,
+    "seen": 1792862018.1083827,
+    "ast_hash": "fa52c62058886e98ef16d54b3a22984a",
+    "semantic_hash": ""
+  },
+  "review/review1_admin_portal.png": {
+    "mtime": 1792832323.6866848,
+    "seen": 1792850121.206998,
+    "ast_hash": "1e65f6b3c67b633cc08a9f041451ba2b",
+    "semantic_hash": ""
+  },
+  "review/review1_admin_portal_project_documents.png": {
+    "mtime": 1792832348.9188151,
+    "seen": 1792850121.2070003,
+    "ast_hash": "49f0c97dc0de1644b5275d60e1be5126",
+    "semantic_hash": ""
+  },
+  "review/review1_buttons_in_light_mode.png": {
+    "mtime": 1792832273.507764,
+    "seen": 1792850121.2070022,
+    "ast_hash": "1e3f64b178482de860c313e8b76dcf45",
+    "semantic_hash": ""
+  },
+  "review/review1_floor_plan_side_view.png": {
+    "mtime": 1792832374.869237,
+    "seen": 1792850121.2070034,
+    "ast_hash": "153e99eb2a29afc7c2fa5570e0941483",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/backend/platform_api/floor_evaluation_review.py": {
+    "mtime": 1792860328.6139064,
+    "seen": 1792860586.2115552,
+    "ast_hash": "3fb8395fd83bea3934571fa15632571d",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/backend/platform_api/tests/test_floor_evaluation_review.py": {
+    "mtime": 1792860328.6149096,
+    "seen": 1792860586.2262554,
+    "ast_hash": "13f17c2413a516839139250f16d64d0f",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/frontend/src/cropGeometry.test.ts": {
+    "mtime": 1792860022.645158,
+    "seen": 1792860586.235167,
+    "ast_hash": "ae362607e1cbfa3040230e40721f19ad",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/frontend/src/cropGeometry.ts": {
+    "mtime": 1792860022.6441572,
+    "seen": 1792860586.235169,
+    "ast_hash": "0bc8617be162a9922e5a253a0a866317",
+    "semantic_hash": ""
+  },
+  "reailEstate/reailEstate_common/backend/platform_api/tests/test_layout_extraction_values.py": {
+    "mtime": 1792861748.1800883,
+    "seen": 1792862018.0720115,
+    "ast_hash": "b242fe9923d747ee0fbcf69c42a1941b",
     "semantic_hash": ""
   }
 }

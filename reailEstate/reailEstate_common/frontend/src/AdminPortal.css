@@ -9,9 +9,16 @@
 .admin-navigation a { padding: 9px 12px; border-radius: 5px; color: var(--ink); text-decoration: none; }
 .admin-navigation a:hover, .admin-navigation a:focus-visible { background: var(--mint); }
 .admin-main, .admin-main .builder-main { min-width: 0; width: 100%; padding: 0; }
+.is-workspace .builder-main { max-width: none; }
+.is-workspace .builder-panel { padding: 18px; }
+.is-workspace .builder-project-list { padding: 14px; }
+.is-workspace .builder-heading h1 { font-size: 23px; margin-bottom: 4px; }
+.is-workspace .builder-footer { padding: 14px 0; }
 .admin-main h1 { font-size: 28px; text-transform: capitalize; margin: 0 0 16px; }
 .admin-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
 .admin-toolbar label { display: grid; gap: 5px; }
+.queue-toolbar { margin-top: 18px; }
+.project-section-tabs button > span { display: inline-block; padding: 2px 7px; margin-left: 6px; border-radius: 12px; background: var(--wash); font-size: 12px; font-variant-numeric: tabular-nums; }
 .admin-list-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .admin-list-detail:has(.admin-detail) { grid-template-columns: minmax(0, 1fr) minmax(300px, 1fr); }
 .admin-table { overflow: auto; max-height: 75vh; }

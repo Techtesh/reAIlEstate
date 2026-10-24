@@ -100,8 +100,8 @@ class CropInput(StrictInput):
             raise serializers.ValidationError("Crop updates require targetPlanId and expectedUpdatedAt together.")
         if "targetPlanId" in attrs and len(attrs["regions"]) != 1:
             raise serializers.ValidationError("Updating an existing plan requires exactly one rectangle.")
-        if "targetPlanId" not in attrs and (attrs["rotationDegrees"] % 90 or attrs["sourceMode"] != "original"):
-            raise serializers.ValidationError("New crops require an original source and right-angle rotation.")
+        if "targetPlanId" not in attrs and attrs["sourceMode"] != "original":
+            raise serializers.ValidationError("New crops require an original source.")
         return attrs
 
 
@@ -233,6 +233,7 @@ class BuilderMediaView(BuilderView):
                     "imageUrl": f"{base}/assets/{asset.pk}", "documentId": str(asset.document_id),
                     "pageNumber": asset.page_number, "planId": str(plan.pk) if plan else None,
                     "updatedAt": plan.updated_at if plan else None, "sourceSha256": asset.document.sha256,
+                    "planScope": plan.plan_scope if plan else None,
                     "active": plan.active if plan else True, "inactiveSource": bool(plan and plan.plan_scope != "floor" and (plan.document_id, plan.page_number) in inactive_pages), "reviewState": plan.review_state if plan else "",
                     "displayName": plan.display_name if plan else "", "canEdit": bool(editable and plan),
                     "configuration": plan.configuration_type if plan else "",
@@ -250,8 +251,9 @@ class BuilderMediaView(BuilderView):
                     "dimensionWarning": plan.raw_extraction.get("dimensionWarning", "") if plan else "",
                     "features": plan.features if plan else {},
                     "canReview": bool(self.workspace == "admin" and editable and plan and
-                        (request.user.is_superuser or not project.organization.memberships.filter(user=request.user, status="active").exists())),
-                    "reviewReason": "A different administrator must review your organization's evidence.",
+                        (request.user.is_superuser or (not project.organization.memberships.filter(user=request.user, status="active").exists() and
+                            (plan.plan_scope != "floor" or plan.features.get("floorEvaluation", {}).get("correctedBy") != request.user.pk)))),
+                    "reviewReason": "A different administrator must review your organization's evidence or your own corrections.",
                     "evaluation": evaluations.get(str(plan.pk)) if plan else None,
                     "adminTools": admin_media_tools(request.user, project, plan) if self.workspace == "admin" and plan else [],
                     "canCrop": bool(can_crop and asset.document.declared_media_type in SOURCE_TYPES

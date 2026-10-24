@@ -69,7 +69,7 @@ def test_save_only_stages_drafts(source, regions):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("busy_scope", ["document", "crop-cart"])
-@pytest.mark.parametrize("rotation", [0, 90])
+@pytest.mark.parametrize("rotation", [0, 5, 90, 355])
 def test_manual_crop_busy_warning_preserves_selection_and_allows_retry(source, client, monkeypatch, busy_scope, rotation):
     from .workspace_helpers import workspace_request
     from platform_api import builder_media
