@@ -123,6 +123,20 @@
 			"command": "npm --prefix '${workspaceFolder}/reailEstate/reailEstate_common/frontend' run dev",
 			"isBackground": true,
 			"problemMatcher": []
+		},
+		{
+			"label": "Preview custom admin locally",
+			"type": "shell",
+			"command": ".\\reailEstate\\reailEstate_common\\backend\\.venv\\Scripts\\python.exe",
+			"args": [
+				"reailEstate/adminService/manage.py",
+				"runserver",
+				"127.0.0.1:8122",
+				"--noreload",
+				"--insecure"
+			],
+			"isBackground": true,
+			"problemMatcher": []
 		}
 	]
 }

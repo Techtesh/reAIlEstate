@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { json } from './api'
 import { errorMessage, isAbortError } from './errors'
 import { useProjectWorkspace } from './projectWorkspace'
+import { ProjectReview } from './AdminReview'
 
 type Place = { placeId: string; name: string; address: string; sourceUrl: string; attributions?: string[] }
 type Content = { updatedAt: string; mapsConfigured: boolean; registryConfigured: boolean
@@ -13,6 +14,7 @@ export function ProjectContent({ projectId, version, registration, locked, onDir
   const { api, admin } = useProjectWorkspace()
   const [content, setContent] = useState<Content | null>(null)
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [revision, setRevision] = useState(0)
+  const [reviewDirty, setReviewDirty] = useState(false)
   const [query, setQuery] = useState(''), [places, setPlaces] = useState<Place[]>([]), [placeId, setPlaceId] = useState('')
   const [manual, setManual] = useState(false), [sourceUrl, setSourceUrl] = useState(''), [checkedOn, setCheckedOn] = useState(''), [evidence, setEvidence] = useState('')
   const [amenities, setAmenities] = useState(''), [confirmed, setConfirmed] = useState(false), [claimsConfirmed, setClaimsConfirmed] = useState(false)
@@ -24,7 +26,7 @@ export function ProjectContent({ projectId, version, registration, locked, onDir
     api<Content>(root, { signal: scope.signal }).then(setContent).catch(failure => { if (!isAbortError(failure)) setError(errorMessage(failure, 'Could not load project sources.')) })
     return () => { scope.abort(); controller.current = null }
   }, [api, root, revision, version])
-  useEffect(() => { onDirty(busy || !!placeId || manual || !!amenities) }, [busy, placeId, manual, amenities, onDirty])
+  useEffect(() => { onDirty(busy || !!placeId || manual || !!amenities || reviewDirty) }, [busy, placeId, manual, amenities, reviewDirty, onDirty])
   async function act(action: 'search' | 'submit' | 'amenities' | 'registry-lookup') {
     if (!content || busy || locked) return
     const values = { action, expectedUpdatedAt: content.updatedAt, confirm: action === 'amenities' ? claimsConfirmed : confirmed,
@@ -72,9 +74,9 @@ export function ProjectContent({ projectId, version, registration, locked, onDir
         <label><span><input type="checkbox" checked={claimsConfirmed} onChange={event => setClaimsConfirmed(event.target.checked)} /> Submit these amenities as unreviewed claims.</span></label>
         <button className="primary" type="submit" disabled={!claimsConfirmed || !amenities.trim()}>Submit amenities</button>
       </fieldset></form>
-      {content.amenities.length > 0 && <><h3>Saved amenities</h3><ul>{content.amenities.map(item => <li key={item.name}>{item.name} · {item.state.replaceAll('_', ' ')}</li>)}</ul></>}
-      <h3>Submitted source references</h3><ul>{content.references.map(reference => <li key={reference.id}>{reference.registry?.registrationNumber ?? (reference.placeId ? 'Google project match' : 'Project location')} · {reference.state.replaceAll('_', ' ')}{reference.registry?.checkedOn && ` · ${reference.registry.checkedOn}`}</li>)}</ul>
-      {admin && <div className="button-row"><a href={`/admin/platform_api/project/${encodeURIComponent(projectId)}/external-sources/`}>Review source references and station directions</a><a href={`/admin/platform_api/project/jobs/?project=${encodeURIComponent(projectId)}`}>Project evaluation jobs</a></div>}
+      {!admin && content.amenities.length > 0 && <><h3>Saved amenities</h3><ul>{content.amenities.map(item => <li key={item.name}>{item.name} · {item.state.replaceAll('_', ' ')}</li>)}</ul></>}
+      {!admin && <><h3>Submitted source references</h3><ul>{content.references.map(reference => <li key={reference.id}>{reference.registry?.registrationNumber ?? (reference.placeId ? 'Google project match' : 'Project location')} · {reference.state.replaceAll('_', ' ')}{reference.registry?.checkedOn && ` · ${reference.registry.checkedOn}`}</li>)}</ul></>}
+      {admin && <ProjectReview projectId={projectId} disabled={locked} onDirty={setReviewDirty} />}
     </>}
   </section>
 }

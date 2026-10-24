@@ -1,5 +1,6 @@
-import { useEffect, useEffectEvent, useRef, useState } from 'react'
-import { BrowserRouter, Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { lazy, Suspense, useEffect, useEffectEvent, useRef, useState } from 'react'
+import { createBrowserRouter, RouterProvider, Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { useProtectedNavigation } from './useUnsavedChanges'
 import { ArrowRight, House, LogIn, LogOut, MapPin, X } from 'lucide-react'
 import { api, ApiError, cancelSessionRequests, collection, json, onSessionExpired } from './api'
 import { dateLabel, draftSchema, newDraft, placesSchema, resumeDraft, type Draft, type Profile, type Project, type Shortlist, type Snapshot, type User } from './buyer'
@@ -8,13 +9,14 @@ import { Empty, SignInPrompt } from './SharedUi'
 import { Requirements, type AmenityOption } from './Requirements'
 import { Browse, Matches } from './Browse'
 import { ShortlistCommute } from './CommuteLocations'
-import { AdminProjectWorkspace, BuilderPortal } from './BuilderPortal'
 import { WorkspaceChooser } from './WorkspaceChooser'
 import { ThemeControl } from './ThemeControl'
 import { deleteGuestTrial, guestTrialUsed, hasGuestTrialCookie, readGuestTrial, saveGuestTrial, type GuestTrial } from './guestShortlist'
 import './App.css'
 
 const appRole = import.meta.env.MODE
+const BuilderPortal = lazy(() => import('./BuilderPortal').then(module => ({ default: module.BuilderPortal })))
+const AdminProjectWorkspace = lazy(() => import('./BuilderPortal').then(module => ({ default: module.AdminProjectWorkspace })))
 const builderWorkspaceEnabled = appRole !== 'buyer'
 
 function initialDraft() {
@@ -258,11 +260,19 @@ function Login({ onClose, onSuccess, onBuilder }: { onClose: () => void; onSucce
   }}><label>Username<input name="username" autoComplete="username" required autoFocus /></label><label>Password<input name="password" type="password" autoComplete="current-password" required /></label><button className="primary" disabled={busy}>{busy ? 'Signing in...' : `Sign in as ${workspace === 'builder' ? 'Builder' : 'Buyer'}`}<ArrowRight size={18} /></button></form><p className="data-note">{workspace === 'builder' ? 'Builder access requires an active owner, admin, or editor organization membership.' : 'Need an account? Contact the workspace administrator.'}</p></dialog>
 }
 function Privacy() { return <main id="main" className="page-width prose"><p className="eyebrow">Policy 1.0</p><h1 tabIndex={-1}>Your information stays yours</h1><h2>Requirements and recommendations</h2><p>With your consent, your account saves your home requirements, budget, destinations (including exact coordinates when supplied) and priorities to calculate personalized project matches. They are not public listings. Your destination markers appear only on your shortlist map.</p><h2>Guest drafts</h2><p>Budgets, destinations and additional notes stay in tab memory until saved. Unsubmitted sensitive entries are discarded when the tab closes or refreshes. With consent, a guest request, including exact destinations, is sent to our matching service without creating a buyer record. The request and top-ten report are stored in bounded compressed browser cookies for 90 days. Anyone using this browser can access them. Delete browser data to remove the report; the usage marker remains. Clearing cookies resets the browser-only one-report limit. Home configurations and scoring weights can remain in session storage until the tab closes.</p><h2>Map data</h2><p>Project and station markers come from Homefinder's public catalogue. User-added station candidates and saved references do not establish operating status; unverified records are labelled accordingly.</p><p>The map loads OpenStreetMap tiles. The tile provider receives your IP address and requested map area, which may include areas around your destinations, but not destination names or your requirement profile. Map tiles are subject to OpenStreetMap's privacy and usage policies. No Google map is embedded.</p><p>Choosing Look up location sends your search, Plus Code or Google Maps share link through our backend to Google as needed. This happens only on your request, not when opening the map. Entering coordinates directly does not call Google. Google Maps privacy and usage terms apply to these lookups.</p><h2>Control and retention</h2><p>You can sign out at any time. Saved records remain in your account under the backend's retention policy. Contact the workspace administrator for consent withdrawal, account export or deletion. Signing out clears private information from this view.</p><h2>Decision support, not an offer</h2><p>Match scores are specific to your requirements. Prices, availability, commute estimates and registry status may change. MahaRERA information is not legal certification. Match reports include commute scoring when routing is available; otherwise commute is shown as unavailable.</p></main> }
-function AppRoute() {
+function WorkspaceRoute() {
   const { pathname } = useLocation()
-  if (pathname === '/admin/project-workspace/' || pathname === '/admin/project-workspace') return <AdminProjectWorkspace />
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) return <AdminProjectWorkspace />
   if (appRole === 'builder') return <BuilderPortal />
   if (appRole === 'buyer') return <BuyerApp />
   return pathname === '/builder' || pathname.startsWith('/builder/') ? <BuilderPortal /> : <BuyerApp />
 }
-export default function App() { return <BrowserRouter><AppRoute /></BrowserRouter> }
+function AppRoute() {
+  useProtectedNavigation()
+  return <Suspense fallback={<main className="page-width" role="status">Loading workspace…</main>}><WorkspaceRoute /></Suspense>
+}
+function WorkspaceFailure() {
+  return <main className="page-width"><h1>Workspace unavailable</h1><p>The workspace could not load. Reload to try again.</p><button className="primary" onClick={() => window.location.reload()}>Reload workspace</button></main>
+}
+const router = createBrowserRouter([{ path: '*', element: <AppRoute />, errorElement: <WorkspaceFailure /> }])
+export default function App() { return <RouterProvider router={router} /> }

@@ -216,9 +216,9 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "reailEstate/reailEstate_common/backend/platform_api/admin.py": {
-    "mtime": 1792671763.105991,
-    "seen": 1792672514.7471766,
-    "ast_hash": "472d5f8f2dffe7b6fd82a5302f9046c4",
+    "mtime": 1792826693.8334558,
+    "seen": 1792826775.9335718,
+    "ast_hash": "94cb19bdc752e4abf3fcfb21c99b6df6",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/amenity_matching.py": {
@@ -258,9 +258,9 @@
     "semantic_hash": "19144ea98a3a15f28197d045c2dbcdf2"
   },
   "reailEstate/reailEstate_common/backend/platform_api/builder_media.py": {
-    "mtime": 1792672426.2982094,
-    "seen": 1792672514.7478652,
-    "ast_hash": "d6c679131ff02f486c79d6ade0d79a25",
+    "mtime": 1792826476.9498286,
+    "seen": 1792826775.934201,
+    "ast_hash": "5d1b4e28eb85f67548531758e0b821ad",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/builder_scan_policy.py": {
@@ -1584,9 +1584,9 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/frontend/src/BuilderMediaWorkspace.tsx": {
-    "mtime": 1792671516.242386,
-    "seen": 1792672514.7702596,
-    "ast_hash": "4fc94b04b83d8b7000821eecc89e03a8",
+    "mtime": 1792826476.9508288,
+    "seen": 1792826775.9600172,
+    "ast_hash": "e80ef05fc15b7209ec7ae1f33a02be3c",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/frontend/src/BuilderPortal.tsx": {
@@ -4277,12 +4277,6 @@
     "ast_hash": "ea62468e0eec192271c8b499d87edd26",
     "semantic_hash": ""
   },
-  ".azure/validate-status.json": {
-    "mtime": 1792682402.4897144,
-    "seen": 1792687092.2455864,
-    "ast_hash": "8779c3bc3c6d380bafc49ed7c0e2e8ee",
-    "semantic_hash": ""
-  },
   ".codex/hooks.json": {
     "mtime": 1791456867.3625548,
     "seen": 1791458919.3435316,
@@ -5717,12 +5711,6 @@
     "ast_hash": "60c5ae67b7cc393dec2e0618ba76944c",
     "semantic_hash": ""
   },
-  ".azure/deployment-plan.md": {
-    "mtime": 1792682402.4897144,
-    "seen": 1792687092.3220613,
-    "ast_hash": "d54fd614033642edfdc991dcd0be848b",
-    "semantic_hash": ""
-  },
   ".codex/skills/gpt-tasteskill/SKILL.md": {
     "mtime": 1790655559.4429662,
     "seen": 1791458919.3759577,
@@ -5736,9 +5724,9 @@
     "semantic_hash": ""
   },
   ".deployments/README.md": {
-    "mtime": 1792682402.4887118,
-    "seen": 1792687092.322287,
-    "ast_hash": "ac06fbf6c65e8a43f66b1634f8a72d2c",
+    "mtime": 1792687630.744399,
+    "seen": 1792784147.3835766,
+    "ast_hash": "8b60e9446d3f057469f036fb2211b0ff",
     "semantic_hash": ""
   },
   ".deployments/aws/README.md": {
@@ -6138,21 +6126,21 @@
     "semantic_hash": ""
   },
   ".deployments/aws/scripts/Test-Ec2Configuration.ps1": {
-    "mtime": 1792681352.1086247,
-    "seen": 1792681387.7288394,
-    "ast_hash": "bf68d01e75fcdaa79888ef7b6bb198e9",
+    "mtime": 1792786102.1334834,
+    "seen": 1792786144.9762316,
+    "ast_hash": "508848783496f31448cb18ac53ddc6b0",
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/README.md": {
-    "mtime": 1792687053.397129,
-    "seen": 1792687092.3222923,
-    "ast_hash": "f0d7d2158b11e11bf41c936bc64fc181",
+    "mtime": 1792788874.8181996,
+    "seen": 1792788925.905197,
+    "ast_hash": "ba33f9af04b0eca7747cf4c3016ca587",
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/compose.yml": {
-    "mtime": 1792657860.4907582,
-    "seen": 1792658138.7571611,
-    "ast_hash": "88692cee1017ca38499c62ee8c7fcaec",
+    "mtime": 1792784114.5529785,
+    "seen": 1792784147.3838038,
+    "ast_hash": "5ee0a47ed4a53c9fdd2d22383a3ad160",
     "semantic_hash": ""
   },
   "graphify-out/memory/query_20261022_080028_fd0c7259_give_me_a_run_down_of_this_project.md": {
@@ -6180,9 +6168,9 @@
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/deploy-release.sh": {
-    "mtime": 1792687053.3791258,
-    "seen": 1792687092.2457395,
-    "ast_hash": "05d2cb7166652bbb672e57878357af49",
+    "mtime": 1792784114.5539796,
+    "seen": 1792784147.31632,
+    "ast_hash": "3b97f7735f5b07c743a0be4db66362e0",
     "semantic_hash": ""
   },
   ".deployments/aws/ec2/package.sh": {
@@ -6198,9 +6186,9 @@
     "semantic_hash": ""
   },
   ".github/workflows/aws-ec2-release.yml": {
-    "mtime": 1792687053.3584921,
-    "seen": 1792687092.3226748,
-    "ast_hash": "b1d6a26207a0865ca0358c61b7dca0cd",
+    "mtime": 1792788874.8181996,
+    "seen": 1792788925.905832,
+    "ast_hash": "afd152c72dc76875748b00c36f54dbba",
     "semantic_hash": ""
   },
   "graphify-out/memory/query_20261022_083837_6acb4971_explain_with_a_flow_chart_how__with_individual_fun.md": {
@@ -6210,15 +6198,15 @@
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/project_workspace.py": {
-    "mtime": 1792670095.053205,
-    "seen": 1792672514.7609756,
-    "ast_hash": "c0df42cfd3d384423a921f2d93191299",
+    "mtime": 1792826602.1424432,
+    "seen": 1792826775.9480631,
+    "ast_hash": "71515f3b65374f318523cc55bc73a4d5",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/tests/test_admin_project_workspace.py": {
-    "mtime": 1792675844.834119,
-    "seen": 1792676010.1988451,
-    "ast_hash": "3f759b8289305aa309a89571e1dc85f7",
+    "mtime": 1792826693.8334558,
+    "seen": 1792826775.9504156,
+    "ast_hash": "4708b102f415808611e3d2052a4ffb76",
     "semantic_hash": ""
   },
   "reailEstate/reailEstate_common/backend/platform_api/urls_project_workspace.py": {
@@ -6329,28 +6317,28 @@
     "ast_hash": "a10c96a82e80fa48767861d1618adbee",
     "semantic_hash": ""
   },
-  ".playwright-cli/page-2026-10-22T15-08-28-556Z.yml": {
-    "mtime": 1792681708.5585315,
-    "seen": 1792687092.3226767,
-    "ast_hash": "41a7247c73535c3f65f02dc18551ec5c",
+  ".deployments/azure/validate-status.json": {
+    "mtime": 1792682402.4897144,
+    "seen": 1792784147.3180552,
+    "ast_hash": "8779c3bc3c6d380bafc49ed7c0e2e8ee",
     "semantic_hash": ""
   },
-  ".playwright-cli/page-2026-10-22T15-09-01-541Z.yml": {
-    "mtime": 1792681741.5426772,
-    "seen": 1792687092.3226788,
-    "ast_hash": "2e734e1970e82068ddd717c0607da81b",
+  ".deployments/aws/deployment-plan.md": {
+    "mtime": 1792687902.5364275,
+    "seen": 1792784147.3836887,
+    "ast_hash": "e32b500d1797f2289ced4f3b75383bdf",
     "semantic_hash": ""
   },
-  ".playwright-cli/page-2026-10-22T15-09-22-226Z.yml": {
-    "mtime": 1792681762.2275841,
-    "seen": 1792687092.3226802,
-    "ast_hash": "3013d61b07705ec0323f7cf94e3d8bec",
+  ".deployments/azure/deployment-plan.md": {
+    "mtime": 1792687902.5374303,
+    "seen": 1792784147.3840122,
+    "ast_hash": "7feec6d1d952128a0e30c6b573a6216f",
     "semantic_hash": ""
   },
-  ".playwright-cli/page-2026-10-22T15-09-42-888Z.yml": {
-    "mtime": 1792681782.8920975,
-    "seen": 1792687092.3226824,
-    "ast_hash": "adb45f6d34e2cdde5fd8579718fc28d5",
+  "graphify-out/memory/query_20261024_071244_3bef6ca7_make_this_side_bar_be_scrollable_and_if_i_scoll_on.md": {
+    "mtime": 1792825964.0465329,
+    "seen": 1792826775.9945035,
+    "ast_hash": "aff9b4712ac23b4f48ad94ba0f116df9",
     "semantic_hash": ""
   }
 }

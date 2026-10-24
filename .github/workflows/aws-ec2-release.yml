@@ -128,6 +128,15 @@ jobs:
           : "${SSH_KNOWN_HOSTS:?Set SSH_KNOWN_HOSTS as a secret in the selected GitHub environment}"
           cd release
           sha256sum --check "realestate-$GITHUB_SHA.tar.gz.sha256"
+      - name: Show deployment runner SSH source
+        if: runner.environment == 'github-hosted'
+        shell: bash
+        run: |
+          set -euo pipefail
+          runner_ip=$(curl -4 --fail --silent --show-error --connect-timeout 5 --max-time 10 https://checkip.amazonaws.com)
+          [[ "$runner_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+          printf 'Runner IPv4: %s\nAllow SSH TCP %s from %s/32 on the EC2 security group for this run.\n' "$runner_ip" "$SSH_PORT" "$runner_ip"
+          printf 'The next step retries timed-out SSH connections for about five minutes. Remove the temporary rule after the run.\n'
       - name: Transfer and deploy the checked release
         shell: bash
         run: |
@@ -139,6 +148,7 @@ jobs:
           chmod 600 "$ssh_dir/key" "$ssh_dir/known_hosts"
           options=(-i "$ssh_dir/key" -o BatchMode=yes -o StrictHostKeyChecking=yes
             -o "UserKnownHostsFile=$ssh_dir/known_hosts" -o ConnectTimeout=20
+            -o AddressFamily=inet -o ConnectionAttempts=15
             -o ServerAliveInterval=30 -o ServerAliveCountMax=6)
           target="$SSH_USER@$EC2_HOST"
           archive="release/realestate-$GITHUB_SHA.tar.gz"

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from .legacy_admin_urls import legacy_admin_adapters  # noqa: F401 - retained adapter regression tests
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
@@ -47,7 +48,7 @@ def stub_run():
 @pytest.mark.parametrize("adding", [False, True])
 def test_project_admin_columns_preserve_fields_and_links(client, django_user_model, adding, settings):
     from django.urls import clear_url_caches,reverse
-    settings.ROOT_URLCONF='admin_service.urls';clear_url_caches()
+    settings.ROOT_URLCONF='platform_api.tests.legacy_admin_urls';clear_url_caches()
     actor=django_user_model.objects.create_superuser(username='project-form-editor',password='test-only')
     project=Project.objects.create(organization=Organization.objects.create(legal_name='Form tests'),submitted_name='Test Gardens')
     client.force_login(actor)

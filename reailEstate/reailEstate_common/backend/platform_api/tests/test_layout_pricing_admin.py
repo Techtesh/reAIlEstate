@@ -2,6 +2,7 @@ from .workspace_helpers import workspace_request, media_action
 from decimal import Decimal
 
 import pytest
+from .legacy_admin_urls import legacy_admin_adapters  # noqa: F401 - opt-in adapter regression harness
 from django.contrib.auth.models import Permission
 from django.test import Client
 from django.urls import reverse

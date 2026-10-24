@@ -191,6 +191,7 @@ class PictureInput(StrictInput):
 
 class BuilderMediaView(BuilderView):
     def get(self, request, project_id):
+        from .project_workspace import admin_media_tools
         project = scoped_project(request.user, project_id, workspace=self.workspace)
         editable = project.status not in {"retired", "merged"} and (
             self.workspace != "admin" or request.user.has_perm("platform_api.change_floorplan")
@@ -248,7 +249,11 @@ class BuilderMediaView(BuilderView):
                     "qualityWarning": plan.raw_extraction.get("qualityWarning", "") if plan else "",
                     "dimensionWarning": plan.raw_extraction.get("dimensionWarning", "") if plan else "",
                     "features": plan.features if plan else {},
+                    "canReview": bool(self.workspace == "admin" and editable and plan and
+                        (request.user.is_superuser or not project.organization.memberships.filter(user=request.user, status="active").exists())),
+                    "reviewReason": "A different administrator must review your organization's evidence.",
                     "evaluation": evaluations.get(str(plan.pk)) if plan else None,
+                    "adminTools": admin_media_tools(request.user, project, plan) if self.workspace == "admin" and plan else [],
                     "canCrop": bool(can_crop and asset.document.declared_media_type in SOURCE_TYPES
                                     and (not plan or (plan.active and plan.review_state not in HIDDEN_REVIEW_STATES))),
                     "canEvaluate": bool(can_evaluate and plan and plan.plan_scope == "flat" and plan.active
@@ -281,6 +286,7 @@ class BuilderMediaView(BuilderView):
                 for job in project_jobs(project).order_by("-occurred_at")[:50]]
         return Response({
             "projectId": str(project.pk), "projectName": project.submitted_name,
+            "adminTools": admin_media_tools(request.user, project) if self.workspace == "admin" else [],
             "projectPrice": project_price_label(project), "canEdit": editable,
             "confirmNameChanges": project.organization.confirm_name_changes,
             "projectUpdatedAt": project.updated_at.isoformat(),

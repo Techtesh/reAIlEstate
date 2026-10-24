@@ -1,4 +1,5 @@
 from copy import copy
+from uuid import uuid4
 from urllib.parse import urlencode
 
 from django import forms
@@ -28,6 +29,7 @@ from .models import (
     Organization,
     OrganizationMembership,
     Project,
+    ProjectAmenity,
     ProjectMerge,
     ProjectFact,
     RecommendationSnapshot,
@@ -927,6 +929,69 @@ class OrganizationAdmin(admin.ModelAdmin):
     list_display = ("legal_name", "status", "verification_state", "confirm_name_changes")
     list_filter = ("status", "verification_state", "confirm_name_changes")
     search_fields = ("legal_name",)
+
+
+class ProjectAmenityReviewForm(forms.ModelForm):
+    expected_updated_at = forms.CharField(widget=forms.HiddenInput)
+    review_state = forms.ChoiceField(choices=[("unreviewed", "Unreviewed"), ("accepted", "Accepted"), ("rejected", "Rejected")])
+    reason = forms.CharField(widget=forms.Textarea, max_length=1000)
+
+    class Meta:
+        model = ProjectAmenity
+        fields = ("availability_state", "distance_meters", "travel_minutes")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["review_state"].initial = self.instance.evidence_summary.get("reviewState", "unreviewed")
+        self.fields["expected_updated_at"].initial = self.instance.updated_at.isoformat()
+
+    def clean(self):
+        data = super().clean()
+        project = Project.objects.select_for_update().get(pk=self.instance.project_id)
+        current = ProjectAmenity.objects.select_for_update().get(pk=self.instance.pk)
+        if data.get("expected_updated_at") != current.updated_at.isoformat():
+            raise forms.ValidationError("This amenity changed. Reload and review the latest evidence before saving.")
+        if project.status in {"retired", "merged"}:
+            raise forms.ValidationError("Retired and merged projects are read-only.")
+        if data.get("review_state") == "accepted" and not self.actor.is_superuser:
+            summary = self.instance.evidence_summary
+            if OrganizationMembership.objects.filter(user=self.actor, organization=self.instance.project.organization, status="active").exists() or any(
+                entry.get("submittedBy") == self.actor.pk for entry in summary.get("manual", [])
+            ):
+                raise forms.ValidationError("A different administrator must review your amenity claims.")
+        return data
+
+
+@admin.register(ProjectAmenity)
+class ProjectAmenityAdmin(admin.ModelAdmin):
+    form = ProjectAmenityReviewForm
+    list_display = ("project", "amenity", "availability_state", "updated_at")
+    list_filter = ("project", "availability_state")
+    readonly_fields = ("project", "amenity", "evidence_summary")
+    fields = ("project", "amenity", "evidence_summary", "availability_state", "distance_meters", "travel_minutes", "review_state", "reason", "expected_updated_at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        class ReviewForm(form):
+            actor = request.user
+        return ReviewForm
+
+    def save_model(self, request, obj, form, change):
+        from django.utils import timezone
+        obj.evidence_summary = {**obj.evidence_summary,
+            "reviewState": form.cleaned_data["review_state"], "reviewedBy": request.user.pk,
+            "reviewedAt": timezone.now().isoformat(), "reviewReason": form.cleaned_data["reason"]}
+        super().save_model(request, obj, form, change)
+        AuditEvent.objects.create(actor=request.user, action="project.amenity_reviewed",
+            entity_type="ProjectAmenity", entity_id=obj.pk, correlation_id=uuid4(),
+            metadata={"projectId": str(obj.project_id), "reviewState": form.cleaned_data["review_state"],
+                      "reason": form.cleaned_data["reason"]})
 
 
 for model in [

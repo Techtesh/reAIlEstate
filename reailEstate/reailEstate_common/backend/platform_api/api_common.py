@@ -1,4 +1,6 @@
 """Response policies shared by API adapters."""
+from rest_framework.views import APIView
+from .authentication import AdminSessionAuthentication
 
 
 class NoStoreResponseMixin:
@@ -8,3 +10,7 @@ class NoStoreResponseMixin:
         response = super().finalize_response(request, response, *args, **kwargs)
         response["Cache-Control"] = self.cache_control
         return response
+
+
+class AdminAPIView(NoStoreResponseMixin, APIView):
+    authentication_classes = [AdminSessionAuthentication]

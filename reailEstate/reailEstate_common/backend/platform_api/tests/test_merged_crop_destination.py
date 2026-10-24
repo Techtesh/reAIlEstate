@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from .legacy_admin_urls import legacy_admin_adapters  # noqa: F401 - opt-in adapter regression harness
 from django.contrib import admin
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory

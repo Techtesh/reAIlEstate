@@ -1,5 +1,5 @@
 .builder-media-tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 12px; margin: 20px 0; }
-.builder-media-tabs button { background: white; color: var(--ink); border: 1px solid var(--line); padding: 10px 14px; min-height: 44px; }
+.builder-media-tabs button { background: var(--surface); color: var(--ink); border: 1px solid var(--line); padding: 10px 14px; min-height: 44px; }
 .builder-media-tabs button[aria-selected=true], .builder-media-thumbnails button[aria-pressed=true] { background: var(--mint); border-color: var(--green); }
 .builder-media-preview, .builder-media-draft { position: relative; }
 .builder-media-open { position: absolute; top: 8px; right: 8px; }
@@ -21,9 +21,28 @@
 .builder-layout-directory label { display: block; margin-bottom: 12px; }
 .builder-layout-directory ul { list-style: none; padding: 0; margin: 0; max-height: 65vh; overflow-y: auto; }
 .builder-layout-directory button { width: 100%; text-align: left; margin: 4px 0; padding: 12px; overflow-wrap: anywhere; }
+.builder-layout-directory button { color: var(--ink); background: var(--surface); border: 1px solid var(--line); }
 .builder-layout-directory button[aria-pressed=true] { background: var(--mint); border-color: var(--green); }
 .builder-layout-directory button span { display: block; margin-top: 5px; font-size: 12px; }
 .builder-layout-detail { min-width: 0; }
+.builder-layout-detail { container-type: inline-size; }
+.builder-layout-explorer { container: workspace-media / inline-size; }
+.builder-layout-detail .builder-layout-facts { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
+.floor-summary { padding: 12px; border: 1px solid var(--line); background: var(--wash); }
+.plan-review-editor { min-width: 0; padding: 12px; border: 1px solid var(--line); }
+.builder-layout-detail:has(.plan-review-editor) .builder-layout-evaluation { display: none; }
+@media (min-width: 1350px) {
+  .builder-portal:has(.builder-layout-explorer) .builder-main { max-width: 1900px; }
+  .builder-layout-explorer { grid-template-columns: minmax(150px, 190px) minmax(0, 1fr); gap: 14px; }
+}
+@container workspace-media (min-width: 760px) {
+  .builder-layout-detail:has(.plan-review-editor) { display: grid; grid-template-columns: minmax(250px, 1fr) minmax(300px, 1.1fr); gap: 14px; align-items: start; }
+  .builder-layout-detail:has(.plan-review-editor) > [role=tabpanel] { grid-column: 1; grid-row: 1 / span 3; position: sticky; top: 12px; }
+  .builder-layout-detail:has(.plan-review-editor) > .plan-review-editor, .builder-layout-detail:has(.plan-review-editor) > .floor-summary { grid-column: 2; }
+  .builder-layout-detail:has(.plan-review-editor) > .builder-crop { grid-column: 1 / -1; }
+  .builder-layout-detail:has(.plan-review-editor) > section[aria-label="Layout editing"] { grid-column: 2; }
+}
+.builder-media [hidden] { display: none !important; }
 .builder-layout-evaluation { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 16px; }
 .builder-layout-evaluation pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .builder-layout-evaluation details { margin: 12px 0; }
@@ -40,7 +59,7 @@
 .builder-plan-replacement select { display: block; min-height: 90px; }
 .builder-confirm:focus { outline: 2px solid var(--green); outline-offset: 4px; }
 .builder-media-thumbnails { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
-.builder-media-thumbnails > button, .builder-media-thumbnails > .builder-media-draft { width: 140px; max-width: 100%; border: 1px solid var(--line); padding: 8px; background: white; color: var(--ink); overflow-wrap: anywhere; }
+.builder-media-thumbnails > button, .builder-media-thumbnails > .builder-media-draft { width: 140px; max-width: 100%; border: 1px solid var(--line); padding: 8px; background: var(--surface); color: var(--ink); overflow-wrap: anywhere; }
 .builder-media-thumbnails img { width: 100%; height: 90px; object-fit: contain; }
 .builder-media-thumbnails span, .builder-media-draft > label { display: block; font-size: 13px; }
 .builder-media-thumbnails input { margin-right: 8px; }

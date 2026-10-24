@@ -1,5 +1,6 @@
 from django.urls import path
 from platform_api.project_workspace_content import ProjectContentView, ProjectCropCartView
+from platform_api.admin_workspace_views import WorkspaceDocumentView
 
 from platform_api.builder_media import (
     BuilderActionsView,
@@ -42,6 +43,7 @@ from platform_api.views import (
 
 from platform_api.builder_views import BuilderView
 from platform_api.project_workspace import AdminProjectWorkspacePermission, AdminLayoutWorkspacePermission
+from platform_api.api_common import AdminSessionAuthentication
 
 
 def project_workspace_urls(*, admin=False):
@@ -52,7 +54,7 @@ def project_workspace_urls(*, admin=False):
             BuilderLayoutsView, BuilderActionsView, BuilderCropView, BuilderDraftActionView,
             BuilderEvaluateView, BuilderPagesView, MarkDocumentLayoutPageView,
         } else AdminProjectWorkspacePermission
-        options = {"permission_classes": [permissions]}
+        options = {"permission_classes": [permissions], "authentication_classes": [AdminSessionAuthentication]}
         if issubclass(cls, BuilderView):
             options["workspace"] = "admin"
         if cls is UploadIntentView:
@@ -60,6 +62,7 @@ def project_workspace_urls(*, admin=False):
         return cls.as_view(**options)
 
     return [
+        path("builder/projects/<uuid:project_id>/documents/<uuid:document_id>/original", view(WorkspaceDocumentView)),
         path("builder/crop-cart", view(ProjectCropCartView)),
         path("builder/projects/<uuid:project_id>/content", view(ProjectContentView)),
         path("builder/organizations", view(BuilderOrganizationsView)),

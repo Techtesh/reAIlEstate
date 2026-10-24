@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from platform_api.output_views import IngestionOutputDownloadView, ProjectExtractionOutputView
+from platform_api.admin_workspace_views import PlanReviewView, ProjectReviewView
 from platform_api.views import (
     AmenityAdminViewSet,
     AuditEventAdminView,
@@ -31,6 +32,9 @@ router.register("admin/feature-flags", FeatureFlagAdminViewSet, basename="admin-
 from platform_api.urls_project_workspace import project_workspace_urls
 
 urlpatterns = [
+    path("admin/console/", include("platform_api.urls_admin_console")),
+    path("admin/projects/<uuid:project_id>/review", ProjectReviewView.as_view()),
+    path("admin/plans/<uuid:plan_id>/review", PlanReviewView.as_view()),
     path("admin/project-workspace/", include(project_workspace_urls(admin=True))),
     path("", include(router.urls)),
     path(

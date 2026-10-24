@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { workspaceOrder, inactiveProject } from './workspaceOrdering'
+import { DocumentBrowser } from './DocumentBrowser'
+import { AdminPortal } from './AdminPortal'
+import { useUnsavedChanges } from './useUnsavedChanges'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, ApiError, apiPath, cancelSessionRequests, json, onSessionExpired } from './api'
 import { ProjectContent, ProjectCropCart } from './ProjectContent'
@@ -118,11 +122,12 @@ export function BuilderPortal() {
 }
 
 export function AdminProjectWorkspace() {
-  return <ProjectWorkspaceContext.Provider value={platformProjectWorkspace}><AdminWorkspace /></ProjectWorkspaceContext.Provider>
+  return <ProjectWorkspaceContext.Provider value={platformProjectWorkspace}><AdminPortal /></ProjectWorkspaceContext.Provider>
 }
 
-function AdminWorkspace() {
+export function AdminWorkspace({ embedded = false }: { embedded?: boolean }) {
   const { api } = useProjectWorkspace()
+  const WorkspaceContent = embedded ? 'div' : 'main'
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [loading, setLoading] = useState(true), [error, setError] = useState('')
   useEffect(() => {
@@ -139,11 +144,11 @@ function AdminWorkspace() {
   }, [api])
   return <div className="builder-portal">
     <a className="skip-link" href="#project-workspace-main">Skip to project workspace</a>
-    <header className="builder-header"><a className="builder-brand" href="/admin/">MMR Homefinder · Administration</a><nav aria-label="Administration"><ThemeControl /><a href="?cart=1">Crop cart</a><a href={`/admin/platform_api/project/${new URLSearchParams(window.location.search).get('returnFilters') ? '?' + new URLSearchParams(window.location.search).get('returnFilters') : ''}`}>Back to projects</a></nav></header>
-    <main id="project-workspace-main" className="builder-main">
+    {!embedded && <header className="builder-header"><a className="builder-brand" href="/admin/">MMR Homefinder · Administration</a><nav aria-label="Administration"><ThemeControl /><a href="?cart=1">Crop cart</a><a href="/admin/records/projects/">Back to projects</a></nav></header>}
+    <WorkspaceContent id="project-workspace-main" className="builder-main">
       {error && <p role="alert" className="builder-notice">{error}</p>}
       {loading ? <p role="status">Loading project workspace…</p> : organizations.length ? new URLSearchParams(window.location.search).get('cart') === '1' ? <ProjectCropCart /> : <BuilderWorkspace organizations={organizations} /> : !error && <section className="builder-panel"><h1>No active organizations</h1><p>Create an active organization in administration before creating a project.</p></section>}
-    </main>
+    </WorkspaceContent>
     <footer className="builder-footer">Documents and layout changes use the same processing and independent review workflow as builder submissions.</footer>
   </div>
 }
@@ -184,6 +189,8 @@ function BuilderWorkspace({ organizations }: { organizations: Organization[] }) 
 function OrganizationProjects({ organization, dirty, onDirty }: { organization: Organization; dirty: boolean; onDirty: (dirty: boolean) => void }) {
   const signal = useRequestScope()
   const [projects, setProjects] = useState<Project[]>([])
+  const [projectSearch, setProjectSearch] = useState(() => new URLSearchParams(window.location.search).get('projectSearch') ?? '')
+  const [locality, setLocality] = useState(() => new URLSearchParams(window.location.search).get('locality') ?? '')
   const { api, admin } = useProjectWorkspace()
   const requestedProject = useRef(new URLSearchParams(window.location.search).get('project'))
   const [selected, setSelected] = useState<Project | 'new' | null>(() => admin && new URLSearchParams(window.location.search).get('new') === '1' ? 'new' : null)
@@ -214,8 +221,17 @@ function OrganizationProjects({ organization, dirty, onDirty }: { organization: 
     if (dirty && !window.confirm('Discard unsaved project, layout or crop entries and switch project? An in-flight action may still finish on the server.')) return
     onDirty(false); setSelected(project)
   }
+  const localities = [...new Set(projects.map(project => project.locality).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+  const visibleProjects = workspaceOrder(projects.filter(project => project.submittedName.toLocaleLowerCase().includes(projectSearch.toLocaleLowerCase()) && (!locality || project.locality === locality)), project => project.submittedName, inactiveProject)
+  function filterProjects(search: string, place: string) {
+    setProjectSearch(search); setLocality(place)
+    const url = new URL(window.location.href)
+    if (search) url.searchParams.set('projectSearch', search); else url.searchParams.delete('projectSearch')
+    if (place) url.searchParams.set('locality', place); else url.searchParams.delete('locality')
+    window.history.replaceState(null, '', url)
+  }
   return <div className="builder-workspace">
-    <aside className="builder-panel builder-project-list" aria-label="Organization projects">{(!admin || organization.canCreateProject) && <button className="primary" onClick={() => select('new')}>New project</button>}{loading ? <p role="status">Loading projects…</p> : error ? <div role="alert"><p>{error}</p><button className="secondary" onClick={() => setReload(value => value + 1)}>Retry projects</button></div> : projects.length === 0 ? <p>No projects yet. Create your first project.</p> : <ul>{projects.map(project => <li key={project.id}><button aria-pressed={selected !== 'new' && selected?.id === project.id} onClick={() => select(project)}><strong>{project.submittedName}</strong><span>{project.locality || 'Locality not supplied'} · {project.status.replaceAll('_', ' ')}</span></button></li>)}</ul>}</aside>
+    <aside className="builder-panel builder-project-list" aria-label="Organization projects"><label>Find a project<input type="search" value={projectSearch} onChange={event => filterProjects(event.target.value, locality)} /></label><label>Locality<select value={locality} onChange={event => filterProjects(projectSearch, event.target.value)}><option value="">All localities</option>{localities.map(place => <option key={place}>{place}</option>)}</select></label>{(projectSearch || locality) && <button className="secondary" onClick={() => filterProjects('', '')}>Clear filters</button>}{(!admin || organization.canCreateProject) && <button className="primary" onClick={() => select('new')}>New project</button>}{loading ? <p role="status">Loading projects…</p> : error ? <div role="alert"><p>{error}</p><button className="secondary" onClick={() => setReload(value => value + 1)}>Retry projects</button></div> : visibleProjects.length === 0 ? <p>{projects.length ? 'No projects match these filters.' : 'No projects yet. Create your first project.'}</p> : <ul>{visibleProjects.map(project => <li key={project.id}><button aria-pressed={selected !== 'new' && selected?.id === project.id} onClick={() => select(project)}><strong>{project.submittedName}</strong><span>{project.locality || 'Locality not supplied'} · {project.status.replaceAll('_', ' ')}</span></button></li>)}</ul>}</aside>
     {selected ? <ProjectEditor key={selected === 'new' ? 'new' : selected.id} organization={organization} initial={selected === 'new' ? null : selected} onSaved={saved} onDirty={onDirty} /> : <section className="builder-panel"><h2>Select a project</h2><p>Create a project or select one from your organization to edit details, upload evidence and request review. Publication is reserved for independent reviewers.</p></section>}
   </div>
 }
@@ -231,6 +247,7 @@ function ProjectEditor({ organization, initial, onSaved, onDirty }: { organizati
   const [mediaDirty, setMediaDirty] = useState(false), [contentDirty, setContentDirty] = useState(false)
   const locked = !!project && ['retired', 'merged'].includes(project.status)
   const dirty = json(draft) !== json(project ? projectDraft(project) : emptyDraft())
+  useUnsavedChanges(dirty || mediaDirty || contentDirty || busy)
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
   useEffect(() => { onDirty(dirty || mediaDirty || contentDirty || busy) }, [dirty, mediaDirty, contentDirty, busy, onDirty])
@@ -408,7 +425,7 @@ function ProjectDocuments({ projectId, locked }: { projectId: string; locked: bo
   return <section className="builder-panel"><h2>Project documents</h2><p>Upload PDFs, PNG/JPEG images, Word/Office documents, RTF, ODT, Markdown, text, CSV or JSON evidence. Some Office formats require server-side conversion. Files are private until reviewed. Uploading only queues processing.</p>{error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status" className="builder-notice">{notice}</p>}<label>Evidence file<input ref={fileInput} type="file" accept={documentAccept} disabled={busy || locked || !!(pending && upload.intent)} onChange={event => select(event.target.files?.[0])} /></label>
     {pending && <p>{upload.file.name} · {upload.file.size.toLocaleString()} bytes · {upload.phase === 'intent' ? 'Ready to request upload' : upload.phase === 'put' ? 'Ready to transfer file' : 'File transferred; completion pending'}</p>}
     <div className="button-row"><button className="primary" disabled={!pending || busy || locked} onClick={() => void send()}>{busy ? 'Uploading…' : error && pending ? upload.phase === 'intent' ? 'Retry upload request' : 'Retry same upload' : 'Upload evidence'}</button><button className="secondary" disabled={loading || busy} onClick={() => void refresh()}>Refresh documents</button>{pending && upload.intent && <button className="secondary" disabled={busy} onClick={() => { setUpload(null); setError(''); if (fileInput.current) fileInput.current.value = '' }}>Cancel local upload</button>}</div>
-    {loading ? <p role="status">Loading documents…</p> : documents.length ? <ul className="builder-documents">{documents.map(document => <li key={document.id}><strong>{document.originalName}</strong><span>Status: {document.status} · Scan: {document.scanStatus} · {document.byteLength.toLocaleString()} bytes</span>{document.errorCategory && <span className="field-error">Processing issue: {document.errorCategory}. Contact the platform administrator if it persists.</span>}</li>)}</ul> : <p>No evidence uploaded yet.</p>}
+    {loading ? <p role="status">Loading documents…</p> : <DocumentBrowser projectId={projectId} documents={documents} />}
   </section>
 }
 

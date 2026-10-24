@@ -1007,6 +1007,14 @@ class ResolveFloorPlanView(APIView):
         from .models import FloorPlan
 
         plan = get_object_or_404(visible_floor_plans(FloorPlan.objects.select_for_update()), id=floor_plan_id)
+        if "expectedUpdatedAt" in request.data:
+            from rest_framework import serializers
+            expected = serializers.DateTimeField().run_validation(request.data["expectedUpdatedAt"])
+            if plan.updated_at != expected:
+                return Response({"detail": "This plan changed. Reload before reviewing it."}, status=409)
+            _require_active_project(plan.project)
+            if not plan.active or plan.document.scan_status != "clean":
+                raise ValidationError("Review requires an active plan and a clean source document.")
         project = Project.objects.select_for_update().get(id=plan.project_id)
         if not request.user.is_superuser and _is_project_member(request.user, project):
             raise PermissionDenied("Reviewers cannot approve their own organization's floor plans.", code="self_approval_forbidden")

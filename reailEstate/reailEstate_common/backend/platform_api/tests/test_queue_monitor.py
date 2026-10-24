@@ -20,6 +20,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from .legacy_admin_urls import legacy_admin_adapters  # noqa: F401 - opt-in adapter regression harness
 from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
 from django.utils import timezone

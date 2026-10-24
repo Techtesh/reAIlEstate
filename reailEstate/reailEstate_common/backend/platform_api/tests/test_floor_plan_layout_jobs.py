@@ -151,6 +151,29 @@ def operation_for(message):
     return Operation.objects.get(pk=message.payload["operationId"])
 
 
+def test_floor_observations_survive_when_no_layout_crops_are_detected(source, provider):
+    plan, actor = source
+    plan.review_state = "approved"
+    plan.save(update_fields=["review_state"])
+    mock, _, _, _ = provider
+    mock.analyze_full_floor.side_effect = None
+    mock.analyze_full_floor.return_value = ([], {"pageType": "uncertain", "unitCount": 0,
+        "liftCount": 2, "staircaseCount": None, "visualEvidence": "Lift labels are visible; flat boundaries are unclear",
+        "refugeArea": {"presence": "present", "area": 12.5, "unit": "sqm", "evidence": "REFUGE 12.5 sqm"},
+        "commonAreas": [{"kind": "lobby", "label": "Lift lobby", "count": 1, "area": None, "unit": None, "evidence": "LIFT LOBBY"}]})
+    message = jobs.queue_floor_plan_layouts(plan, actor)
+    with pytest.raises(ValueError, match="NO_INDIVIDUAL_LAYOUTS_DETECTED"):
+        jobs.evaluate_floor_plan_layouts(message.payload)
+    plan.refresh_from_db()
+    summary = plan.features["floorEvaluation"]
+    assert summary["flatsPerFloor"] is None and summary["liftCount"] == 2
+    assert summary["refugeArea"]["area"] == 12.5
+    assert summary["commonAreas"][0]["kind"] == "lobby"
+    assert plan.review_state == "needs_review"
+    assert operation_for(message).state == "failed"
+    assert not FloorPlan.objects.filter(asset__asset_type="unit_crop").exists()
+
+
 @pytest.mark.parametrize("method", ["ai", "script", "manual"])
 def test_duplicate_region_labels_get_floor_uuid_counter_timestamp_names(source, provider, method):
     plan, actor = source

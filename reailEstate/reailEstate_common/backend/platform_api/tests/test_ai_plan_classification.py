@@ -124,6 +124,8 @@ def test_full_floor_evaluation_returns_regions_and_floor_counts_not_room_dimensi
     from jsonschema import validate
     provider = object.__new__(OpenAIFloorPlanVisionProvider)
     result = {"pageType": kind, "unitCount": 1, "liftCount": 2, "staircaseCount": None,
+              "refugeArea": {"presence": "unknown", "area": None, "unit": None, "evidence": "No visible refuge label"},
+              "commonAreas": [],
               "visualEvidence": "One visible unit and two lift symbols",
               "regions": [{"label": "Unit 03", "x": 0.1, "y": 0.1, "width": 0.8, "height": 0.8,
                            "confidence": 0.9, "evidence": "Unit entrance", "floors": ["FIRST FLOOR"]}]}

@@ -4,23 +4,28 @@ import { ApiError, apiPath, json } from './api'
 import { errorMessage, isAbortError } from './errors'
 import { useProjectWorkspace } from './projectWorkspace'
 import './BuilderMediaWorkspace.css'
+import { workspaceOrder } from './workspaceOrdering'
+import { FloorSummary, PlanReview } from './AdminReview'
 
 export type BuilderLayout = { id: string; name: string; price: string | null; configurationType: string; carpetAreaSqFt: string | null; updatedAt: string; reviewState: string }
 type Category = 'project-images' | 'amenities' | 'floor-plans' | 'layouts'
 type RoomMeasurement = { room?: string; name?: string; lengthFt?: number | string | null; widthFt?: number | string | null; areaSqFt?: number | null }
 type Evaluation = { state: string; label: string; error?: string; attempts?: number; retryAt?: string | null; canRun: boolean }
+type AdminTool = { label: string; url: string }
 type MediaItem = {
   id: string; category: Category; label: string; imageUrl: string; documentId: string; pageNumber: number
   planId: string | null; updatedAt: string | null; sourceSha256: string; canCrop: boolean; canEvaluate: boolean
-  assetId?: string; active?: boolean; inactiveSource?: boolean; reviewState?: string; displayName?: string
+  assetId?: string; active?: boolean; inactiveSource?: boolean; reviewState?: string; displayName?: string; canEdit?: boolean
   configuration?: string; area?: string | number | null; dimensions?: RoomMeasurement[]
   roomRectangleSumSqFt?: number | null; roomCount?: number | null; bathrooms?: number | null; balconies?: number | null
   orientation?: string; confidence?: number | string | null; extractorVersion?: string; sourceKind?: string
   qualityWarning?: string; dimensionWarning?: string; features?: Record<string, unknown>; evaluation?: Evaluation | null
+  adminTools?: AdminTool[]; canReview?: boolean; reviewReason?: string
 }
 type Media = {
   projectId: string; projectName: string; projectPrice: string | number | null; canEdit: boolean
   projectUpdatedAt: string; confirmNameChanges: boolean
+  adminTools?: AdminTool[]
   items: MediaItem[]; documents: MediaDocument[]
   profiles: { id: string; label: string }[]; drafts: { id: string; label: string; imageUrl: string; category?: Category; action?: string }[]
   jobs: { id: string; state: string; kind: string; error: string | null; planId?: string | null }[]
@@ -132,13 +137,13 @@ function CropImage({ url, rotation, pageNumber, imageRef, onReady, onError }: {
 }
 
 export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, renderLayout }: Props) {
-  const { api, path: workspacePath } = useProjectWorkspace()
+  const { api, path: workspacePath, admin } = useProjectWorkspace()
   const projectPath = workspacePath(`/api/v1/builder/projects/${encodeURIComponent(projectId)}`)
   const root = `${projectPath}/media`
   const prefix = useId()
   const [media, setMedia] = useState<Media | null>(null), [layouts, setLayouts] = useState<BuilderLayout[]>([])
   const [tab, setTab] = useState<Category>(() => tabs.find(tab => tab.id === new URLSearchParams(window.location.search).get('section'))?.id ?? 'project-images'), [selectedId, setSelectedId] = useState(new URLSearchParams(window.location.search).get('plan') ?? '')
-  const [layoutSearch, setLayoutSearch] = useState(''), [layoutSort, setLayoutSort] = useState('default')
+  const [layoutSearch, setLayoutSearch] = useState(''), [layoutSort, setLayoutSort] = useState('name')
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false)
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [conflict, setConflict] = useState(false)
   const [layoutDirty, setLayoutDirty] = useState<Set<string>>(() => new Set())
@@ -388,8 +393,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     }
   }
   const planTab = tab === 'layouts' || tab === 'floor-plans'
-  const directory = media?.items.filter(item => item.category === tab && item.label.toLocaleLowerCase().includes(layoutSearch.trim().toLocaleLowerCase())) ?? []
-  if (layoutSort !== 'default') directory.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }) * (layoutSort === 'name-desc' ? -1 : 1))
+  const directory = workspaceOrder(media?.items.filter(item => item.category === tab && item.label.toLocaleLowerCase().includes(layoutSearch.trim().toLocaleLowerCase())) ?? [], item => item.label, item => item.active === false || !!item.inactiveSource || item.reviewState === 'removed_by_user', layoutSort === 'name-desc')
   directory.sort((a, b) => Number(a.active === false || a.inactiveSource) - Number(b.active === false || b.inactiveSource))
   const items = planTab ? directory : media?.items.filter(item => item.category === tab) ?? []
   const selected = items.find(item => item.id === selectedId) ?? items[0]
@@ -407,12 +411,28 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     [item], { active })
   }
   function selectImage(item: MediaItem) {
+    if (item.id === selected?.id) return
+    if (changed && !window.confirm('Discard unsaved layout or review entries and select another image?')) return
+    if (changed) { setLayoutDirty(new Set()); setPreviewVersion(version => version + 1) }
+    if (crop && !window.confirm('Discard the unsaved crop selection?')) return
+    if (crop) editCrop(null)
     if (rename && !window.confirm('Discard the unsaved media name?')) return
     setRename(null); setSelectedId(item.id)
+    const url = new URL(window.location.href)
+    url.searchParams.set('section', tab); url.searchParams.set('plan', item.planId || item.id)
+    window.history.replaceState(null, '', url)
   }
   function selectTab(category: Category) {
+    if (category === tab) return
+    if (changed && !window.confirm('Discard unsaved layout or review entries and change media section?')) return
+    if (changed) { setLayoutDirty(new Set()); setPreviewVersion(version => version + 1) }
+    if (crop && !window.confirm('Discard the unsaved crop selection?')) return
+    if (crop) editCrop(null)
     if (rename && !window.confirm('Discard the unsaved media name?')) return
     setRename(null); setTab(category); setSelectedId('')
+    const url = new URL(window.location.href)
+    url.searchParams.set('section', category); url.searchParams.delete('plan')
+    window.history.replaceState(null, '', url)
   }
   const cropUrl = crop?.sourceMode === 'current' && crop.target ? crop.target.imageUrl : crop ? `${root}/documents/${encodeURIComponent(crop.documentId)}/pages/${crop.pageNumber}?sha256=${encodeURIComponent(crop.sourceSha256)}` : ''
   const cropDocument = media?.documents.find(document => document.id === crop?.documentId)
@@ -439,6 +459,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     {media?.documents.filter(document => !cropSourceAvailable(document)).map(document => <p key={document.id} role="alert" className="field-error">{document.name}: {document.error || 'No readable source pages are available.'} Cropping is unavailable for this document.</p>)}
     <div className="button-row"><button className="secondary" disabled={loading || busy} onClick={() => void refreshClicked()}>Refresh media and jobs</button><button className="secondary" disabled={mutationBlocked || !!rename || !media?.documents.some(cropSourceAvailable) || !!confirmation} onClick={() => startCrop()}>Crop source page</button></div>
     {loading && <p role="status">Loading media...</p>}
+    {admin && <nav className="button-row" aria-label="Admin review tools"><a href="/admin/records/review-tasks/">Review queue</a><a href="/admin/queue/">Processing queue</a><a href="/admin/records/facts/">Project facts and history</a></nav>}
     <div className="builder-media-tabs" role="tablist" aria-label="Project media categories">
       {tabs.map((item, position) => <button key={item.id} id={`${prefix}-${item.id}`} role="tab" aria-selected={tab === item.id} aria-controls={`${prefix}-${item.id}-panel`} tabIndex={tab === item.id ? 0 : -1} onClick={() => selectTab(item.id)} onKeyDown={event => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
@@ -451,8 +472,8 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     <div className={planTab ? 'builder-layout-explorer' : undefined}>
     {planTab && <aside className="builder-layout-directory" aria-label={tab === 'floor-plans' ? 'Floor plan directory' : 'Layout directory'}>
       <h3>{tab === 'floor-plans' ? 'Floor plans' : 'Layouts'} <span>{directory.length}</span></h3>
-      <label>{tab === 'floor-plans' ? 'Find a floor plan' : 'Find a layout'}<input type="search" value={layoutSearch} disabled={busy || !!confirmation || !!rename} onChange={event => setLayoutSearch(event.target.value)} /></label>
-      <label>{tab === 'floor-plans' ? 'Sort floor plans' : 'Sort layouts'}<select value={layoutSort} disabled={busy || !!confirmation || !!rename} onChange={event => setLayoutSort(event.target.value)}><option value="default">Default order</option><option value="name">Name (A-Z)</option><option value="name-desc">Name (Z-A)</option></select></label>
+      <label>{tab === 'floor-plans' ? 'Find a floor plan' : 'Find a layout'}<input type="search" value={layoutSearch} disabled={changed || busy || !!confirmation || !!rename} onChange={event => setLayoutSearch(event.target.value)} /></label>
+      <label>{tab === 'floor-plans' ? 'Sort floor plans' : 'Sort layouts'}<select value={layoutSort} disabled={changed || busy || !!confirmation || !!rename} onChange={event => setLayoutSort(event.target.value)}><option value="name">Name (A-Z)</option><option value="name-desc">Name (Z-A)</option></select></label>
       <ul aria-label="Layout list">{directory.map(item => <li key={item.id}><button className="secondary" aria-pressed={selected?.id === item.id} aria-controls={`${prefix}-layout-detail`} disabled={busy || !!confirmation} onClick={() => selectImage(item)}>
         <strong>{item.label}</strong><span>{item.active === false || item.inactiveSource ? 'Inactive · ' : ''}{item.evaluation?.state?.replaceAll('_', ' ') ?? item.reviewState?.replaceAll('_', ' ') ?? 'Awaiting review'}{item.planId && layoutDirty.has(item.planId) ? ' · Unsaved edits' : ''}</span>
       </button></li>)}</ul>
@@ -542,6 +563,8 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
       </fieldset>
       <button className="secondary" disabled={busy} onClick={() => { if (window.confirm('Discard this unsaved crop selection?')) { editCrop(null); drag.current = null } }}>Discard local crop</button>
     </section>}
+    {tab === 'floor-plans' && selected && <FloorSummary features={selected.features} />}
+    {admin && selected?.planId && <section className="plan-review-editor"><PlanReview key={`${selected.planId}-${selected.updatedAt}-${previewVersion}`} plan={selected} disabled={blocked || !!rename || !!confirmation || selected.canEdit === false || [...layoutDirty].some(key => !key.startsWith('review:'))} onDirty={dirty => reportLayoutDirty(`review:${selected.planId}`, dirty)} onSaved={() => { void refresh(true); setNotice('Review updated.') }} /></section>}
     {tab === 'layouts' && selected && <section aria-label="Selected layout evaluation" className="builder-layout-evaluation">
       <h3>Extracted room sizes</h3>
       <p role="status"><strong>{selected.evaluation?.label ?? 'Refresh media to load the evaluation status.'}</strong></p>
@@ -573,7 +596,7 @@ export function BuilderMediaWorkspace({ projectId, locked, onChanged, onDirty, r
     <section hidden={tab !== 'layouts' || !selected} aria-label="Layout editing">
       <h3>Layout price</h3><p>Edit the name in the title beneath the image. Total INR prices are editable here; extracted room sizes, carpet area and review state are read-only.</p>
       <div className="builder-media-table"><table><caption>Layout review summary</caption><thead><tr><th>Alias</th><th>Total price (INR)</th><th>Carpet area (sq ft)</th><th>Configuration</th><th>Review state</th></tr></thead><tbody>{layouts.filter(layout => layout.id === selected?.planId).map(layout => <tr key={layout.id}><th scope="row">{layout.name}</th><td>{layout.price ?? 'contact to know'}</td><td>{layout.carpetAreaSqFt ?? 'Unknown'}</td><td>{layout.configurationType || 'Unknown'}</td><td>{layout.reviewState.replaceAll('_', ' ')}</td></tr>)}</tbody></table></div>
-      {layouts.map(layout => <div key={`${layout.id}-${layout.updatedAt}`} hidden={selected?.planId !== layout.id}>{renderLayout(layout, blocked || !!rename || !!confirmation, saved => void layoutSaved(saved), reportLayoutDirty)}</div>)}
+      {layouts.map(layout => <div key={`${layout.id}-${layout.updatedAt}-${previewVersion}`} hidden={selected?.planId !== layout.id}>{renderLayout(layout, blocked || !!rename || !!confirmation || [...layoutDirty].some(key => key.startsWith('review:')), saved => void layoutSaved(saved), reportLayoutDirty)}</div>)}
     </section>
     </div>
     </div>

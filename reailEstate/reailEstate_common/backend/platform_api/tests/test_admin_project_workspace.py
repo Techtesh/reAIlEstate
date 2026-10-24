@@ -86,7 +86,8 @@ def test_admin_workspace_requires_explicit_project_permission(workspace, django_
     if kind == "builder":
         OrganizationMembership.objects.create(user=user, organization=org, role="owner")
     client.force_login(user)
-    assert client.get("/admin/project-workspace/").status_code in {302, 403}
+    # The public shell contains no private records; the APIs enforce access.
+    assert client.get("/admin/project-workspace/").status_code == 200
     assert client.get(PREFIX + "/builder/organizations").status_code == 403
     assert client.get(PREFIX + f"/builder/projects/{project.pk}/media").status_code == 403
     assert client.post(PREFIX + f"/developer-projects/{project.pk}/documents:upload-intent", {}, format="json").status_code == 403
@@ -214,10 +215,9 @@ def test_admin_crop_drafts_can_attach_through_same_queue(workspace, page_source)
 def test_existing_admin_project_links_to_shared_editor(workspace):
     client, _, org, project = workspace
     response = client.get(f"/admin/platform_api/project/{project.pk}/change/")
-    assert response.status_code == 200
-    content = response.content.decode()
-    assert "Upload documents and edit layouts" in content
-    assert f"/admin/project-workspace/?organization={org.pk}&amp;project={project.pk}" in content
+    assert response.status_code == 302
+    assert response.url == f"/admin/records/projects/?record={project.pk}"
+    assert client.get(f"/api/v1/admin/console/records/projects/{project.pk}").json()["organization"] == str(org.pk)
 
 
 def test_admin_creation_rejects_inactive_organization(workspace):
@@ -230,3 +230,102 @@ def test_admin_creation_rejects_inactive_organization(workspace):
     }, format="json")
     assert response.status_code == 404
     assert not Project.objects.filter(maha_rera_id="P51800000093").exists()
+
+
+def test_admin_media_tools_respect_model_permissions_and_keep_project_context(workspace):
+    client, user, _, project = workspace
+    url = PREFIX + f"/builder/projects/{project.pk}/media"
+    tools = client.get(url).json()["adminTools"]
+    assert {tool["label"] for tool in tools} == {
+        "Project administration", "Review source references and location",
+    }
+    user.user_permissions.add(*Permission.objects.filter(
+        content_type__app_label="platform_api", codename__in=[
+            "change_floorplan", "change_floorplanasset", "change_factcandidate",
+            "change_reviewtask", "change_evidencedocument", "change_projectfact",
+            "change_projectamenity",
+        ],
+    ))
+    tools = client.get(url).json()["adminTools"]
+    assert len(tools) == 9
+    for tool in tools:
+        assert str(project.pk) in tool["url"]
+        response = client.get(tool["url"])
+        assert response.status_code == 200, (tool, response.status_code)
+
+
+def test_admin_tools_never_grant_nonstaff_access(workspace):
+    from platform_api.project_workspace import admin_media_tools
+    client, user, _, project = workspace
+    user.is_staff = False
+    user.save(update_fields=["is_staff"])
+    assert admin_media_tools(user, project) == []
+    assert client.get(PREFIX + f"/builder/projects/{project.pk}/media").status_code == 403
+
+
+def test_selected_plan_extraction_tools_require_floorplan_permission(workspace, page_source):
+    from platform_api.project_workspace import admin_media_tools
+    _, user, _, _ = workspace
+    from platform_api.models import FloorPlan
+    project, document, *_ = page_source
+    plan = FloorPlan(project=project, document=document, page_number=1)
+    assert admin_media_tools(user, project, plan) == []
+    user.user_permissions.add(Permission.objects.get(
+        content_type__app_label="platform_api", codename="change_floorplan"))
+    user = type(user).objects.get(pk=user.pk)
+    tools = admin_media_tools(user, project, plan)
+    assert len(tools) == 2
+    assert tools[0]["url"].startswith("/admin/project-workspace/?")
+    assert f"plan={plan.pk}" in tools[0]["url"]
+
+
+def test_admin_amenity_correction_preserves_evidence_and_audits_review(workspace):
+    from platform_api.models import Amenity, ProjectAmenity, AuditEvent
+    client, user, _, project = workspace
+    amenity = Amenity.objects.create(taxonomy_code="gym", display_name="Gym", category="health")
+    claim = ProjectAmenity.objects.create(project=project, amenity=amenity,
+        evidence_summary={"source": "brochure", "reviewState": "unreviewed"})
+    url = f"/api/v1/admin/projects/{project.pk}/review"
+    assert client.post(url, {"kind": "amenity", "id": str(claim.pk), "decision": "accept", "reason": "Verified"}, format="json").status_code == 403
+    user.user_permissions.add(Permission.objects.get(
+        content_type__app_label="platform_api", codename="change_projectamenity"))
+    assert client.get(url).status_code == 200
+    response = client.post(url, {"kind": "amenity", "id": str(claim.pk), "decision": "accept",
+        "availability_state": "available", "distance_meters": 10,
+        "expectedUpdatedAt": claim.updated_at.isoformat(),
+        "travel_minutes": 1, "reason": "Verified against brochure"}, format="json")
+    assert response.status_code == 200, response.content
+    claim.refresh_from_db()
+    assert claim.evidence_summary["source"] == "brochure"
+    assert claim.evidence_summary["reviewState"] == "accepted"
+    assert claim.distance_meters == 10
+    assert AuditEvent.objects.filter(action="project.amenity_reviewed", entity_id=claim.pk).exists()
+    stale = client.post(url, {"kind": "amenity", "id": str(claim.pk), "decision": "reject",
+        "expectedUpdatedAt": "2000-01-01T00:00:00+00:00", "reason": "Stale correction"}, format="json")
+    assert stale.status_code == 409 and b"This amenity changed" in stale.content
+    claim.refresh_from_db()
+    assert claim.evidence_summary["reviewState"] == "accepted"
+    project.status = "retired"
+    project.save(update_fields=["status"])
+    retired = client.post(url, {"kind": "amenity", "id": str(claim.pk), "decision": "reject",
+        "expectedUpdatedAt": claim.updated_at.isoformat(), "reason": "Cannot change retired project"}, format="json")
+    assert retired.status_code == 400 and b"read-only" in retired.content
+    assert AuditEvent.objects.filter(action="project.amenity_reviewed", entity_id=claim.pk).count() == 1
+
+
+def test_admin_cannot_accept_own_amenity_claim(workspace):
+    from platform_api.models import Amenity, ProjectAmenity
+    client, user, _, project = workspace
+    user.user_permissions.add(Permission.objects.get(
+        content_type__app_label="platform_api", codename="change_projectamenity"))
+    amenity = Amenity.objects.create(taxonomy_code="gym", display_name="Gym", category="health")
+    claim = ProjectAmenity.objects.create(project=project, amenity=amenity,
+        evidence_summary={"manual": [{"submittedBy": user.pk}], "reviewState": "unreviewed"})
+    response = client.post(f"/api/v1/admin/projects/{project.pk}/review", {
+        "kind": "amenity", "id": str(claim.pk), "decision": "accept",
+        "expectedUpdatedAt": claim.updated_at.isoformat(),
+        "availability_state": "available", "reason": "Verified"}, format="json")
+    assert response.status_code == 403
+    assert b"different administrator" in response.content
+    claim.refresh_from_db()
+    assert claim.evidence_summary["reviewState"] == "unreviewed"

@@ -15,6 +15,14 @@ be able to reach its SSH port. Keep SSH restricted to your trusted runner networ
 use a private/self-hosted runner when a hosted runner cannot reach that network.
 Do not open SSH to the internet just to make a workflow pass.
 
+For a one-off demo with a GitHub-hosted runner, inspect the deploy job's
+**Show deployment runner SSH source** step. Add a temporary inbound SSH rule
+for the printed runner IPv4 address with `/32`, keeping the existing operator
+rule. Do this while the same job is running; the transfer step retries dropped
+SSH connections for about five minutes. Remove the temporary rule after the run.
+A new job can use a different address, so repeat this for each demo deployment.
+The workflow prints the source address but never changes security-group rules.
+
 Mount the existing persistent NFS workspace before Docker starts. Configure its
 actual filesystem identity outside the repository. Verify the workspace contains
 `user/media`, `output/media`, and `legacy-media`; keep ownership compatible with

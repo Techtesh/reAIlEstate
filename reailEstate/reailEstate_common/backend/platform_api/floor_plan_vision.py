@@ -351,12 +351,24 @@ class OpenAIFloorPlanVisionProvider:
             raise ValueError("Expected unit count must be between 1 and 40.")
         schema = {
             "type": "object", "additionalProperties": False,
-            "required": ["pageType", "unitCount", "liftCount", "staircaseCount", "regions", "visualEvidence"],
+            "required": ["pageType", "unitCount", "liftCount", "staircaseCount", "refugeArea", "commonAreas", "regions", "visualEvidence"],
             "properties": {
                 "pageType": {"type": "string", "enum": ["multi_unit_floor_plan", "single_unit_layout", "layout_sheet", "non_plan", "uncertain"]},
                 "unitCount": {"type": "integer", "minimum": 0, "maximum": 40},
                 "liftCount": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
                 "staircaseCount": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+                "refugeArea": {"type": "object", "additionalProperties": False,
+                    "required": ["presence", "area", "unit", "evidence"], "properties": {
+                        "presence": {"type": "string", "enum": ["present", "absent", "unknown"]},
+                        "area": {"type": ["number", "null"], "minimum": 0},
+                        "unit": {"type": ["string", "null"], "enum": ["sqft", "sqm", None]},
+                        "evidence": {"type": "string"}}},
+                "commonAreas": {"type": "array", "maxItems": 30, "items": {
+                    "type": "object", "additionalProperties": False, "required": ["kind", "label", "count", "area", "unit", "evidence"],
+                    "properties": {"kind": {"type": "string", "enum": ["corridor", "lobby", "service_lift", "fire_lift", "other"]},
+                        "label": {"type": "string"}, "count": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+                        "area": {"type": ["number", "null"], "minimum": 0}, "unit": {"type": ["string", "null"], "enum": ["sqft", "sqm", None]},
+                        "evidence": {"type": "string"}}}},
                 "visualEvidence": {"type": "string"},
                 "regions": {"type": "array", "maxItems": 40, "items": {
                     "type": "object", "additionalProperties": False,
@@ -380,6 +392,10 @@ class OpenAIFloorPlanVisionProvider:
         result = self.analyze(image_bytes, media_type, schema, task=(
             "Evaluate the full floor: identify distinct flats, lifts and staircases, not individual room measurements. "
             "Count lifts and staircases only when visibly identifiable; use null when unknown, not zero. "
+            "Identify refuge-area presence only from visible labels/evidence; use unknown if unclear. "
+            "Report refuge area and its unit only if explicitly dimensioned or labelled, otherwise null. "
+            "Record labelled corridors, lobbies and service/fire lifts as commonAreas with visible evidence. "
+            "Keep counts or areas null when unknown; do not infer area from image pixels. Classified lifts are part of total liftCount, not extra lifts. "
             "Distinguish a shared building floor (multi_unit_floor_plan), one dwelling (single_unit_layout), "
             "and a sheet of independent dwelling diagrams (layout_sheet). A sheet is not evidence of flats per floor. "
             "Locate every distinct dwelling/flat boundary. Return one tight rectangular crop "
@@ -408,7 +424,9 @@ class OpenAIFloorPlanVisionProvider:
         return regions, {"pageType": result["pageType"], "visualEvidence": result["visualEvidence"],
                          "expectedCount": expected_count, "unitCount": len(regions),
                          "flatsPerFloor": len(regions) if result["pageType"] == "multi_unit_floor_plan" else None,
-                         "liftCount": result["liftCount"], "staircaseCount": result["staircaseCount"]}
+                         "liftCount": result["liftCount"], "staircaseCount": result["staircaseCount"],
+                         "refugeArea": result.get("refugeArea", {"presence": "unknown", "area": None, "unit": None, "evidence": ""}),
+                         "commonAreas": result.get("commonAreas", [])}
 
     def analyze_unit_regions(self, image_bytes, media_type, expected_count=None):
         return self.analyze_full_floor(image_bytes, media_type, expected_count)
