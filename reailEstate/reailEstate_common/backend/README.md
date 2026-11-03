@@ -6,6 +6,29 @@ Use the repository [`WORKFLOWS.md`](../../../WORKFLOWS.md) as the source of trut
 for service lifecycle, role workflows, workers, maintenance, testing, and deployment
 safety. This file remains the detailed backend command and subsystem reference.
 
+## Current service and administration boundaries
+
+Admin (8002), Builder (8003) and Buyer (8004) share Django models/migrations and
+PostgreSQL. Runtime, workers, tests and database snapshots require PostgreSQL.
+The Admin UI is a custom React console; Django still owns sessions, CSRF and model
+permissions. References below to old Django admin tools describe retained domain
+adapters or historical UI labels. Production legacy editor URLs redirect on GET
+and reject retired POST actions.
+
+Admin console routes use `/api/v1/admin/console/`. Shared project editing uses
+`/api/v1/admin/project-workspace/`, independently of Builder organization membership.
+Project/plan review uses `/api/v1/admin/projects/{id}/review` and
+`/api/v1/admin/plans/{id}/review`. Authorized staff must hold the relevant model
+permissions; staff status alone does not grant project editing or role management.
+Whole-floor corrections preserve floor observations separately from layout room
+measurements and return corrected records for review, without publication.
+
+The normal local executor is the persistent worker. [EC2 releases](../../../.deployments/aws/ec2/README.md)
+keep processing off and only check pending migrations. New uploads remain queued
+until processing/scanning is configured. Demo visibility defaults to true in the
+workflow, independently of HTTPS/preview transport. See the [current API reference](../../../docs/05-api-contracts.md)
+and [admin acceptance plan](../../../docs/admin-ux-migration-plan.md).
+
 The optional [buyer frontend](../frontend/README.md) development server runs on
 port 5173 and proxies the buyer service on port 8004. The built buyer application
 is served directly by the buyer service at port 8004.
@@ -14,25 +37,26 @@ is served directly by the buyer service at port 8004.
 
 Builders sign in at the frontend **`/builder/login`**, not Django `/admin`.
 The portal lists only projects belonging to their active organizations. Active
-`owner` and `editor` memberships grant project management; `viewer`, revoked or
+`owner`, `admin` and `editor` memberships grant project management; `viewer`, revoked or
 suspended memberships do not. Membership and organization status are checked on
 every request, including uploads and document access.
 
-A **platform administrator** provisions accounts using Django admin:
+A **platform administrator** provisions accounts using the custom Admin console:
 
 1. Create an active organization (or select the existing one).
-2. Create an active user with a securely supplied password. Leave **Staff status**
+2. Create an active user and set its password through the authorized password action
+   (new console-created users initially have an unusable password). Leave **Staff status**
    and **Superuser status** unchecked, and do not grant reviewer/admin groups.
-3. Reopen the saved user's edit page. Under **Builder organization access**, select
-   the organization from the dropdown, choose `owner` or `editor`, and set status
-   to `active`. Save the user. The separate Organization memberships screen is
-   also available. A user may manage multiple assigned organizations.
-4. Direct the builder to `http://127.0.0.1:5173/builder/login` locally, or the
+3. Open **Memberships** or the organization's role-member controls, select the
+   organization and existing active user, assign the intended role/package, and set
+   membership status to active. A user may manage multiple assigned organizations.
+4. Direct the builder to `http://127.0.0.1:8003/builder/login` locally (or port 5174
+   for Builder hot reload), or the
    deployment's frontend `/builder/login` URL. Do not share administrator credentials.
 
 Organization status (`active`, `inactive`, `suspended`) and verification state
 (`pending`, `verified`, `rejected`) use model enums and admin dropdowns. Membership
-roles and statuses also use enums; only active owner/editor memberships grant access.
+roles and statuses also use enums; only active owner/admin/editor memberships grant management access.
 Organization verification is separate from membership eligibility.
 
 Users can also sign in on the homepage and choose **Buyer** or **Builder**.
@@ -45,15 +69,15 @@ staff permissions or publish projects. Active organization owners can create nam
 roles and bulk onboard existing accounts within their own organization. The legacy developer-organization API also restricts organization
 creation/update/deletion to platform staff.
 
-Apply migration `0020_reusable_organization_roles` before deploying the new role
+Apply migrations `0020_reusable_organization_roles` and `0021_organization_admin_role` before deploying the role
 controls. Existing memberships retain their access. A named role bundles one base
-access level (`owner`, `editor`, `viewer`) and overrides the legacy membership role.
+access level (`owner`, `admin`, `editor`, `viewer`) and overrides the legacy membership role.
 Roles are scoped to an organization, names are case-insensitively unique, and assigned
 roles cannot be deleted or have their organization/base access changed in admin.
 Create a replacement role to change access. Bulk assignment preserves the last active
 owner and rejects the whole batch if any account is unknown or inactive.
 
-Django admin's **Roles & onboarding** links expose organization roles and platform
+The custom Admin console's access destinations expose organization roles and platform
 permission groups. A platform group bundles permissions and accepts multiple member
 accounts at once; the explicit **Grant admin login** checkbox also sets staff status.
 Delegated admins can only select permissions they hold, and changing members requires
@@ -65,7 +89,7 @@ The builder API uses existing session cookies and CSRF protection:
 | --- | --- | --- |
 | `/api/v1/auth/builder-login` | GET, POST | Initialize CSRF, then authenticate an assigned builder |
 | `/api/v1/builder/organizations` | GET | Assigned active management organizations |
-| `/api/v1/builder/organizations/{id}/roles` | GET, POST | Owner-only reusable roles and current members |
+| `/api/v1/builder/organizations/{id}/roles` | GET, POST | Owner role management; organization admins manage non-owner packages |
 | `/api/v1/builder/organizations/{id}/roles/{roleId}/members` | POST | Atomically assign a role to 1–100 existing active usernames |
 | `/api/v1/builder/projects` | GET, POST | List own projects or create in an assigned organization |
 | `/api/v1/builder/projects/{id}` | GET, PATCH | Read/edit own project metadata |
@@ -286,7 +310,6 @@ $Workspace = (Resolve-Path '../..').Path
 $Output = Join-Path $Workspace 'output'
 $Reports = Join-Path $Output 'reports'
 $env:WORKSPACE_DATA_ROOT = $Workspace
-$env:DATABASE_BACKEND = 'postgresql'
 $env:PYTHONUTF8 = '1'
 $env:PROJECT_METRO_CATALOGUE_FILE = Join-Path $PWD 'config/mmr-upcoming-metro.json'
 ```
@@ -736,23 +759,17 @@ while a managed evaluation worker is already processing the same scope.
 
 ### Tests and diagnostics
 
-These checks use isolated SQLite, do not run ingestion or live providers, and restore
-the terminal's database selection afterward. The browser test uses local Chromium;
+These checks use an isolated PostgreSQL test database and do not call live providers.
+Start PostgreSQL first; the configured account needs CREATEDB permission. The browser test uses local Chromium;
 install it as shown above to avoid skipping that check.
 
 ```powershell
-$PreviousBackend = $env:DATABASE_BACKEND
-try {
-  $env:DATABASE_BACKEND = 'sqlite'
-  & $Python manage.py check
-  if ($LASTEXITCODE -ne 0) { throw 'Django checks failed' }
-  & $Python -m pytest -c pytest.ini platform_api/tests/test_external_sources.py --tb=short
-  if ($LASTEXITCODE -ne 0) { throw 'Connector tests failed' }
-  & $Python -m pytest -c pytest.ini platform_api/tests/test_project_outputs.py platform_api/tests/test_layout_names.py -k 'project_admin_columns or dashboard_layout_explorer or dashboard_alias or active_toggle' --tb=short
-  if ($LASTEXITCODE -ne 0) { throw 'Project UI tests failed' }
-} finally {
-  $env:DATABASE_BACKEND = $PreviousBackend
-}
+& $Python manage.py check
+if ($LASTEXITCODE -ne 0) { throw 'Django checks failed' }
+& $Python -m pytest -c pytest.ini platform_api/tests/test_external_sources.py --tb=short
+if ($LASTEXITCODE -ne 0) { throw 'Connector tests failed' }
+& $Python -m pytest -c pytest.ini platform_api/tests/test_project_outputs.py platform_api/tests/test_layout_names.py -k 'project_admin_columns or dashboard_layout_explorer or dashboard_alias or active_toggle' --tb=short
+if ($LASTEXITCODE -ne 0) { throw 'Project UI tests failed' }
 ```
 
 VS Code equivalents: **Tasks: Run Task -> Test external connectors**, **Test project
@@ -902,7 +919,6 @@ Run from `reailEstate/reailEstate_common/backend` with this workspace's `.venv` 
 ```powershell
 python -m pip install -r requirements.txt
 python -m playwright install chromium
-$env:DATABASE_BACKEND = 'postgresql'
 $env:PROJECT_METRO_CATALOGUE_FILE = (Resolve-Path './config/mmr-upcoming-metro.json').Path
 python manage.py check
 python manage.py help fetch_maharera_project
@@ -990,14 +1006,13 @@ Google review task, then a same-project/same-reference report in `output/reports
 (legacy backend `reports` is read only when the target report is absent).
 
 Offline validation: VS Code tasks **Test external connectors** and
-**Test project form and sidebar** use isolated SQLite. Live Google billing/key access,
+**Test project form and sidebar** use an isolated PostgreSQL test database. Live Google billing/key access,
 route availability and the current MahaRERA website/CAPTCHA require separate validation.
 
 ### PostgreSQL and concurrent sample ingestion
 
 This workspace uses one PostgreSQL 17 primary at `127.0.0.1:15432`.
-There is no read replica: separate tables alone do not fix SQLite's database-wide
-writer lock. Its loopback-only Docker container is `realestate-workspace-publish-postgres`
+There is no read replica. Its loopback-only Docker container is `realestate-workspace-publish-postgres`
 and persistent volume is `realestate-workspace-publish-postgres-data`. Its randomly
 generated password is stored in the git-ignored, Windows-ACL-restricted
 `.local/postgres.json`; never commit or display that file. Do not delete the volume.
@@ -1007,9 +1022,10 @@ The setup script retains legacy defaults for the sibling workspace. Never invoke
 here without explicit `-Container realestate-workspace-publish-postgres`,
 `-Volume realestate-workspace-publish-postgres-data`, and `-Port 15432` arguments.
 
-Settings load that local connection automatically when the file exists. The startup
-task explicitly selects PostgreSQL. `DATABASE_BACKEND=sqlite` is only for backup or
-rollback operations; never run workers against different databases simultaneously.
+PostgreSQL is required for runtime, tests, backups and demos. Settings load local
+credentials when the file exists and otherwise use the PG* environment/defaults.
+There is no database-engine selector or file-database fallback. A stale non-PostgreSQL
+`DATABASE_BACKEND` override is rejected at startup.
 For externally hosted PostgreSQL, configure `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`,
 `PGPASSWORD`, and the appropriate `PGSSLMODE` instead. Use a direct connection, not
 transaction-mode connection pooling, because job ownership uses session advisory locks.
@@ -1062,9 +1078,8 @@ or fail. A failed source is retained as a gap, not counted as successfully extra
 
 The pre-migration SQLite backup, export and field/relationship verification report are
 under workspace `output/reports/postgres-migration-20260911`. Keep them private: the
-fixture contains original account password hashes and evidence data. Rollback requires
-stopping all writers and explicitly selecting SQLite; new PostgreSQL work is not copied
-back automatically. `verify_database_transfer` compares a dumpdata fixture against the
+fixture contains original account password hashes and evidence data. These are historical
+archives only; the application no longer opens them. Recovery must target PostgreSQL. `verify_database_transfer` compares a dumpdata fixture against the
 selected target without exposing the field values in its report.
 
 ### Folder-based sample refresh
@@ -1097,7 +1112,7 @@ artifacts remain private under `output/media/projects`.
 
 Use `--resume` with the same report, source and vision/scanner configuration after an
 interruption; completed sources are skipped and incomplete ones retried. Run only one
-synchronous importer/worker against SQLite. The command refuses pending document
+synchronous corpus importer; use `refresh_sample_corpus` for concurrent processing. The command refuses pending document
 outbox work. `--test-scanner` is an explicit local/development-only **malware scanning
 bypass**, not a security scan; use it only for trusted samples with approval.
 
@@ -1111,7 +1126,7 @@ not assert exhaustive visual coverage or human verification of every page.
 
 ### Expanded project reports and local folders
 
-The batch pipeline now writes per-document project reports and layout-metrics JSON/CSV, including parcel fields, RERA evidence, amenities, prices/offers, categorized image URIs, developer and station enrichment status. Full field definitions, format matrix, formulas, and limitations are in [the ingestion/output specification](../../docs/11-document-ingestion-and-project-outputs.md).
+The batch pipeline now writes per-document project reports and layout-metrics JSON/CSV, including parcel fields, RERA evidence, amenities, prices/offers, categorized image URIs, developer and station enrichment status. Full field definitions, format matrix, formulas, and limitations are in [the ingestion/output specification](../../../docs/11-document-ingestion-and-project-outputs.md).
 
 New uploads are physically stored in `user/media/todo` under `WORKSPACE_DATA_ROOT` (default workspace root). Successfully processed originals move to `user/media/completed`; parser failures and incomplete visual analysis remain in todo. Human review can remain outstanding after a processing-success move. Existing legacy media stays readable. Directory placement alone does not enqueue files: use the existing upload/complete API.
 
@@ -1202,7 +1217,7 @@ All routes below are under `/api/v1/developer-projects/{projectId}` and require 
 5. `POST /ingestion-queue` with `{ "limit": 1 }` runs a bounded project-only batch. Default limit is 10, maximum 20. **This manual endpoint is synchronous** and may take minutes for PDFs; use small batches or the timer/CLI for long jobs. It does not change the profiles already saved on the requests.
 6. `POST /documents/{documentId}:reprocess` with `{ "visionProfileId": "foundry-cloud", "reasonCode": "TRY_CLOUD_VISION" }` and a new `Idempotency-Key` queues another extraction and returns a new operation. It rejects an already-active request. The admin reprocess route also requires an idempotency key now. Reprocessing updates logical plans; it is not an immutable comparison of model outputs, and requires renewed review.
 
-Queue payloads pin the profile ID, provider, model, and nonsecret configuration hash. Changing the default does not change already-queued choices. Editing/removing/disabling a selected profile blocks the old request instead of silently rerouting it; keep old profiles unchanged and add a new ID for a different configuration. Secret rotation and label changes are allowed. Pre-existing messages without a selection retain their legacy worker-default behavior.
+Queue payloads record a nonsecret selection snapshot. AI work resolves the current configured fallback chain at execution: automatic requests use file order and a manual selection is tried first. Safe attempt metadata and the winning provider are recorded. Script/rules selections remain distinct from AI execution. There is no profile `enabled` field; edit the profile file and restart services/workers to reload it. Restarting does not itself requeue dead letters.
 
 ### Ad hoc flat separation
 
@@ -1249,7 +1264,6 @@ with the backend virtual environment and the same data root, database, scanner,
 vision profiles, and credentials as the API:
 
 ```powershell
-$env:DATABASE_BACKEND = 'postgresql'
 & $Python manage.py run_extraction_dispatcher --poll-seconds 2
 ```
 
@@ -1335,11 +1349,11 @@ Every API response carries `X-Correlation-ID`; asynchronous messages preserve th
 
 ### Local clean script rebuild
 
-The `rebuild_script_outputs` maintenance command inventories all projects with documents and defaults to a read-only preview. It requires a **new** `--backup-dir`; `--execute --reuse-recorded-scans` explicitly opts into local cleanup and checksum-bound reuse of a recorded clean scan (not a fresh malware scan). This operation is restricted to DEBUG + SQLite and requires an exclusive maintenance window with no uploads, edits, or workers. It refuses active outbox work and skips projects containing published/reviewed data, missing sources, or changed hashes.
+The `rebuild_script_outputs` maintenance command inventories all projects with documents and defaults to a read-only preview. It requires a **new** `--backup-dir`; `--execute --reuse-recorded-scans` explicitly opts into local cleanup and checksum-bound reuse of a recorded clean scan (not a fresh malware scan). This operation is restricted to DEBUG + local/development + loopback PostgreSQL and requires an exclusive maintenance window with no uploads, edits, or workers. It refuses active outbox work and skips projects containing published/reviewed data, missing sources, or changed hashes.
 
-Before cleanup it backs up SQLite and all referenced sources/derived files, verifies the ZIP, and writes a restore manifest. It rebuilds one project at a time with the rules provider and external enrichment disabled. Original uploads, projects, organizations, user accounts, published data and audit history are preserved. Old unreviewed plans/assets/runs/candidates/conflicts and their extraction review tasks are replaced; old document operations are marked superseded. Superseded generated files are deleted only after the project's replacement commits. A failed project rolls back its database changes and retains its previous outputs; interrupted runs can leave unreferenced files for later reconciliation.
+Before cleanup it runs `pg_dump --format=custom` and checks the archive catalogue with `pg_restore --list`, backs up all referenced sources/derived files, verifies the ZIP, and writes a restore manifest. It rebuilds one project at a time with the rules provider and external enrichment disabled. Original uploads, projects, organizations, user accounts, published data and audit history are preserved. Old unreviewed plans/assets/runs/candidates/conflicts and their extraction review tasks are replaced; old document operations are marked superseded. Superseded generated files are deleted only after the project's replacement commits. A failed project rolls back its database changes and retains its previous outputs; interrupted runs can leave unreferenced files for later reconciliation.
 
-The backup includes `db.sqlite3`, `media.zip`, `media-manifest.json` (original storage root/key, archive member, SHA-256), and a progressively updated `rebuild-report.json`. Keep these private: they contain original evidence and a complete local database. To restore, stop all application processes, restore the database and each archived object to the root/key in the manifest, verify hashes, and only then restart. Do not merge old and new SQLite data ad hoc. Standalone comparison reports and unrelated backup folders are not deleted.
+Matching `pg_dump` and `pg_restore` tools must be on PATH. The backup includes `database.dump`, `media.zip`, `media-manifest.json` (original storage root/key, archive member, SHA-256), and a progressively updated `rebuild-report.json`. Keep these private: they contain original evidence and a complete local database. To restore, stop all application processes, restore the database archive with `pg_restore` into an empty PostgreSQL database and each archived object to the root/key in the manifest, verify hashes, and only then restart. Do not merge old and new database data ad hoc. Standalone comparison reports and unrelated backup folders are not deleted.
 
 In admin, **Floor plan assets → Image category** can filter floor plans, flat layouts, design, amenities or unclassified candidates. Script identification remains heuristic: cleanup removes historical duplicates, not every possible false positive.
 

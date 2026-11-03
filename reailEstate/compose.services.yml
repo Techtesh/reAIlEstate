@@ -1,5 +1,4 @@
 x-app-environment: &app-environment
-  DATABASE_BACKEND: postgresql
   PGHOST: postgres
   PGPORT: "5432"
   PGDATABASE: realestate

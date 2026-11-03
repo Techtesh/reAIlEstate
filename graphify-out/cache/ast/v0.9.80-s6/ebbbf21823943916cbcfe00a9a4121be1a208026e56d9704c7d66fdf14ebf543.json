@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_deployments_azure_scripts_invoke_azuremigration_ps1", "label": "Invoke-AzureMigration.ps1", "file_type": "code", "source_file": ".deployments/azure/scripts/Invoke-AzureMigration.ps1", "source_location": "L1"}], "edges": [], "raw_calls": []}

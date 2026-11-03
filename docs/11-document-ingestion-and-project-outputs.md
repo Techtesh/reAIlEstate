@@ -4,9 +4,9 @@
 
 This document extends the original ingestion requirements and describes the Django implementation. Both `script` and `ai` modes are retained. Local identification and typed exports work without an AI endpoint. Registry validation, real journey times, and social sentiment require approved external data access; unavailable data is explicitly marked, never manufactured.
 
-1. An authorized project owner/editor requests an upload intent, uploads bytes, then calls completion with an idempotency key and optional profile ID.
+1. An authorized organization owner/admin/editor, or a platform editor using the separately permissioned Admin workspace, requests a same-origin upload intent, uploads bytes, then calls completion with an idempotency key and optional profile ID.
 2. The API verifies the declared size, SHA-256 and real file signature. The source is stored privately in the todo bucket. Completion creates the durable outbox job; it does **not** execute inference in the upload request.
-3. A user starts a project-only bounded batch, or a scheduled worker processes queued documents.
+3. The persistent worker is the normal local executor; bounded project-only batch processing remains a compatibility/maintenance action. The EC2 release workflow keeps the worker off, so uploads can remain queued until processing/scanning is separately configured.
 4. The worker rechecks the stored bytes/hash, scans for malware, and optionally converts supported Office formats into a temporary PDF. The original file is retained unchanged.
 5. Extract inert text with source-page provenance. Retain paragraphs/newlines for structured label extraction; chunk copies support existing evidence search.
 6. Select floor-plan and flat-layout candidates from text/graphics. Render selected pages at high resolution. Identify additional design/amenities pages. Persist private PNGs and expose only authenticated asset URIs in report fields.
@@ -16,6 +16,8 @@ This document extends the original ingestion requirements and describes the Djan
 10. On successful processing, move the original to completed. Visual-provider failures retain the source in todo and produce an `awaiting_visual_analysis` report where possible. Parser/converter failures and malware rejection do not move the file to completed.
 
 `completed` is a processing/storage state, **not** approval, proof of title, completion of human review, or successful external enrichment. Missing external data does not prevent otherwise successful document processing.
+
+Admin and Builder reuse the same upload/crop services with distinct authorization and API prefixes. Original-page crops preserve source checksum, rotation geometry and page bounds; whole-floor corrections retain their own review history and cannot be applied to layout room fields. Provider profiles and ordered fallback live in the ignored configuration file; browser callers choose registered profile IDs, never endpoints or credentials. See [current processing flows](current-project-flows.md), [provider configuration](../reailEstate/README.md#local-services) and [API contracts](05-api-contracts.md).
 
 ## 2. Formats and conversion boundary
 
@@ -52,7 +54,7 @@ Images are real files; the database/report stores metadata and **URI references*
 
 Relocation copies and verifies bytes, saves the new DB key, and deletes the original copy only after the database transaction commits. Rollback/crash may leave an unreferenced copy for an administrator to reconcile, but should not lose the current source. Reprocessing moves completed sources back to todo as part of enqueueing. Files dropped into a directory alone are **not** jobs: the API's authorization, hashes and outbox record are required.
 
-Use one non-overlapping worker with SQLite. Current worker transactions include long parsing/inference operations; PostgreSQL and improved work leasing/transaction boundaries are needed before multi-worker production scaling.
+PostgreSQL is required. Workers use PostgreSQL session advisory locks for ownership and short row-locking transactions for state changes; use a direct or session-pooled database connection for concurrent processing.
 
 ## 4. Structured project contract
 

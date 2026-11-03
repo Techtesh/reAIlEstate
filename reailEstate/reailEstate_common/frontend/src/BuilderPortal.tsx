@@ -1,16 +1,22 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { workspaceOrder, inactiveProject } from './workspaceOrdering'
+import { DocumentBrowser } from './DocumentBrowser'
+import { AdminPortal } from './AdminPortal'
+import { useUnsavedChanges } from './useUnsavedChanges'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, ApiError, apiPath, cancelSessionRequests, json, onSessionExpired } from './api'
+import { ProjectContent, ProjectCropCart } from './ProjectContent'
 import { BuilderMediaWorkspace, type BuilderLayout as Layout } from './BuilderMediaWorkspace'
 import { coordinates } from './buyer'
 import { errorMessage, isAbortError } from './errors'
 import { documentAccept, documentMediaType } from './documentFormats'
 import { ThemeControl } from './ThemeControl'
 import { OrganizationRoles } from './OrganizationRoles'
+import { ProjectWorkspaceContext, platformProjectWorkspace, useProjectWorkspace } from './projectWorkspace'
 import './BuilderPortal.css'
 
 type Account = { id: string | number; username: string; email: string }
-type Organization = { id: string; legalName: string; role: 'owner' | 'admin' | 'editor' }
+type Organization = { id: string; legalName: string; role: 'owner' | 'admin' | 'editor' | 'platform_editor'; canCreateProject?: boolean }
 type Address = { line1: string; line2: string; city: string; pincode: string; locality?: string }
 type Project = {
   id: string; organizationId: string; organizationName: string; submittedName: string
@@ -26,6 +32,8 @@ type Upload = { file: File; mediaType: string; key: string; intent: UploadIntent
 const message = (error: unknown) => errorMessage(error, 'The action could not be completed.')
 const pathFor = (id: string) => `/api/v1/builder/projects/${encodeURIComponent(id)}`
 const documentsFor = (id: string) => `/api/v1/developer-projects/${encodeURIComponent(id)}/documents`
+const projectSections = [{ id: 'details', label: 'Project details' }, { id: 'sources', label: 'Sources & review' }, { id: 'documents', label: 'Documents' }, { id: 'media', label: 'Images & plans' }] as const
+type ProjectSection = typeof projectSections[number]['id']
 const locationEntry = (project?: Project): LocationEntry => ({
   method: 'unchanged', latitude: String(project?.location?.latitude ?? ''),
   longitude: String(project?.location?.longitude ?? ''), mapsUrl: '',
@@ -80,7 +88,7 @@ export function BuilderPortal() {
         await api('/api/v1/auth/builder-login', { signal: controller.signal })
         const account = await api<Account>('/api/v1/auth/me', { signal: controller.signal })
         const memberships = await api<Organization[]>('/api/v1/builder/organizations', { signal: controller.signal })
-        setUser(account); setOrganizations(memberships); navigate('/builder', { replace: true })
+        setUser(account); setOrganizations(memberships); navigate('/builder' + window.location.search, { replace: true })
       } catch (failure) {
         if (isAbortError(failure)) return
         if (failure instanceof ApiError && [401, 403].includes(failure.status)) navigate('/builder/login', { replace: true })
@@ -106,12 +114,44 @@ export function BuilderPortal() {
   }
   return <div className="builder-portal">
     <a className="skip-link" href="#builder-main">Skip to content</a>
-    <header className="builder-header"><Link to="/" className="builder-brand">MMR Homefinder <span>Builder workspace</span></Link><nav aria-label="Builder navigation"><ThemeControl /><Link to="/browse">Browse homes</Link>{user && <><Link to="/?workspace=choose">Switch workspace</Link><span>{user.username}</span><button className="secondary" onClick={() => void logout()} disabled={busy}>Sign out</button></>}</nav></header>
+    <header className="builder-header"><Link to="/" className="builder-brand">MMR Homefinder <span>Builder workspace</span></Link><nav aria-label="Builder navigation"><ThemeControl /><a href="?cart=1">Crop cart</a><Link to="/browse">Browse homes</Link>{user && <><Link to="/?workspace=choose">Switch workspace</Link><span>{user.username}</span><button className="secondary" onClick={() => void logout()} disabled={busy}>Sign out</button></>}</nav></header>
     <main id="builder-main" className="builder-main">
       {error && <div role="alert" className="builder-notice">{error}{!user && booted.current && <button className="secondary" onClick={() => setAttempt(value => value + 1)}>Retry connection</button>}</div>}
-      {booting ? <p role="status">Connecting to your builder workspace…</p> : !user ? <BuilderLogin key={attempt} onSuccess={signedIn} /> : organizations.length === 0 ? <section className="builder-panel"><h1>Builder access unavailable</h1><p>You need an owner, admin, or editor membership in an active organization. A platform administrator must provision your account and membership. Buyer or staff access alone does not grant builder access.</p><p>Sign out to use a different account.</p></section> : <BuilderWorkspace key={user.id} organizations={organizations} />}
+      {booting ? <p role="status">Connecting to your builder workspace…</p> : !user ? <BuilderLogin key={attempt} onSuccess={signedIn} /> : organizations.length === 0 ? <section className="builder-panel"><h1>Builder access unavailable</h1><p>You need an owner, admin, or editor membership in an active organization. A platform administrator must provision your account and membership. Buyer or staff access alone does not grant builder access.</p><p>Sign out to use a different account.</p></section> : new URLSearchParams(window.location.search).get('cart') === '1' ? <ProjectCropCart /> : <BuilderWorkspace key={user.id} organizations={organizations} />}
     </main>
     <footer className="builder-footer">Owners can onboard existing accounts with organization roles. New accounts are provisioned by the platform administrator. Builders cannot publish their own evidence.</footer>
+  </div>
+}
+
+export function AdminProjectWorkspace() {
+  return <ProjectWorkspaceContext.Provider value={platformProjectWorkspace}><AdminPortal /></ProjectWorkspaceContext.Provider>
+}
+
+export function AdminWorkspace({ embedded = false }: { embedded?: boolean }) {
+  const { api } = useProjectWorkspace()
+  const WorkspaceContent = embedded ? 'div' : 'main'
+  const [organizations, setOrganizations] = useState<Organization[]>([])
+  const [loading, setLoading] = useState(true), [error, setError] = useState('')
+  useEffect(() => {
+    document.title = 'Project workspace | MMR Homefinder admin'
+    const controller = new AbortController()
+    api<Organization[]>('/api/v1/builder/organizations', { signal: controller.signal })
+      .then(setOrganizations)
+      .catch(failure => { if (!isAbortError(failure)) setError(message(failure)) })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    const unsubscribe = onSessionExpired(() => {
+      cancelSessionRequests(); setOrganizations([]); setError('Your admin session or project access expired. Sign in through administration again.')
+    })
+    return () => { controller.abort(); unsubscribe(); cancelSessionRequests() }
+  }, [api])
+  return <div className="builder-portal">
+    <a className="skip-link" href="#project-workspace-main">Skip to project workspace</a>
+    {!embedded && <header className="builder-header"><a className="builder-brand" href="/admin/">MMR Homefinder · Administration</a><nav aria-label="Administration"><ThemeControl /><a href="?cart=1">Crop cart</a><a href="/admin/records/projects/">Back to projects</a></nav></header>}
+    <WorkspaceContent id="project-workspace-main" className="builder-main">
+      {error && <p role="alert" className="builder-notice">{error}</p>}
+      {loading ? <p role="status">Loading project workspace…</p> : organizations.length ? new URLSearchParams(window.location.search).get('cart') === '1' ? <ProjectCropCart /> : <BuilderWorkspace organizations={organizations} /> : !error && <section className="builder-panel"><h1>No active organizations</h1><p>Create an active organization in administration before creating a project.</p></section>}
+    </WorkspaceContent>
+    <footer className="builder-footer">Documents and layout changes use the same processing and independent review workflow as builder submissions.</footer>
   </div>
 }
 
@@ -134,12 +174,16 @@ function BuilderLogin({ onSuccess }: { onSuccess: (account: Account) => Promise<
 }
 
 function BuilderWorkspace({ organizations }: { organizations: Organization[] }) {
-  const [organizationId, setOrganizationId] = useState(organizations[0].id)
+  const { admin } = useProjectWorkspace()
+  const [organizationId, setOrganizationId] = useState(() => {
+    const requested = new URLSearchParams(window.location.search).get('organization')
+    return organizations.find(item => item.id === requested)?.id ?? organizations[0].id
+  })
   const [dirty, setDirty] = useState(false)
   const organization = organizations.find(item => item.id === organizationId)!
   return <>
-    <div className="builder-heading"><div><p className="eyebrow">Organization workspace</p><h1>Your projects</h1><p>{organization.legalName} · {organization.role}</p></div><label>Active organization<select value={organizationId} onChange={event => { if (!dirty || window.confirm('Discard unsaved project, layout or crop entries and switch organization? An in-flight action may still finish on the server.')) { setDirty(false); setOrganizationId(event.target.value) } }}>{organizations.map(item => <option value={item.id} key={item.id}>{item.legalName} ({item.role})</option>)}</select></label></div>
-    {(organization.role === 'owner' || organization.role === 'admin') && <OrganizationRoles key={`roles-${organizationId}`} organizationId={organizationId} canManageOwners={organization.role === 'owner'} />}
+    <div className="builder-heading"><div><h1>{admin ? 'Project workspace' : 'Your projects'}</h1><p>{organization.legalName} · {admin ? 'Platform editor' : organization.role}</p></div><label>Active organization<select value={organizationId} onChange={event => { if (!dirty || window.confirm('Discard unsaved project, layout or crop entries and switch organization? An in-flight action may still finish on the server.')) { setDirty(false); setOrganizationId(event.target.value); const url = new URL(window.location.href); url.searchParams.set('organization', event.target.value); url.searchParams.delete('project'); url.searchParams.delete('plan'); window.history.replaceState(window.history.state, '', url) } }}>{organizations.map(item => <option value={item.id} key={item.id}>{item.legalName} ({admin ? 'Platform editor' : item.role})</option>)}</select></label></div>
+    {!admin && (organization.role === 'owner' || organization.role === 'admin') && <OrganizationRoles key={`roles-${organizationId}`} organizationId={organizationId} canManageOwners={organization.role === 'owner'} />}
     <OrganizationProjects key={organizationId} organization={organization} dirty={dirty} onDirty={setDirty} />
   </>
 }
@@ -147,52 +191,95 @@ function BuilderWorkspace({ organizations }: { organizations: Organization[] }) 
 function OrganizationProjects({ organization, dirty, onDirty }: { organization: Organization; dirty: boolean; onDirty: (dirty: boolean) => void }) {
   const signal = useRequestScope()
   const [projects, setProjects] = useState<Project[]>([])
-  const [selected, setSelected] = useState<Project | 'new' | null>(null)
+  const [projectSearch, setProjectSearch] = useState(() => new URLSearchParams(window.location.search).get('projectSearch') ?? '')
+  const [locality, setLocality] = useState(() => new URLSearchParams(window.location.search).get('locality') ?? '')
+  const { api, admin } = useProjectWorkspace()
+  const requestedProject = useRef(new URLSearchParams(window.location.search).get('project'))
+  const [selected, setSelected] = useState<Project | 'new' | null>(() => admin && new URLSearchParams(window.location.search).get('new') === '1' ? 'new' : null)
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [reload, setReload] = useState(0)
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true); setError('')
     api<Project[]>('/api/v1/builder/projects', { signal: AbortSignal.any([signal, controller.signal]) })
-      .then(items => setProjects(items.filter(item => item.organizationId === organization.id)))
+      .then(items => {
+        const projects = items.filter(item => item.organizationId === organization.id)
+        setProjects(projects)
+        if (requestedProject.current) {
+          setSelected(projects.find(item => item.id === requestedProject.current) ?? null)
+          requestedProject.current = null
+        }
+      })
       .catch(failure => { if (!isAbortError(failure)) setError(message(failure)) })
       .finally(() => { if (!controller.signal.aborted && !signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [organization.id, signal, reload])
+  }, [organization.id, signal, reload, api])
   function saved(project: Project) {
     if (project.organizationId !== organization.id) return
     setProjects(current => [project, ...current.filter(item => item.id !== project.id)])
     setSelected(project)
+    const url = new URL(window.location.href)
+    url.searchParams.set('project', project.id); url.searchParams.set('organization', organization.id); url.searchParams.delete('new')
+    window.history.replaceState(window.history.state, '', url)
   }
   function select(project: Project | 'new') {
     if (project === 'new' ? selected === 'new' : selected !== 'new' && selected?.id === project.id) return
     if (dirty && !window.confirm('Discard unsaved project, layout or crop entries and switch project? An in-flight action may still finish on the server.')) return
     onDirty(false); setSelected(project)
+    const url = new URL(window.location.href)
+    url.searchParams.set('organization', organization.id); url.searchParams.delete('plan')
+    if (project === 'new') { url.searchParams.delete('project'); url.searchParams.set('new', '1'); url.searchParams.set('section', 'details') }
+    else { url.searchParams.set('project', project.id); url.searchParams.delete('new') }
+    window.history.replaceState(window.history.state, '', url)
+  }
+  const localities = [...new Set(projects.map(project => project.locality).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+  const visibleProjects = workspaceOrder(projects.filter(project => project.submittedName.toLocaleLowerCase().includes(projectSearch.toLocaleLowerCase()) && (!locality || project.locality === locality)), project => project.submittedName, inactiveProject)
+  function filterProjects(search: string, place: string) {
+    setProjectSearch(search); setLocality(place)
+    const url = new URL(window.location.href)
+    if (search) url.searchParams.set('projectSearch', search); else url.searchParams.delete('projectSearch')
+    if (place) url.searchParams.set('locality', place); else url.searchParams.delete('locality')
+    window.history.replaceState(null, '', url)
   }
   return <div className="builder-workspace">
-    <aside className="builder-panel builder-project-list" aria-label="Organization projects"><button className="primary" onClick={() => select('new')}>New project</button>{loading ? <p role="status">Loading projects…</p> : error ? <div role="alert"><p>{error}</p><button className="secondary" onClick={() => setReload(value => value + 1)}>Retry projects</button></div> : projects.length === 0 ? <p>No projects yet. Create your first project.</p> : <ul>{projects.map(project => <li key={project.id}><button aria-pressed={selected !== 'new' && selected?.id === project.id} onClick={() => select(project)}><strong>{project.submittedName}</strong><span>{project.locality || 'Locality not supplied'} · {project.status.replaceAll('_', ' ')}</span></button></li>)}</ul>}</aside>
+    <aside className="builder-panel builder-project-list" aria-label="Organization projects"><label>Find a project<input type="search" value={projectSearch} onChange={event => filterProjects(event.target.value, locality)} /></label><label>Locality<select value={locality} onChange={event => filterProjects(projectSearch, event.target.value)}><option value="">All localities</option>{localities.map(place => <option key={place}>{place}</option>)}</select></label>{(projectSearch || locality) && <button className="secondary" onClick={() => filterProjects('', '')}>Clear filters</button>}{(!admin || organization.canCreateProject) && <button className="primary" onClick={() => select('new')}>New project</button>}{loading ? <p role="status">Loading projects…</p> : error ? <div role="alert"><p>{error}</p><button className="secondary" onClick={() => setReload(value => value + 1)}>Retry projects</button></div> : visibleProjects.length === 0 ? <p>{projects.length ? 'No projects match these filters.' : 'No projects yet. Create your first project.'}</p> : <ul>{visibleProjects.map(project => <li key={project.id}><button aria-pressed={selected !== 'new' && selected?.id === project.id} onClick={() => select(project)}><strong>{project.submittedName}</strong><span>{project.locality || 'Locality not supplied'} · {project.status.replaceAll('_', ' ')}</span></button></li>)}</ul>}</aside>
     {selected ? <ProjectEditor key={selected === 'new' ? 'new' : selected.id} organization={organization} initial={selected === 'new' ? null : selected} onSaved={saved} onDirty={onDirty} /> : <section className="builder-panel"><h2>Select a project</h2><p>Create a project or select one from your organization to edit details, upload evidence and request review. Publication is reserved for independent reviewers.</p></section>}
   </div>
 }
 
 function ProjectEditor({ organization, initial, onSaved, onDirty }: { organization: Organization; initial: Project | null; onSaved: (project: Project) => void; onDirty: (dirty: boolean) => void }) {
+  const { api } = useProjectWorkspace()
+  const sectionId = useId()
+  const [section, setSection] = useState<ProjectSection>(() => {
+    const requested = new URLSearchParams(window.location.search).get('section')
+    return !initial || !requested ? 'details' : projectSections.find(item => item.id === requested)?.id ?? 'media'
+  })
+  const lastMediaSection = useRef(new URLSearchParams(window.location.search).get('section') ?? 'project-images')
+  function showSection(next: ProjectSection) {
+    if (section === 'media') lastMediaSection.current = new URLSearchParams(window.location.search).get('section') ?? 'project-images'
+    setSection(next)
+    const url = new URL(window.location.href)
+    url.searchParams.set('section', next === 'media' ? ['project-images', 'amenities', 'floor-plans', 'layouts'].includes(lastMediaSection.current) ? lastMediaSection.current : 'project-images' : next)
+    window.history.replaceState(window.history.state, '', url)
+  }
   const signal = useRequestScope()
   const [project, setProject] = useState(initial)
   const [draft, setDraft] = useState<ProjectDraft>(() => initial ? projectDraft(initial) : emptyDraft())
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [notice, setNotice] = useState('')
   const [conflict, setConflict] = useState(false), [confirmReload, setConfirmReload] = useState(false), [confirmArchive, setConfirmArchive] = useState(false)
   const [evidenceVersion, setEvidenceVersion] = useState(0)
-  const [mediaDirty, setMediaDirty] = useState(false)
+  const [mediaDirty, setMediaDirty] = useState(false), [contentDirty, setContentDirty] = useState(false)
   const locked = !!project && ['retired', 'merged'].includes(project.status)
   const dirty = json(draft) !== json(project ? projectDraft(project) : emptyDraft())
+  useUnsavedChanges(dirty || mediaDirty || contentDirty || busy)
   const dirtyRef = useRef(dirty)
   dirtyRef.current = dirty
-  useEffect(() => { onDirty(dirty || mediaDirty || busy) }, [dirty, mediaDirty, busy, onDirty])
+  useEffect(() => { onDirty(dirty || mediaDirty || contentDirty || busy) }, [dirty, mediaDirty, contentDirty, busy, onDirty])
   useEffect(() => {
-    if (!dirty && !mediaDirty && !busy) return
+    if (!dirty && !mediaDirty && !contentDirty && !busy) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty, mediaDirty, busy])
+  }, [dirty, mediaDirty, contentDirty, busy])
   function accepted(saved: Project) { setProject(saved); setDraft(projectDraft(saved)); onSaved(saved) }
   function failure(error: unknown) {
     if (isAbortError(error)) return
@@ -255,10 +342,16 @@ function ProjectEditor({ organization, initial, onSaved, onDirty }: { organizati
     catch (error) { failure(error) } finally { if (!signal.aborted) setBusy(false) }
   }
   return <div className="builder-editor">
-    <section className="builder-panel"><h2>{project ? 'Project details' : 'Create project'}</h2>{project && <p className="builder-status">Status: <strong>{project.status.replaceAll('_', ' ')}</strong> · Registry: {project.verificationStatus.replaceAll('_', ' ')}</p>}
-      <p>Organization: {organization.legalName}. Organization assignment and publication status cannot be changed here.</p>
+    {project && <header className="project-context"><div><h2>{project.submittedName}</h2><p>{project.locality || 'Locality not supplied'} · {project.mahaReraId}</p></div><span className="project-state">{project.status.replaceAll('_', ' ')}</span></header>}
+    {project && <div className="project-section-tabs" role="tablist" aria-label="Project sections">{projectSections.map((item, index) => <button key={item.id} id={`${sectionId}-${item.id}-tab`} role="tab" aria-selected={section === item.id} aria-controls={`${sectionId}-${item.id}-panel`} tabIndex={section === item.id ? 0 : -1} onClick={() => showSection(item.id)} onKeyDown={event => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+      event.preventDefault()
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? projectSections.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + projectSections.length) % projectSections.length
+      showSection(projectSections[next].id); document.getElementById(`${sectionId}-${projectSections[next].id}-tab`)?.focus()
+    }}>{item.label}</button>)}</div>}
+    {error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status" className="builder-notice">{notice}</p>}
+    <section className="builder-panel project-details" id={`${sectionId}-details-panel`} role={project ? 'tabpanel' : undefined} aria-labelledby={project ? `${sectionId}-details-tab` : undefined} hidden={section !== 'details'}><h2>{project ? 'Project details' : 'Create project'}</h2>{project && <p className="data-note">Registry: {project.verificationStatus.replaceAll('_', ' ')} · {organization.legalName}</p>}
       {locked && <p role="status">This project is {project?.status}; editing and uploads are unavailable.</p>}
-      {error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status" className="builder-notice">{notice}</p>}
       {conflict && <div role="alert" className="builder-conflict"><h3>Changes were not overwritten</h3><p>The saved version or project state changed. Your entries remain below. Copy anything you need before reloading. Saving is blocked until you load the latest version.</p><button className="secondary" disabled={busy} onClick={() => setConfirmReload(true)}>Reload latest version</button></div>}
       {confirmReload && <div className="builder-confirm" role="group" aria-label="Confirm reload"><p>Replace your unsaved project, layout and crop entries with the latest saved project? An in-flight media action may still finish on the server.</p><div className="button-row"><button className="primary" disabled={busy} onClick={() => void reloadProject()}>Discard entries and reload</button><button className="secondary" disabled={busy} onClick={() => setConfirmReload(false)}>Keep editing locally</button></div></div>}
       <form onSubmit={event => void save(event)}><fieldset disabled={busy || locked}><div className="builder-form-grid">
@@ -284,14 +377,19 @@ function ProjectEditor({ organization, initial, onSaved, onDirty }: { organizati
           </div>}
         </fieldset>
         <label className="builder-check"><input type="checkbox" checked={draft.processingAttested} onChange={event => setDraft({ ...draft, processingAttested: event.target.checked })} />I am authorized to submit and process this project’s documents and evidence.</label><p className="data-note">Attestation is required before review. MahaRERA verification is not legal certification.</p><button className="primary" type="submit" disabled={conflict}>{busy ? 'Saving…' : project ? 'Save project changes' : 'Create project'}</button></fieldset></form>
-      {project && !locked && <div className="builder-actions"><button className="secondary" disabled={busy || conflict || dirty || mediaDirty} onClick={() => void submitReview()}>Submit for review</button><button className="secondary" disabled={busy || conflict || dirty || mediaDirty} onClick={() => setConfirmArchive(true)}>Archive project</button>{(dirty || mediaDirty) && <p>Save your project and layout changes and finish crop editing before submitting or archiving.</p>}</div>}
-      {confirmArchive && <div className="builder-confirm" role="group" aria-label="Confirm archive"><h3>Archive this project?</h3><p>This retires the project and prevents further edits. It does not delete documents or evidence.</p><div className="button-row"><button className="primary" disabled={busy || conflict || dirty || mediaDirty} onClick={() => void archive()}>Confirm archive</button><button className="secondary" disabled={busy} onClick={() => setConfirmArchive(false)}>Cancel archive</button></div></div>}
+      {project && !locked && <div className="builder-actions"><button className="secondary" disabled={busy || conflict || dirty || mediaDirty || contentDirty} onClick={() => void submitReview()}>Submit for review</button><button className="secondary" disabled={busy || conflict || dirty || mediaDirty || contentDirty} onClick={() => setConfirmArchive(true)}>Archive project</button>{(dirty || mediaDirty || contentDirty) && <p>Save your project, source and layout changes and finish crop editing before submitting or archiving.</p>}</div>}
+      {confirmArchive && <div className="builder-confirm" role="group" aria-label="Confirm archive"><h3>Archive this project?</h3><p>This retires the project and prevents further edits. It does not delete documents or evidence.</p><div className="button-row"><button className="primary" disabled={busy || conflict || dirty || mediaDirty || contentDirty} onClick={() => void archive()}>Confirm archive</button><button className="secondary" disabled={busy} onClick={() => setConfirmArchive(false)}>Cancel archive</button></div></div>}
     </section>
-    {project && <><ProjectDocuments key={`${project.id}-${evidenceVersion}`} projectId={project.id} locked={locked || conflict} /><BuilderMediaWorkspace key={`${project.id}-media-${evidenceVersion}`} projectId={project.id} locked={locked || conflict || busy || dirty} onChanged={noticeMessage => void layoutChanged(noticeMessage)} onDirty={setMediaDirty} renderLayout={(layout, layoutLocked, onSavedLayout, onDirtyLayout) => <LayoutEditor layout={layout} projectId={project.id} locked={layoutLocked} onSaved={onSavedLayout} onDirty={onDirtyLayout} />} /></>}
+    {project && <>
+      <div id={`${sectionId}-sources-panel`} role="tabpanel" aria-labelledby={`${sectionId}-sources-tab`} hidden={section !== 'sources'}><ProjectContent key={`${project.id}-content-${evidenceVersion}`} projectId={project.id} version={project.updatedAt} registration={project.mahaReraId} locked={locked || conflict || busy || dirty || mediaDirty} onDirty={setContentDirty} onChanged={noticeMessage => void layoutChanged(noticeMessage)} /></div>
+      <div id={`${sectionId}-documents-panel`} role="tabpanel" aria-labelledby={`${sectionId}-documents-tab`} hidden={section !== 'documents'}><ProjectDocuments key={`${project.id}-${evidenceVersion}`} projectId={project.id} locked={locked || conflict} /></div>
+      <div id={`${sectionId}-media-panel`} role="tabpanel" aria-labelledby={`${sectionId}-media-tab`} hidden={section !== 'media'}><BuilderMediaWorkspace key={`${project.id}-media-${evidenceVersion}`} projectId={project.id} locked={locked || conflict || busy || dirty || contentDirty} onChanged={noticeMessage => void layoutChanged(noticeMessage)} onDirty={setMediaDirty} renderLayout={(layout, layoutLocked, onSavedLayout, onDirtyLayout) => <LayoutEditor layout={layout} projectId={project.id} locked={layoutLocked} onSaved={onSavedLayout} onDirty={onDirtyLayout} />} /></div>
+    </>}
   </div>
 }
 
 function ProjectDocuments({ projectId, locked }: { projectId: string; locked: boolean }) {
+  const { api } = useProjectWorkspace()
   const signal = useRequestScope()
   const [documents, setDocuments] = useState<Evidence[]>([]), [error, setError] = useState(''), [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(false), [busy, setBusy] = useState(false), [upload, setUpload] = useState<Upload | null>(null)
@@ -299,7 +397,7 @@ function ProjectDocuments({ projectId, locked }: { projectId: string; locked: bo
   useEffect(() => {
     setLoading(true)
     api<Evidence[]>(documentsFor(projectId), { signal }).then(setDocuments).catch(error => { if (!isAbortError(error)) setError(message(error)) }).finally(() => { if (!signal.aborted) setLoading(false) })
-  }, [projectId, signal])
+  }, [projectId, signal, api])
   async function refresh() {
     setLoading(true); setError('')
     try { setDocuments(await api<Evidence[]>(documentsFor(projectId), { signal })) }
@@ -357,14 +455,15 @@ function ProjectDocuments({ projectId, locked }: { projectId: string; locked: bo
     finally { if (!signal.aborted) setBusy(false) }
   }
   const pending = upload && upload.phase !== 'done'
-  return <section className="builder-panel"><h2>Project documents</h2><p>Upload PDFs, PNG/JPEG images, Word/Office documents, RTF, ODT, Markdown, text, CSV or JSON evidence. Some Office formats require server-side conversion. Files are private until reviewed. Uploading only queues processing.</p>{error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status" className="builder-notice">{notice}</p>}<label>Evidence file<input ref={fileInput} type="file" accept={documentAccept} disabled={busy || locked || !!(pending && upload.intent)} onChange={event => select(event.target.files?.[0])} /></label>
+  return <section className="builder-panel project-documents"><div className="document-heading"><h2>Project documents</h2><button className="secondary" disabled={loading || busy} onClick={() => void refresh()}>Refresh documents</button></div>{error && <p role="alert" className="field-error">{error}</p>}{notice && <p role="status" className="builder-notice">{notice}</p>}<details className="document-upload"><summary>Upload evidence</summary><p className="data-note">PDF, images, Office, RTF, ODT, Markdown, text, CSV or JSON. Files remain private until reviewed. Uploads queue processing; some Office formats require conversion.</p><label>Evidence file<input ref={fileInput} type="file" accept={documentAccept} disabled={busy || locked || !!(pending && upload.intent)} onChange={event => select(event.target.files?.[0])} /></label>
     {pending && <p>{upload.file.name} · {upload.file.size.toLocaleString()} bytes · {upload.phase === 'intent' ? 'Ready to request upload' : upload.phase === 'put' ? 'Ready to transfer file' : 'File transferred; completion pending'}</p>}
-    <div className="button-row"><button className="primary" disabled={!pending || busy || locked} onClick={() => void send()}>{busy ? 'Uploading…' : error && pending ? upload.phase === 'intent' ? 'Retry upload request' : 'Retry same upload' : 'Upload evidence'}</button><button className="secondary" disabled={loading || busy} onClick={() => void refresh()}>Refresh documents</button>{pending && upload.intent && <button className="secondary" disabled={busy} onClick={() => { setUpload(null); setError(''); if (fileInput.current) fileInput.current.value = '' }}>Cancel local upload</button>}</div>
-    {loading ? <p role="status">Loading documents…</p> : documents.length ? <ul className="builder-documents">{documents.map(document => <li key={document.id}><strong>{document.originalName}</strong><span>Status: {document.status} · Scan: {document.scanStatus} · {document.byteLength.toLocaleString()} bytes</span>{document.errorCategory && <span className="field-error">Processing issue: {document.errorCategory}. Contact the platform administrator if it persists.</span>}</li>)}</ul> : <p>No evidence uploaded yet.</p>}
+    <div className="button-row"><button className="primary" disabled={!pending || busy || locked} onClick={() => void send()}>{busy ? 'Uploading…' : error && pending ? upload.phase === 'intent' ? 'Retry upload request' : 'Retry same upload' : 'Upload evidence'}</button>{pending && upload.intent && <button className="secondary" disabled={busy} onClick={() => { setUpload(null); setError(''); if (fileInput.current) fileInput.current.value = '' }}>Cancel local upload</button>}</div></details>
+    {loading ? <p role="status">Loading documents…</p> : <DocumentBrowser projectId={projectId} documents={documents} />}
   </section>
 }
 
 function LayoutEditor({ layout, projectId, locked, onSaved, onDirty }: { layout: Layout; projectId: string; locked: boolean; onSaved: (layout: Layout) => void; onDirty: (id: string, dirty: boolean) => void }) {
+  const { api } = useProjectWorkspace()
   const signal = useRequestScope()
   const [price, setPrice] = useState(layout.price ?? '')
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [conflict, setConflict] = useState(false)

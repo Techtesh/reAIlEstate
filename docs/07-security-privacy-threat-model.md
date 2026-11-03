@@ -1,5 +1,13 @@
 # Security, Privacy, and Threat Model
 
+## Implemented controls and production requirements
+
+This is a threat model and acceptance baseline, not a security certification. Current sign-in uses Django sessions, CSRF checks and object/model permissions. OIDC, mandatory reviewer MFA and workload identity are production requirements below, not established integrations. The custom React Admin console keeps Django authorization; hiding controls is never sufficient authorization. Retired admin editor routes allow GET/HEAD redirects and reject writes.
+
+The [EC2 workflow](../.deployments/aws/ec2/README.md) authenticates deployment with a dedicated SSH key and pinned host keys, independently of application sign-in. Its default `demo=true` explicitly enables eligible unreviewed public previews, including for anonymous HTTPS visitors. Disable demo visibility for approved-media-only exposure. The workflow keeps processing off; scanner/provider readiness must be established before enabling it.
+
+Guest matching sends consented requirements to the stateless API, then stores query/report data in bounded 90-day cookies. Compression is not encryption; anyone sharing the browser may read the saved report. The browser-only trial marker is not an identity or abuse-prevention guarantee. Account deletion, share revocation, retention and encrypted-storage requirements must be verified independently. See [privacy behavior](../reailEstate/reailEstate_common/frontend/README.md#privacy-and-concurrency).
+
 ## 1. Security objectives
 
 - Prevent cross-user and cross-organization data access.

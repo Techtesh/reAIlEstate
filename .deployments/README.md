@@ -1,30 +1,36 @@
-# Deployment providers
+# Deployment
 
-This directory keeps cloud-specific infrastructure outside the application
-packages while preserving one runtime contract.
+Deploy the current service through [GitHub Actions](aws/ec2/README.md).
+The workflow builds and checks a release, transfers its checked artifact over SSH,
+and starts the services in private-preview or public-HTTPS mode.
 
-## Runtime contract
+Start with [SSH authentication and runner reachability](aws/ec2/authentication-guide.md).
+Dispatch selects an environment, transport mode and `demo` visibility (default true).
+Demo visibility can expose eligible unreviewed media/details to anonymous viewers;
+it does not approve records. Releases check pending migrations without applying
+them and keep the worker off. Local development startup has different migration
+and worker behavior. See [release status](aws/ec2/launch-status.md) for the evidence
+required before calling a release successful.
 
-Every provider implementation must supply:
+Deployment-specific hosts, keys, IDs and account details belong in GitHub environment
+secrets/variables or ignored server configuration. Agents must explain each AWS/Azure
+CLI command and obtain explicit user permission before running it.
 
-- One HTTPS gateway.
-- Admin, builder, buyer, and extraction-worker processes from the shared
-  application image.
-- One PostgreSQL database.
-- One persistent filesystem mounted at `/workspace`.
-- The environment variables documented in
-  [`reailEstate/compose.services.yml`](../reailEstate/compose.services.yml).
-- A one-shot migration command owned by the admin service.
-- Health checks for `/health/live` and `/health/ready`.
-- Secret injection without committing credentials.
-- `CLAMAV_ENABLED=false` unless a reachable scanner has been deployed and
-  validated.
+The application contract remains three web services, one shared PostgreSQL database,
+a private persistent workspace, independent migration ownership and health endpoints.
+[Runtime settings](../reailEstate/compose.services.yml) document service configuration.
 
-## Providers
+AWS ECS and Azure Container Apps Terraform directories are alternative infrastructure
+reference templates, not the active application deployment pipeline. They do not
+adopt existing console-created resources automatically. Legacy provider tools remain
+for separately requested infrastructure work; they are not release entrypoints.
 
-- [`azure/`](./azure/) contains the approved POC Terraform and operational
-  scripts.
-- [`aws/`](./aws/) contains offline-only AWS Terraform and operational scripts.
+Provider notes are kept here with the deployment files:
 
-Provider directories must not share Terraform state, provider credentials, or
-generated secret files.
+- [AWS deployment notes](aws/deployment-plan.md)
+- [Azure deployment notes](azure/deployment-plan.md)
+- [Historical Azure validation record](azure/validate-status.json) (no current live validation)
+
+Keep deployment details in these files, using placeholders for resource names and
+other target-specific identities. GitHub environment settings and ignored runtime
+configuration supply the actual values.

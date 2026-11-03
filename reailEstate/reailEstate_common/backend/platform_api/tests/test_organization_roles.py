@@ -1,4 +1,5 @@
 import pytest
+from .legacy_admin_urls import legacy_admin_adapters  # noqa: F401 - retained adapter regression tests
 from django.contrib import admin
 from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import ValidationError

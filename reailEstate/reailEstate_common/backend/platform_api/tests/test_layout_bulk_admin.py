@@ -234,8 +234,6 @@ def test_job_inserted_after_discovery_forces_retry_then_is_cancelled(layout_reco
 
 @pytest.mark.parametrize("locked_model", [EvidenceDocument, FloorPlan, OutboxMessage, Operation])
 def test_postgres_queue_row_contention_fails_fast_without_document_work_lock(layout_records, locked_model):
-    if connection.vendor != "postgresql":
-        pytest.skip("Real row-lock contention requires PostgreSQL.")
     actor, project, make = layout_records
     plan = make()
     job, operation = queue_plan(plan, actor)

@@ -2,14 +2,15 @@
 
 import hashlib
 import json
-import sqlite3
+import os
+import subprocess
 import zipfile
 from pathlib import Path
 from uuid import uuid4
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
 from django.test.utils import override_settings
 from django.utils import timezone
@@ -84,8 +85,9 @@ class Command(BaseCommand):
         parser.add_argument("--backup-dir", required=True, help="New private backup/report directory outside media storage.")
 
     def handle(self, *args, **options):
-        if not settings.DEBUG or settings.DATABASES["default"]["ENGINE"] != "django.db.backends.sqlite3":
-            raise CommandError("This maintenance operation is restricted to local DEBUG SQLite databases.")
+        if (not settings.DEBUG or settings.ENVIRONMENT not in {"local", "development"}
+                or connection.settings_dict["HOST"] not in {"localhost", "127.0.0.1", "::1"}):
+            raise CommandError("This maintenance operation is restricted to local DEBUG PostgreSQL databases.")
         if OutboxMessage.objects.filter(published_at__isnull=True, dead_lettered_at__isnull=True).exists():
             raise CommandError("Pending work exists. Stop workers and resolve it before rebuilding.")
         projects = list(Project.objects.filter(documents__isnull=False).distinct().order_by("submitted_name", "id"))
@@ -146,10 +148,26 @@ class Command(BaseCommand):
     def _backup(self, directory, report):
         self.stdout.write("Backing up database and referenced source/derived files before any cleanup...")
         self.stdout.flush()
-        database = Path(settings.DATABASES["default"]["NAME"]).resolve()
-        with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as source:
-            with sqlite3.connect(directory / "db.sqlite3") as destination:
-                source.backup(destination)
+        database = connection.settings_dict
+        environment = os.environ.copy()
+        for name, value in {
+            "PGDATABASE": database["NAME"], "PGUSER": database["USER"],
+            "PGPASSWORD": database["PASSWORD"], "PGHOST": database["HOST"],
+            "PGPORT": database["PORT"],
+            "PGSSLMODE": database.get("OPTIONS", {}).get("sslmode", "prefer"),
+            "PGCONNECT_TIMEOUT": database.get("OPTIONS", {}).get("connect_timeout", 10),
+        }.items():
+            environment[name] = str(value)
+        archive_path = directory / "database.dump"
+        try:
+            subprocess.run([
+                "pg_dump", "--format=custom", "--no-owner", "--no-privileges",
+                "--file", str(archive_path),
+            ], env=environment, check=True, capture_output=True)
+            subprocess.run(["pg_restore", "--list", str(archive_path)],
+                           check=True, capture_output=True)
+        except (OSError, subprocess.CalledProcessError):
+            raise CommandError("PostgreSQL backup failed; install matching pg_dump/pg_restore tools and check the connection. Nothing was cleaned.") from None
         keys = set(EvidenceDocument.objects.values_list("object_key", flat=True))
         keys.update(FloorPlanAsset.objects.values_list("object_key", flat=True))
         for summary in IngestionRun.objects.values_list("summary", flat=True):
@@ -173,7 +191,7 @@ class Command(BaseCommand):
             if archive.testzip() is not None:
                 raise CommandError("Backup verification failed; nothing was cleaned.")
         (directory / "media-manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        report["backup"] = {"database": "db.sqlite3", "media": "media.zip", "manifest": "media-manifest.json",
+        report["backup"] = {"database": "database.dump", "media": "media.zip", "manifest": "media-manifest.json",
                             "verified": True, "fileCount": sum(not item.get("missing", False) for item in manifest)}
         self._save(directory, report)
 

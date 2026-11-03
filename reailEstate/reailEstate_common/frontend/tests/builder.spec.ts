@@ -68,7 +68,7 @@ async function mockBuilder(page: Page, signedIn = true) {
     const bump = () => `2026-09-19T10:00:${String(++state.revision).padStart(2, '0')}Z`
     if (path === '/api/v1/auth/builder-login' || path === '/api/v1/auth/login') {
       if (method === 'POST' && state.rejectLogin) return respond({ errors: { detail: 'Invalid credentials.' } }, 403)
-      if (method === 'POST' && !state.builder && path.endsWith('builder-login')) return respond({ errors: { detail: 'Your credentials are correct, but builder access is not assigned. Ask a platform administrator to add an active owner or editor membership in an active organization.' } }, 403)
+      if (method === 'POST' && !state.builder && path.endsWith('builder-login')) return respond({ errors: { detail: 'Your credentials are correct, but builder access is not assigned. Ask a platform administrator to add an active owner, admin, or editor membership in an active organization.' } }, 403)
       if (method === 'POST') state.signedIn = true
       return route.fulfill({ contentType: 'application/json', headers: { 'Set-Cookie': 'csrftoken=builder-test-csrf; Path=/; SameSite=Lax' }, body: JSON.stringify(method === 'POST' ? { id: 51, username: 'fixture-builder', email: '' } : { status: 'ready' }) })
     }
@@ -113,6 +113,8 @@ async function mockBuilder(page: Page, signedIn = true) {
       state.project = { ...state.project, status: 'retired', updatedAt: bump() }
       return respond(state.project)
     }
+    if (path === `${projectPath}/content`) return respond({ updatedAt: state.project.updatedAt, mapsConfigured: false, registryConfigured: false, references: [], amenities: [] })
+    if (path === '/api/v1/builder/crop-cart') return respond([])
     if (path.startsWith(mediaPath)) {
       if (state.mediaForbidden) return respond({ detail: 'Organization membership no longer permits access to this project.' }, 403)
       if (method === 'GET' && path !== mediaPath) return route.fulfill({ contentType: 'image/png', body: png })
@@ -279,7 +281,7 @@ test('nonbuilders and rejected logins cannot enter the workspace', async ({ page
   await page.getByLabel('Username', { exact: true }).fill('buyer')
   await page.getByLabel('Password', { exact: true }).fill('incorrect')
   await page.getByRole('button', { name: 'Sign in to builder workspace' }).click()
-  await expect(page.getByRole('alert')).toContainText('active owner or editor membership')
+  await expect(page.getByRole('alert')).toContainText('active owner, admin, or editor membership')
   await expect(page.getByRole('heading', { name: 'Builder sign in' })).toBeVisible()
 })
 
@@ -307,7 +309,7 @@ test('workspace selection does not grant builder access to buyers', async ({ pag
   state.builder = false
   await page.goto('/')
   await page.getByRole('button', { name: 'Switch workspace for fixture-builder' }).click()
-  await expect(page.getByRole('dialog')).toContainText('Builder access needs an active owner or editor membership')
+  await expect(page.getByRole('dialog')).toContainText('Builder access needs an active owner, admin, or editor membership')
   await expect(page.getByRole('button', { name: 'Continue as Builder' })).toBeDisabled()
   await page.getByRole('button', { name: 'Continue as Buyer' }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -628,7 +630,8 @@ test('builder media tabs, previews and carousel expose review data but no admin 
   await expect(page.getByRole('button', { name: 'Preview Pool' })).toBeVisible()
   await page.getByRole('tab', { name: 'Amenities', exact: true }).press('ArrowRight')
   await expect(page.getByRole('tab', { name: 'Floor plans' })).toBeFocused()
-  await expect(page.getByRole('button', { name: 'Preview First floor' })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Floor plan directory' }).getByRole('button', { name: /^First floor/ })).toBeVisible()
+  await expect(page.locator('.builder-media-preview > img')).toHaveAttribute('alt', 'First floor')
   await page.getByRole('tab', { name: 'Layouts', exact: true }).click()
   const summary = page.getByRole('table', { name: 'Layout review summary' })
   await expect(summary).toContainText('Garden 2BHK')

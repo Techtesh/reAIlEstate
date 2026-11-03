@@ -1,5 +1,13 @@
 # Launch Review: Scope and Decisions
 
+Historical review record. The branch, working-tree observations, missing glossary,
+findings and test results below describe the revision reviewed at that time. They
+are not a current defect list or release decision. The repository now has a
+[domain glossary](CONTEXT.md), [current workflows](WORKFLOWS.md), a custom React
+Admin console and an [admin acceptance plan](docs/admin-ux-migration-plan.md).
+Reproduce a finding against the current source before reopening it. No review or
+test suite was rerun for the 3 November 2026 documentation alignment.
+
 ## Current project picture
 
 This repository contains a multi-service real-estate platform with a Django backend, React frontends, and a substantial set of product specifications in `docs/`.

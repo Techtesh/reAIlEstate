@@ -61,6 +61,24 @@ def _locked_source(plan_id, document_id):
     return plan
 
 
+def _record_floor_observations(plan, provider, metadata, regions):
+    """Keep source observations separate from successful layout crop creation."""
+    observation = {
+        **provider_metadata(provider), "pageType": metadata.get("pageType", "uncertain"),
+        "flatsPerFloor": len(regions) if regions and metadata.get("pageType") == "multi_unit_floor_plan" else None,
+        "liftCount": metadata.get("liftCount"), "staircaseCount": metadata.get("staircaseCount"),
+        "refugeArea": metadata.get("refugeArea", {"presence": "unknown", "area": None, "unit": None, "evidence": ""}),
+        "commonAreas": metadata.get("commonAreas", []),
+        "evaluatedAt": timezone.now().isoformat(), "visualEvidence": metadata.get("visualEvidence", ""),
+        "assetId": str(plan.asset_id), "assetSha256": plan.asset.sha256,
+    }
+    plan.features = {**plan.features, "floorEvaluation": observation}
+    if plan.review_state == "approved":
+        plan.review_state = "needs_review"
+    plan.save(update_fields=["features", "review_state", "updated_at"])
+    return observation
+
+
 def _validate_source(plan, payload=None):
     if plan.review_state in HIDDEN_STATES:
         raise ValueError("FLOOR_PLAN_SOURCE_HIDDEN")
@@ -214,6 +232,15 @@ def evaluate_floor_plan_layouts(payload):
             regions = validate_regions([asdict(region) for region in regions])
             if (not regions or metadata.get("pageType") not in {"multi_unit_floor_plan", "single_unit_layout", "layout_sheet"}
                     or metadata.get("unitCount") != len(regions)):
+                if metadata.get("unitCount") == len(regions):
+                    with transaction.atomic():
+                        plan = _locked_source(payload["sourcePlanId"], payload["documentId"])
+                        operation = _operation(payload)
+                        if _stopped(operation, plan):
+                            return operation
+                        _validate_source(plan, payload)
+                        _authorize(operation.owner, plan.project)
+                        _record_floor_observations(plan, provider, metadata, regions)
                 raise ValueError("NO_INDIVIDUAL_LAYOUTS_DETECTED")
             with transaction.atomic():
                 # Reload rather than saving stale pre-model instances: removal,
@@ -224,16 +251,7 @@ def evaluate_floor_plan_layouts(payload):
                     return operation
                 _validate_source(plan, payload)
                 _authorize(operation.owner, plan.project)
-                floor_evaluation = {
-                    **provider_metadata(provider),
-                    "pageType": metadata["pageType"],
-                    "flatsPerFloor": len(regions) if metadata["pageType"] == "multi_unit_floor_plan" else None,
-                    "liftCount": metadata.get("liftCount"), "staircaseCount": metadata.get("staircaseCount"),
-                    "visualEvidence": metadata.get("visualEvidence", ""),
-                    "assetId": str(asset.pk), "assetSha256": asset.sha256,
-                }
-                plan.features = plan.features | {"floorEvaluation": floor_evaluation}
-                plan.save(update_fields=["features", "updated_at"])
+                floor_evaluation = _record_floor_observations(plan, provider, metadata, regions)
                 plans, workflow = replace_unit_segments(
                     plan, regions, "ai", metadata={**metadata, "visionSelection": selection,
                                                   "operationId": str(operation.pk)},

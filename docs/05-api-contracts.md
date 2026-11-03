@@ -1,15 +1,67 @@
 # API Contracts
 
+## Current implementation reference
+
+Routes and serializers in the three Django services define the executable contract.
+Router resources such as `/projects/` and `/requirement-profiles/` use trailing
+slashes; explicit action paths use their declared spelling. UUIDs are used for
+domain resources; illustrative IDs below are not valid request values. Pagination
+and version checks vary by endpoint: profile/flag writes use `If-Match`, while
+workspace mutations commonly use `expectedUpdatedAt`. Do not assume every mutation
+accepts an idempotency header or that all collections use cursor pagination.
+
+Authentication currently uses Django sessions and CSRF. Admin APIs distinguish
+session expiry (401) from permission denial (403), allowing the React console to
+clear private state and request sign-in. OIDC/bearer authentication is a future
+integration, not the current browser flow.
+
+### Guest matching
+
+`POST /api/v1/guest/recommendations` accepts `{ "sections": <complete requirement sections>, "consent": true }`.
+It rejects bodies over 16 KiB, missing consent, unknown/incomplete sections and
+invalid requirements. A successful response is `200` with a ready report, shared
+ranking components, exclusions and matching context; it does not create a profile,
+snapshot, operation, worker job or route-cache write. The report includes a 24-hour
+`expiresAt`; frontend cookie retention is separately 90 days. The browser's one-run
+marker is not enforced as an account limit. Exact destinations are private inputs.
+
+### Custom Admin console and shared project workspace
+
+| Prefix or endpoint | Purpose |
+| --- | --- |
+| `/api/v1/admin/console/session` | GET current staff session, permissions and available resources |
+| `/api/v1/admin/console/login`, `/logout` | Session login/logout with CSRF protection |
+| `/api/v1/admin/console/records/{resource}` | Permission-filtered record lists and supported creates; detail routes support declared record actions |
+| `/api/v1/admin/console/queue` | Cross-project processing snapshot and authorized queue operations |
+| `/api/v1/admin/project-workspace/` | Shared project, media and upload routes with platform permissions rather than Builder membership |
+| `/api/v1/admin/projects/{projectId}/review` | GET review data; POST independent source/amenity decisions |
+| `/api/v1/admin/plans/{planId}/review` | POST `approve`, `reject` or `save-correction`, with `expectedUpdatedAt` and `reason` |
+
+The Admin workspace retains shared route suffixes: for example,
+`/api/v1/admin/project-workspace/builder/projects` and
+`/api/v1/admin/project-workspace/developer-projects/{id}/documents:upload-intent`.
+Use [workspace routes](../reailEstate/reailEstate_common/backend/platform_api/urls_project_workspace.py)
+and [console routes](../reailEstate/reailEstate_common/backend/platform_api/urls_admin_console.py)
+for exact methods and parameters. Active staff still need the relevant model
+permissions. Builder calls remain organization-scoped.
+
+Plan review selects its schema from actual `plan_scope`. Whole-floor requests use
+`scope: "floor"` and `floorEvaluation` observations (flat/lift/staircase counts,
+refuge, common areas and evidence). Layout requests use `fields` and `rooms`.
+Wrong-scope fields, stale versions, unsafe sources and conflicting pending work
+reject. Corrections preserve history and return data for review; they cannot
+silently approve or publish. See [review implementation](../reailEstate/reailEstate_common/backend/platform_api/admin_workspace_views.py).
+
 ## 1. Conventions
 
 - Base path: `/api/v1`.
 - JSON uses camel case and UTF-8.
 - Opaque IDs; UUID/ULID recommended.
 - Dates are ISO 8601 UTC; monetary amounts include currency; dimensions include units.
-- Collection pagination uses opaque cursors.
-- Mutations accept `Idempotency-Key`; versioned resources use `If-Match`/ETag.
+- Collections follow their configured pagination; use returned pagination links.
+- Document completion/reprocessing and other declared actions require `Idempotency-Key`; follow each endpoint's version contract.
 - Errors use RFC 9457 problem details with stable application codes and a correlation ID.
-- Authentication uses secure server sessions or bearer tokens. Authorization is object-level.
+- Authentication uses Django sessions with CSRF on browser mutations. Authorization is object-level.
 - Never return storage credentials, partner credentials, or unrestricted third-party URLs.
 
 ## 2. Buyer requirements
@@ -241,17 +293,17 @@ Requires `Idempotency-Key`. Accepts optional `visionProfileId` from the project'
 
 ### `GET /api/v1/developer-projects/{projectId}/vision-profiles`
 
-`FLOOR_PLAN_EXTRACTION_MODE=script` (default) returns the built-in `rules-only` profile; `ai` returns configured vision profiles and the configured default. Omitting `visionProfileId` on completion/reprocessing selects the current mode's default. Script mode rejects new AI-profile requests. An explicit `rules-only` selection is accepted in either mode. The saved selection pins execution, so changing the setting does not switch already-queued jobs. Script output identifies reviewable page candidates without LLM calls; it is not room segmentation or complete visual measurement extraction.
+`FLOOR_PLAN_EXTRACTION_MODE=script` (default) returns the built-in `rules-only` profile; `ai` returns configured vision profiles. Omitting `visionProfileId` selects rules in script mode or automatic fallback in AI mode. Script mode rejects new AI-profile requests. An explicit `rules-only` selection is accepted in either mode. A queued rules/AI choice remains distinct, while AI provider configuration is resolved at execution. Script output identifies reviewable page candidates without LLM calls; it is not room segmentation or complete visual measurement extraction.
 
-Project editors/owners and reviewers only. Returns `defaultProfileId` and `profiles` containing `id`, `label`, `provider`, `model`, and `hosting` (`local` or `cloud`). Providers include local Ollama, local OpenAI-compatible, Microsoft Foundry, and configured cloud OpenAI-compatible instances. Only administrator-configured enabled model profiles are selectable. No endpoints, keys, or secret references are exposed.
+Project editors/owners and reviewers only. Returns `defaultProfileId` and `profiles` containing `id`, `label`, `provider`, `model`, and `hosting` (`local` or `cloud`). Providers include local Ollama, local OpenAI-compatible, Microsoft Foundry, and configured cloud OpenAI-compatible instances. Only administrator-configured model profiles are selectable; there is no profile `enabled` field. Automatic AI requests use current file order; manual selections run first in the current fallback chain. No endpoints, keys, or secret references are exposed.
 
 ### `GET | POST /api/v1/developer-projects/{projectId}/ingestion-queue`
 
-GET returns `pending`, `delayed`, `deadLettered`, and at most 100 pending/dead-letter `items`, including saved selections and safe retry information. Editors/owners and reviewers may read. POST is editor/owner-only, accepts `limit` (integer 1–20, default 10), and synchronously processes a bounded project-only batch. Returns `200` with `requested`, `results`, and the updated queue. Long extraction batches should use the scheduled worker rather than this synchronous HTTP action. Each item uses its saved provider/model; there is no batch-wide override.
+GET returns `pending`, `delayed`, `deadLettered`, and at most 100 pending/dead-letter `items`, including saved selections and safe retry information. Authorized project editors and reviewers may read. POST requires project-edit access, accepts `limit` (integer 1–20, default 10), and synchronously processes a bounded project-only batch. Returns `200` with `requested`, `results`, and the updated queue. The persistent worker is the normal local executor; this synchronous action is retained compatibility behavior, not a browser-owned worker. Each AI item resolves the configured fallback chain; there is no batch-wide provider override.
 
 ### `POST /api/v1/developer-projects/{projectId}/documents/{documentId}:reprocess`
 
-Editors/owners only. Requires `Idempotency-Key` and `reasonCode`; accepts optional `visionProfileId`. Returns `202` with the new operation and pinned selection. An outstanding active request is rejected with `ALREADY_QUEUED`. Default-profile changes do not reroute pending requests; a changed/disabled selected configuration fails closed. This route enqueues only, leaving execution to a manual batch or scheduled worker. The administrative reprocess route uses the same request/idempotency semantics.
+Requires project-edit access, `Idempotency-Key` and `reasonCode`; accepts optional `visionProfileId`. Returns `202` with the new operation and nonsecret selection snapshot. An outstanding active request is rejected with `ALREADY_QUEUED`. AI execution uses current profile configuration and ordered fallback; do not treat the snapshot as an immutable model configuration. This route enqueues only. The administrative reprocess route uses the same request/idempotency semantics.
 
 ### `GET /api/v1/developer-projects/{projectId}/documents`
 
@@ -259,7 +311,7 @@ Returns statuses and safe error codes, not raw parser messages. Includes `storag
 
 ### `GET /api/v1/admin/floor-plan-segmentation`
 
-Staff administrator only. Returns supported modes, expected-count bounds, and enabled AI profile IDs/labels/models/hosting. It never returns endpoints, credential references, or secrets. This catalog is available independently of the default document-ingestion mode because flat separation is an explicit administrative operation.
+Staff administrator only. Returns supported modes, expected-count bounds, and configured AI profile IDs/labels/models/hosting. It never returns endpoints, credential references, or secrets. This catalog is available independently of the default document-ingestion mode because flat separation is an explicit administrative operation.
 
 ### `POST /api/v1/admin/floor-plans/{floorPlanId}:segment-units`
 
@@ -279,7 +331,7 @@ The project JSON includes typed identity/parcel/RERA fields, station claims and 
 
 ### `POST /api/v1/developer-projects/{projectId}:submit-review`
 
-Requires a verified organization member, a verification attempt, required fields, and accepted processing attestation.
+Requires an authorized organization member, a verification attempt, required evidence and accepted processing attestation. Organization verification state is separate from active membership; do not interpret successful submission or an unavailable verification attempt as verified status.
 
 ## 7. Evidence and review
 

@@ -1,7 +1,19 @@
-# Effective feature flags — infrastructure only
+# Effective feature flags
 
-No operation gates, workers, templates, model changes, settings changes or migrations
-are included. Imports and evaluation do **not** create rows. Existing unknown rows
+## Current integration
+
+The registry/evaluator and audited API adapter below are installed. Shared media
+mutations use effective decisions, and execution is gated independently of enqueue.
+The custom React Admin console exposes `/admin/flags/` through the versioned
+`/api/v1/admin/feature-flags/` adapter. Do not use generic record writes to bypass
+its permission, environment, registry and concurrency checks. The ModelAdmin
+handoff below describes the earlier integration stage; production Admin routing
+now serves React. See [admin API routes](../../../../adminService/admin_service/api_urls.py)
+and [current workflows](../../../../../WORKFLOWS.md).
+
+The original infrastructure-only increment included no operation gates, workers,
+templates, model changes, settings changes or migrations. Imports and evaluation
+do **not** create rows. Existing unknown rows
 are retained, never interpreted as registered features, and cannot be mutated by
 these adapters. Direct ORM writes are not a supported management interface.
 
@@ -19,6 +31,8 @@ these adapters. Direct ORM writes are not a supported management interface.
 | `media.extraction_queue` | ON (compatibility) | — |
 | `operations.extraction_execute` | ON (compatibility) | — |
 | `operations.legacy_destructive` | **OFF (deliberate safety)** | — |
+| `showDemoPinsOnBrowse` | ON (compatibility) | —; not targetable |
+| `recommendations.layout_hard_matches` | **OFF (explicit opt-in)** | —; not targetable |
 
 Registry entries are frozen `FeatureDefinition` dataclasses; `REGISTRY` and
 `UI_FLAG_KEYS` are read-only mappings. Execution is deliberately independent of
@@ -135,7 +149,7 @@ operation services/workers. Direct serializer writes also use shared management.
   `targetingRules` / `projectIds` / `organizationIds` / `userIds` aliases are accepted;
   ambiguous duplicate aliases reject. Stored rules always use snake_case.
 
-## Main-admin integration handoff (intentionally not performed)
+## Historical ModelAdmin integration handoff
 
 The integrator must import `FeatureFlagAdmin` from
 `platform_api.feature_flags.admin`, remove `FeatureFlag` from the generic model
@@ -165,7 +179,8 @@ key at mutation entry after normal authorization, and load a fresh execution
 snapshot for the global execution switch when a queued job actually executes.
 Handle `FeatureDisabled` separately by its code; denial must not start work, claim
 it completed or remove queued evidence. Legacy destructive operations require
-explicit opt-in. No gates are wired by this change.
+explicit opt-in. The original increment wired no gates; current shared-media and
+execution integrations must retain these checks when changed.
 
 ## Verification status
 

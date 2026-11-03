@@ -34,7 +34,7 @@ def source_pdf(monkeypatch):
 def test_old_and_new_imports_are_the_same_helpers_and_shared_dependencies():
     for name in (
         "read_source", "source_page_count", "render_source_pages", "SOURCE_TYPES",
-        "storage", "settings", "Path", "pymupdf", "Image", "ImageOps", "FloorPlanImageExtractor",
+        "storage", "pymupdf", "Image", "ImageOps", "FloorPlanImageExtractor",
     ):
         assert getattr(source_page_additions, name) is getattr(source_documents, name)
 
@@ -96,10 +96,15 @@ def test_source_type_gate_precedes_storage(source_pdf):
     opener.assert_not_called()
 
 
-def test_original_missing_error_is_retained_outside_local_mode(source_pdf, settings):
-    document, _, opener = source_pdf
+@pytest.mark.parametrize("debug", [True, False])
+def test_original_missing_error_requires_restoration(source_pdf, settings, debug, tmp_path):
+    document, data, opener = source_pdf
+    settings.WORKSPACE_DATA_ROOT = tmp_path
+    sample = tmp_path / "user" / "Samples" / document.original_name
+    sample.parent.mkdir(parents=True)
+    sample.write_bytes(data)
     opener.side_effect = FileNotFoundError
-    settings.DEBUG = False
+    settings.DEBUG = debug
     with pytest.raises(ValueError, match="Original source is missing; restore the source document first"):
         source_documents.read_source(document)
 

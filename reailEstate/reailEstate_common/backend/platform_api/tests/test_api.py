@@ -9,12 +9,12 @@ from .test_layout_pricing import layout, source
 from platform_api.models import Consent, RequirementProfile
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_project_picture_upload_visibility_and_clear(settings, tmp_path):
     from io import BytesIO
     from PIL import Image
     from django.core.files.uploadedfile import SimpleUploadedFile
-    from platform_api.admin import ProjectAdminForm, ProjectPictureWidget
+    from platform_api.project_pictures import normalize_picture
     from platform_api.models import Organization, Project
     from platform_api.serializers import ProjectListSerializer
 
@@ -24,14 +24,14 @@ def test_project_picture_upload_visibility_and_clear(settings, tmp_path):
     assert ProjectListSerializer(project).data["project_pic"] is None
     image = BytesIO()
     Image.new("RGB", (100, 60), "green").save(image, format="JPEG")
-    form = ProjectAdminForm(instance=project, files={"project_pic": SimpleUploadedFile("cover.jpg", image.getvalue())})
-    form.cleaned_data = {"project_pic": form.fields["project_pic"].clean(form.files["project_pic"])}
-    picture = form.clean_project_pic()
-    assert picture.content_type == "image/png"
+    from django.core.files.base import ContentFile
+    picture_bytes = normalize_picture(image.getvalue())
+    assert picture_bytes.startswith(b"\x89PNG")
+    picture = ContentFile(picture_bytes, name="project.png")
     project.project_pic = picture
     project.save()
     path = f"/api/v1/projects/{project.pk}/picture"
-    assert ProjectPictureWidget().format_value(project.project_pic).url == path
+    assert ProjectListSerializer(project).data["project_pic"].startswith(path)
     guest = APIClient()
     for state, expected in [("published", 200), ("ingestion", 200), ("needs_review", 200), ("draft", 404), ("withdrawn", 404), ("retired", 404), ("merged", 404)]:
         project.status = state
@@ -58,13 +58,12 @@ def user(db):
     return User.objects.create_user(username="buyer", password="safe-test-password")
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_project_picture_document_selection_and_default(settings, tmp_path, user, monkeypatch):
     import hashlib
     from io import BytesIO
     from PIL import Image
     from django.core.files.base import ContentFile
-    from platform_api.admin import ProjectAdminForm
     from platform_api.artifact_storage import storage
     from platform_api.models import AgentWorkflowRun, EvidenceDocument, FloorPlanAsset, IngestionRun, Organization, Project
     from platform_api import project_pictures
@@ -84,17 +83,13 @@ def test_project_picture_document_selection_and_default(settings, tmp_path, user
     asset = FloorPlanAsset.objects.create(project=project, document=document, workflow_run=workflow, page_number=2,
         object_key=storage.save("extracted.png", ContentFile(content)), byte_length=len(content),
         sha256=hashlib.sha256(content).hexdigest(), pixel_width=100, pixel_height=60, detector_version="test")
-    payload = {"organization": str(project.organization_id), "submitted_name": project.submitted_name,
-        "status": "ingestion", "address": '{"city": "Thane"}', "locality": "", "published_fact_set_version": 0,
-        "verification_status": project.verification_status, "project_picture_source": str(asset.pk)}
-    form = ProjectAdminForm(instance=project, data=payload)
-    assert form.is_valid(), form.errors
-    form.save()
+    project.project_pic = project_pictures.extracted_picture(project, asset.pk)
+    project.save()
     project.refresh_from_db()
     assert project.project_pic
     with project.project_pic.open("rb") as picture:
         assert picture.read() == content
-    assert b"brochure.pdf" in str(form["project_picture_source"]).encode()
+    assert list(project_pictures.picture_candidates(project)) == [asset]
     assert storage.exists(asset.object_key)
     other = Project.objects.create(organization=project.organization, submitted_name="Other project")
     with pytest.raises(ValueError, match="no longer available"):
@@ -103,9 +98,8 @@ def test_project_picture_document_selection_and_default(settings, tmp_path, user
     asset.save()
     with pytest.raises(ValueError, match="checksum"):
         project_pictures.extracted_picture(project, asset.pk)
-    form = ProjectAdminForm(instance=project, data=dict(payload, project_picture_source="automatic"))
-    assert form.is_valid(), form.errors
-    form.save()
+    project.project_pic = ""
+    project.save()
     project.refresh_from_db()
     assert not project.project_pic
     rendered = []

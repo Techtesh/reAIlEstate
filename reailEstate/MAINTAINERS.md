@@ -2,9 +2,9 @@
 
 This is the current-state onboarding guide for the MMR real-estate service. The
 implementation is a Django modular monolith with durable background work and a
-React/Vite buyer application. The documents under [`../docs`](../docs/README.md)
-remain the product and design baseline, but some still describe an earlier
-ASP.NET proposal. For runtime behavior, prefer this guide, the service READMEs,
+React/Vite Buyer, Builder and custom Admin interfaces. The documents under
+[`../docs`](../docs/README.md) distinguish the implemented stack from product
+requirements and proposed production architecture. For runtime behavior, prefer this guide, the service READMEs,
 the URL configuration, and the tests.
 
 Use [`../WORKFLOWS.md`](../WORKFLOWS.md) as the canonical workflow and runtime
@@ -15,7 +15,7 @@ duplicating lifecycle commands.
 
 | Area | Runtime owner | Primary source |
 | --- | --- | --- |
-| Buyer UI | React 19 and Vite | [`reailEstate_common/frontend/src`](reailEstate_common/frontend/src) |
+| Buyer, Builder and Admin UI | React 19 and Vite | [`reailEstate_common/frontend/src`](reailEstate_common/frontend/src) |
 | HTTP API and admin | Django and Django REST Framework | [`reailEstate_common/backend/platform_api/views.py`](reailEstate_common/backend/platform_api/views.py), [`reailEstate_common/backend/platform_api/admin.py`](reailEstate_common/backend/platform_api/admin.py) |
 | API routing | Django URL configuration | [`reailEstate_common/backend/platform_api/urls.py`](reailEstate_common/backend/platform_api/urls.py) |
 | Domain state | Django models and migrations | [`reailEstate_common/backend/platform_api/models.py`](reailEstate_common/backend/platform_api/models.py), [`reailEstate_common/backend/platform_api/migrations`](reailEstate_common/backend/platform_api/migrations) |
@@ -27,6 +27,30 @@ duplicating lifecycle commands.
 | Browser/API client | Same-origin fetch wrapper and route components | [`reailEstate_common/frontend/src/api.ts`](reailEstate_common/frontend/src/api.ts), [`reailEstate_common/frontend/src/App.tsx`](reailEstate_common/frontend/src/App.tsx) |
 
 ## Architecture at a glance
+
+### Current admin and release behavior
+
+The production Admin shell is React, served by the admin Django entrypoint using
+the builder-mode bundle. Console APIs live under `/api/v1/admin/console/`;
+shared editing retains `/api/v1/admin/project-workspace/`. Django sessions and
+model permissions remain authoritative. Legacy editor GET/HEAD routes redirect
+to React and retired POSTs return 405; retained ModelAdmin adapters are not an
+alternative production UI.
+
+Project/plan review uses the separate Admin review APIs. Whole-floor corrections
+preserve flat/lift/staircase counts, refuge/common-area data and before/after
+history; layout corrections preserve room/configuration fields. Correction and
+approval are separate operations, with source integrity, busy-work, version and
+independent-review checks. Shared crop tools support five-degree rotation and
+retain original-page bounds. Queue tabs show Running, Dead letter and Completed
+with bounded-row counts distinguished from totals.
+
+Releases use [EC2 Actions](../.deployments/aws/ec2/README.md), with independently
+verified SSH host keys and environment secrets. `demo` defaults to true and
+enables eligible unreviewed previews for all viewers. The workflow checks pending
+migrations without applying them and keeps processing off. Local lifecycle startup
+still applies migrations and starts the worker. Do not infer live release success
+or fresh test results from source changes or the dated records below.
 
 ```mermaid
 flowchart LR
@@ -113,7 +137,7 @@ Next gates, in order:
 5. Review frontend route state ownership, the existing effect warnings, and bundle
    splitting against the production browser suite before restructuring components.
 6. Verify locking and concurrency on an isolated PostgreSQL test database before
-   declaring a release regression-free. SQLite is not proof of PostgreSQL behavior.
+   declaring a release regression-free. Runtime and tests require PostgreSQL.
 
 ## Core invariants
 
@@ -273,7 +297,6 @@ uses coordinates. Regenerate directions explicitly to refresh existing results.
 1. Apply migrations and import the original CSV once, from the workspace root:
 
    ```powershell
-   $env:DATABASE_BACKEND = 'postgresql'
    & './reailEstate/reailEstate_common/backend/.venv/Scripts/python.exe' './reailEstate/reailEstate_common/backend/manage.py' migrate
    & './reailEstate/reailEstate_common/backend/.venv/Scripts/python.exe' './reailEstate/reailEstate_common/backend/manage.py' import_station_candidates './reailEstate/reailEstate_common/backend/config/mmr-metro-candidates.csv'
    ```
@@ -571,8 +594,8 @@ Use the canonical lifecycle commands in
 .\reailEstate\manage_services.ps1 -Action stop
 ```
 
-The application runtime uses PostgreSQL. SQLite is limited to isolated test
-configuration and must not be used for application or corpus-writing workflows.
+Runtime, tests, backups and demos use PostgreSQL only. Start PostgreSQL before
+running pytest and grant the test account CREATEDB for isolated test databases.
 The persistent `run_extraction_dispatcher` process owns normal document, media,
 and recommendation execution. Use `process_outbox` only for bounded diagnostics
 or deliberate maintenance, as catalogued in `WORKFLOWS.md`.
@@ -585,7 +608,7 @@ with `--noreload` must be restarted after Python or template updates.
 
 | Concern | Important environment variables |
 | --- | --- |
-| Database | `DATABASE_BACKEND`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGHOST`, `PGPORT`, `PGSSLMODE` |
+| Database | `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGHOST`, `PGPORT`, `PGSSLMODE` |
 | Django/security | `DJANGO_SECRET_KEY`, `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`, `SECURE_SSL_REDIRECT` |
 | Workspace/files | `WORKSPACE_DATA_ROOT`, `MAX_UPLOAD_BYTES`, `REJECTED_UPLOAD_RETENTION_DAYS` |
 | Extraction | `FLOOR_PLAN_EXTRACTION_MODE`, `FLOOR_PLAN_VISION_PROFILES_FILE`, `VISION_MAX_CONCURRENT_REQUESTS`, `INGESTION_MAX_WORKERS`; providers and fallback order live in `vision-profiles.json` |
@@ -607,7 +630,6 @@ isolate media outputs under temporary directories.
 
 ```powershell
 $Python = (Resolve-Path './reailEstate/reailEstate_common/backend/.venv/Scripts/python.exe').Path
-$env:DATABASE_BACKEND = 'sqlite'
 $env:PROJECT_METRO_CATALOGUE_FILE = ''
 & $Python -m pytest -c ./reailEstate/reailEstate_common/backend/pytest.ini ./reailEstate/reailEstate_common/backend/platform_api/tests --tb=short
 npm --prefix reailEstate/reailEstate_common/frontend test
@@ -694,13 +716,48 @@ Useful references are [`reailEstate_common/backend/README.md`](reailEstate_commo
 [`../docs/05-api-contracts.md`](../docs/05-api-contracts.md), and
 [`../docs/06-data-model.md`](../docs/06-data-model.md).
 
-## Known documentation drift
+## Reading current and historical documentation
 
-- [`../docs/README.md`](../docs/README.md) and parts of the backlog still call
-  ASP.NET Core the proposed backend. The running backend is Django/Python.
+- [`../docs/README.md`](../docs/README.md) links current runtime references and
+  requirements. The earlier ASP.NET scaffold proposal is superseded by Django/Python.
 - Product, HLD, LLD, API, UX, security, and rollout documents are requirements and
   design baselines; wording about future work does not prove a feature is absent.
 - Implementation truth is concentrated in Django settings, URLs, views, services,
   workers, migrations, tests, the backend README, and the frontend README.
 - Keep this file current when adding a new queue event, trust boundary, public
   serializer, external provider, storage lifecycle, or publication gate.
+
+The verification snapshots above and below describe their recorded revisions.
+In particular, the 5 October browser-only guest scoring and native Django admin
+theme descriptions are historical: current guest scoring calls the stateless
+shared ranking API, and Admin uses the React theme controls. No test suite was
+rerun for the 3 November documentation alignment.
+
+
+### PostgreSQL-only verification: 2026-10-22
+
+Runtime, workers, tests, backups and demo snapshots now require PostgreSQL. The
+SQLite engine fallback/exporter and SQLite-specific lock/retry paths are removed.
+Existing database files and historical migration archives have not been deleted.
+`filelock` remains necessary for local import/report tools.
+
+The complete backend suite on the existing PostgreSQL 17 container finished with
+**1,596 passed, 4 failed, no skips**. The full run used a temporary MD5 password
+hasher for test speed; production authentication settings are unchanged. Focused
+queue, advisory-lock, row-lock, crop and streaming regressions were also run with
+normal password hashing. All three service `check --database default` commands,
+EC2 configuration checks, Compose parsing and release-workflow YAML parsing pass.
+
+Remaining failures are two Markdown room-dimension expectations in
+`test_business_ingestion`, its unavailable-vision-provider expectation, and
+`test_ported_catalogue_has_dated_authority_candidates` reading the committed empty
+`config/mmr-upcoming-metro.json`. The ingestion implementation and these four
+existing assertions were not changed for the database cleanup. The full suite is
+not a green release gate. The local JUnit report is
+`output/test-runs/pg-only-final-20261022.xml` (ignored).
+
+Maintenance rebuild backups now require matching `pg_dump` and `pg_restore`
+executables on PATH and produce `database.dump`. Dump/catalogue failures stop the
+operation before cleanup. No maintenance rebuild or source-data export was run
+as part of this verification. Release workflow configuration was validated locally;
+the GitHub Actions build itself was not executed.

@@ -1,108 +1,13 @@
 from django.urls import path
-
-from platform_api.builder_media import (
-    BuilderActionsView,
-    BuilderAssetView,
-    BuilderCropView,
-    BuilderDraftActionView,
-    BuilderDraftPreviewView,
-    BuilderEvaluateView,
-    BuilderMediaView,
-    BuilderPagesView,
-    BuilderPageView,
-    BuilderPictureView,
-)
-from platform_api.builder_views import (
-    BuilderLayoutsView,
-    BuilderLoginView,
-    BuilderOrganizationsView,
-    BuilderProjectArchiveView,
-    BuilderProjectsView,
-    BuilderProjectView,
-)
-from platform_api.output_views import IngestionOutputDownloadView, ProjectExtractionOutputView
-from platform_api.views import (
-    CurrentUserView,
-    DeveloperDocumentListView,
-    DeveloperProjectCreateView,
-    DeveloperSubmitReviewView,
-    DocumentCompleteView,
-    DocumentContentUploadView,
-    MarkDocumentLayoutPageView,
-    OperationView,
-    ProjectFloorPlanListView,
-    ProjectIngestionQueueView,
-    ProjectIngestionRunListView,
-    ProjectKnowledgeSearchView,
-    ProjectReanalysisView,
-    ProjectVisionProfileListView,
-    ReprocessDeveloperDocumentView,
-    SessionLogoutView,
-    UploadIntentView,
-)
-
+from platform_api.builder_views import BuilderLoginView
 from platform_api.organization_roles_views import OrganizationRolesView, OrganizationRoleMembersView
+from platform_api.urls_project_workspace import project_workspace_urls
+from platform_api.views import DeveloperProjectCreateView
 
 urlpatterns = [
     path("builder/organizations/<uuid:organization_id>/roles", OrganizationRolesView.as_view()),
     path("builder/organizations/<uuid:organization_id>/roles/<uuid:role_id>/members", OrganizationRoleMembersView.as_view()),
     path("auth/builder-login", BuilderLoginView.as_view()),
-    path("auth/me", CurrentUserView.as_view()),
-    path("auth/logout", SessionLogoutView.as_view()),
-    path("operations/<uuid:operation_id>", OperationView.as_view(), name="operation-status"),
-    path("builder/organizations", BuilderOrganizationsView.as_view()),
-    path("builder/projects", BuilderProjectsView.as_view()),
-    path("builder/projects/<uuid:project_id>", BuilderProjectView.as_view()),
-    path("builder/projects/<uuid:project_id>:archive", BuilderProjectArchiveView.as_view()),
-    path("builder/projects/<uuid:project_id>/layouts", BuilderLayoutsView.as_view()),
-    path("builder/projects/<uuid:project_id>/layouts/<uuid:layout_id>", BuilderLayoutsView.as_view()),
-    path("builder/projects/<uuid:project_id>/media/picture", BuilderPictureView.as_view()),
-    path("builder/projects/<uuid:project_id>/media", BuilderMediaView.as_view()),
-    path("builder/projects/<uuid:project_id>/media/actions", BuilderActionsView.as_view()),
-    path("builder/projects/<uuid:project_id>/media/assets/<uuid:asset_id>", BuilderAssetView.as_view()),
-    path(
-        "builder/projects/<uuid:project_id>/media/documents/<uuid:document_id>/pages/<int:page_number>",
-        BuilderPageView.as_view(),
-    ),
-    path("builder/projects/<uuid:project_id>/media/drafts/<uuid:draft_id>", BuilderDraftPreviewView.as_view()),
-    path("builder/projects/<uuid:project_id>/media/crops", BuilderCropView.as_view()),
-    path("builder/projects/<uuid:project_id>/media/drafts", BuilderDraftActionView.as_view()),
-    path("builder/projects/<uuid:project_id>/media/evaluate", BuilderEvaluateView.as_view()),
-    path("builder/projects/<uuid:project_id>/media/pages", BuilderPagesView.as_view()),
     path("developer-organizations/<uuid:organization_id>/projects", DeveloperProjectCreateView.as_view()),
-    path("developer-projects/<uuid:project_id>/documents:upload-intent", UploadIntentView.as_view()),
-    path("developer-projects/<uuid:project_id>/documents", DeveloperDocumentListView.as_view()),
-    path("developer-projects/<uuid:project_id>/ingestion-queue", ProjectIngestionQueueView.as_view()),
-    path("developer-projects/<uuid:project_id>/vision-profiles", ProjectVisionProfileListView.as_view()),
-    path("developer-projects/<uuid:project_id>/ingestion-runs", ProjectIngestionRunListView.as_view()),
-    path(
-        "developer-projects/<uuid:project_id>/extraction-output",
-        ProjectExtractionOutputView.as_view(),
-        name="project-extraction-output",
-    ),
-    path(
-        "ingestion-runs/<uuid:run_id>/outputs/<slug:output_name>",
-        IngestionOutputDownloadView.as_view(),
-        name="ingestion-output-download",
-    ),
-    path("developer-projects/<uuid:project_id>/knowledge:search", ProjectKnowledgeSearchView.as_view()),
-    path("developer-projects/<uuid:project_id>/floor-plans", ProjectFloorPlanListView.as_view()),
-    path(
-        "developer-projects/<uuid:project_id>/documents/<uuid:document_id>/content",
-        DocumentContentUploadView.as_view(),
-    ),
-    path(
-        "developer-projects/<uuid:project_id>/documents/<uuid:document_id>:complete",
-        DocumentCompleteView.as_view(),
-    ),
-    path(
-        "developer-projects/<uuid:project_id>/documents/<uuid:document_id>:reprocess",
-        ReprocessDeveloperDocumentView.as_view(),
-    ),
-    path(
-        "developer-projects/<uuid:project_id>/documents/<uuid:document_id>:mark-layout-page",
-        MarkDocumentLayoutPageView.as_view(),
-    ),
-    path("developer-projects/<uuid:project_id>:reanalyse", ProjectReanalysisView.as_view()),
-    path("developer-projects/<uuid:project_id>:submit-review", DeveloperSubmitReviewView.as_view()),
+    *project_workspace_urls(),
 ]

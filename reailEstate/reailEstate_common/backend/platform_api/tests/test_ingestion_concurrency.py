@@ -1,4 +1,4 @@
-"""Regression cases for transaction scope and process ownership (PostgreSQL cases are opt-in)."""
+"""Regression cases for transaction scope and process ownership."""
 
 import threading
 import uuid
@@ -42,8 +42,6 @@ def test_duplicate_alias_preserves_source_path():
 
 @pytest.mark.django_db(transaction=True)
 def test_postgres_ownership_does_not_block_sessions():
-    if connection.vendor != "postgresql":
-        pytest.skip("PostgreSQL session locks require PostgreSQL")
     identifier = uuid.uuid4()
     outcomes = []
 

@@ -1,5 +1,7 @@
 # Mumbai New-Construction Discovery Platform — Product Requirements
 
+Implementation alignment (3 November 2026): these are product requirements, including work beyond the current UI. The running stack is Django/React with PostgreSQL. Delivered flows include public browsing, consent-backed guest matching, signed-in asynchronous matching, organization roles, shared Builder/Admin project editing, and independent review/publication. See [current workflows](../WORKFLOWS.md) for behavior and [admin UX acceptance](admin-ux-migration-plan.md) for pending validation. Licensed integrations and production acceptance remain separate gates.
+
 ## 1. Product vision
 
 Build a trustworthy residential discovery and decision-support platform for Mumbai Metropolitan Region (MMR) home buyers, focused on new and under-construction projects. The product converts buyer preferences and heterogeneous developer documents into comparable, evidence-backed project recommendations.
@@ -43,7 +45,7 @@ Buyers currently compare projects using inconsistent brochures, incomplete listi
 **Requirements**
 - Support secure sign-in, session expiry, logout, and account deletion request.
 - Obtain explicit consent before saving frequent places or sharing a profile.
-- Allow a guest draft in local session storage; require sign-in before server persistence.
+- Retain only non-sensitive home preferences and weights in session storage for unfinished guest drafts. A consent-backed guest match calls the stateless API and stores the query/report in bounded browser cookies for 90 days; persistent server profiles require sign-in.
 - Never expose access tokens, partner credentials, or raw internal service URLs in browser state.
 
 **Acceptance criteria**

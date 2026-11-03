@@ -15,7 +15,8 @@ def service_urlpatterns(api_urlconf, *, django_admin=False, frontend=False):
         path("health/ready", ReadyHealthView.as_view()),
     ]
     if django_admin:
-        patterns.insert(0, path("admin/", admin.site.urls))
+        from .admin_frontend_urls import frontend_urls
+        patterns = [*frontend_urls, *patterns]
     if frontend:
         from .service_frontend import service_frontend
 

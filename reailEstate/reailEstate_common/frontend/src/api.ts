@@ -1,6 +1,7 @@
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) { super(message); this.status = status }
+  details?: unknown
+  constructor(status: number, message: string, details?: unknown) { super(message); this.status = status; this.details = details }
 }
 let sessionRequests = new AbortController()
 const sessionListeners = new Set<(error: ApiError) => void>()
@@ -33,8 +34,10 @@ export async function api<Result>(path: string, options: RequestInit = {}): Prom
   if (!response.ok) {
     const messages: Record<number, string> = { 400: 'Some details were not accepted. Review your entries before trying again.', 401: 'Please sign in to continue.', 403: 'Your session or access could not be verified. Please sign in again.', 404: 'This item is no longer available.', 409: 'This draft changed in another session. Choose which version to keep.', 429: 'Too many requests. Please wait a moment before retrying.' }
     let detail = ''
+    let problemDetails: unknown
     try {
       const problem: unknown = await response.json()
+      problemDetails = problem
       if (problem && typeof problem === 'object') {
         const details = 'errors' in problem ? problem.errors : problem
         if (details && typeof details === 'object' && 'detail' in details && typeof details.detail === 'string') detail = details.detail.slice(0, 1000)
@@ -52,8 +55,9 @@ export async function api<Result>(path: string, options: RequestInit = {}): Prom
         }
       }
     } catch {}
-    const error = new ApiError(response.status, detail || messages[response.status] || 'The service could not complete this request. Please try again.')
-    if ([401, 403].includes(response.status) && !['/api/v1/auth/login', '/api/v1/auth/builder-login', '/api/v1/auth/me'].includes(localPath.split('?')[0])) {
+    const error = new ApiError(response.status, detail || messages[response.status] || 'The service could not complete this request. Please try again.', problemDetails)
+    const expired = response.status === 401 || response.status === 403 && !localPath.startsWith('/api/v1/admin/')
+    if (expired && !['/api/v1/auth/login', '/api/v1/auth/builder-login', '/api/v1/auth/me', '/api/v1/admin/console/login', '/api/v1/admin/console/session'].includes(localPath.split('?')[0])) {
       sessionListeners.forEach(listener => listener(error))
     }
     throw error

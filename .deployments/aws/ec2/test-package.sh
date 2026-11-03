@@ -14,7 +14,7 @@ bash "$script_dir/package.sh" "$sha" "$scratch"
 archive="$scratch/realestate-$sha.tar.gz"
 (cd "$scratch" && sha256sum --check "$(basename "$archive").sha256")
 listing=$(tar -tzf "$archive")
-for expected in images.tar ec2/compose.yml ec2/start.sh ec2/deploy-release.sh ec2/.env.example ec2/app.env.example release.txt; do
+for expected in images.tar ec2/compose.yml ec2/compose.preview.yml ec2/deploy-release.sh ec2/.env.example ec2/app.env.example release.txt; do
     grep -Fxq "$expected" <<< "$listing"
 done
 if grep -Eq '^ec2/(\.env|app\.env|global-bundle\.pem)$' <<< "$listing"; then

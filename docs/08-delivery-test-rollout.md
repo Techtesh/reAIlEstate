@@ -1,5 +1,11 @@
 # Delivery Plan, Test Strategy, and Rollout
 
+## Current delivery baseline
+
+The phases below are planning and acceptance criteria, not a claim that the repository is awaiting scaffolding. Current services use Django/React and PostgreSQL. Run tests against a disposable PostgreSQL database; SQLite testing is no longer supported. Commands and dated results are in [WORKFLOWS.md](../WORKFLOWS.md#9-test-and-validation-workflows) and the [maintainer guide](../reailEstate/MAINTAINERS.md#regression-gates). Historical counts do not establish the current branch's release readiness.
+
+Application releases use [Deploy EC2 service](../.deployments/aws/ec2/README.md). It validates and builds a checked artifact, transfers it by SSH, checks pending migrations, replaces services, and checks readiness/login pages. It neither applies migrations nor starts processing. `demo=true` is the dispatch default and exposes eligible unreviewed previews to anonymous viewers as well as signed-in users; use `demo=false` for approved-media-only visibility. Failed startup has no automatic rollback. Infrastructure plans and local startup commands are not alternative release paths.
+
 ## 1. Delivery principles
 
 - Build vertical slices that end in demonstrable user value.

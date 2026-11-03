@@ -90,7 +90,7 @@ def normalize_room_measurements(raw_dimensions):
     return dimensions, {"dimensionEvidence": evidence, "dimensionWarning": dimension_warning(evidence)}
 
 
-_ROOM_LABEL = re.compile(r"\b(?:living(?:\s*/\s*dining)?|dining|kitchen|(?:master\s+)?bed(?:room)?(?:\s*\d+)?|bath(?:room)?(?:\s*\d+)?|toilet|balcony|foyer|internal\s+passage|passage|corridor|utility)\b", re.I)
+_ROOM_LABEL = re.compile(r"\b(?:living(?:\s*/\s*dining)?|dining|kitchen|(?:master\s+)?bed(?:room)?(?:[ \t]+\d+\b(?![ \t]*[x×]))?|bath(?:room)?(?:[ \t]+\d+\b(?![ \t]*[x×]))?|toilet|balcony|foyer|internal\s+passage|passage|corridor|utility)\b", re.I)
 _VALUE = r'''\d+(?:\.\d+)?(?:\s*(?:ft|feet|foot|['′’])(?:\s*-?\s*\d+(?:\.\d+)?\s*(?:inches|inch|in|["″”]))?|\s*(?:meters?|metres?|m)\b)?'''
 _PAIR = re.compile(rf"(?P<length>{_VALUE})\s*[x×]\s*(?P<width>{_VALUE})", re.I)
 

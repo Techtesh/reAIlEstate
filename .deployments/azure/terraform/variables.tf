@@ -1,7 +1,6 @@
 variable "subscription_id" {
   description = "Azure subscription that owns the deployment."
   type        = string
-  default     = "088476fe-27ee-42b2-a867-268aab19dce3"
 
   validation {
     condition     = can(regex("^[0-9a-fA-F-]{36}$", var.subscription_id))
@@ -12,7 +11,6 @@ variable "subscription_id" {
 variable "tenant_id" {
   description = "Microsoft Entra tenant that owns the target subscription."
   type        = string
-  default     = "d68b2372-3268-46b9-8329-75273fb49a72"
 
   validation {
     condition     = can(regex("^[0-9a-fA-F-]{36}$", var.tenant_id))
@@ -29,7 +27,6 @@ variable "location" {
 variable "resource_group_name" {
   description = "Resource group created for the POC."
   type        = string
-  default     = "rg-workspace-poc-centralindia"
 }
 
 variable "workload_name" {

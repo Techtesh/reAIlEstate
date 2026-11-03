@@ -4,7 +4,6 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
-from django.db import connection
 from django.utils import timezone
 
 from platform_api.automatic_queue import reserve_ready_jobs, run_automatic_queue, run_reserved_job
@@ -126,8 +125,6 @@ def test_second_dispatcher_cannot_acquire_singleton_lock():
     from django.db import connections
     from platform_api.ingestion_runtime import WorkAlreadyClaimed, work_lock
 
-    if connection.vendor != "postgresql":
-        pytest.skip("Cross-connection advisory locks require PostgreSQL.")
     stop = Event()
     stop.set()
 
@@ -211,8 +208,6 @@ def test_stale_workers_do_not_block_recovery_but_inflight_messages_are_excluded(
 
 
 def test_dispatcher_stays_alive_for_new_work_and_never_exceeds_limit(queued, settings):
-    if connection.vendor != "postgresql":
-        pytest.skip("Threaded queue integration requires PostgreSQL.")
     settings.INGESTION_MAX_WORKERS = 2
     _, _, enqueue = queued
     initial = [enqueue() for _ in range(3)]

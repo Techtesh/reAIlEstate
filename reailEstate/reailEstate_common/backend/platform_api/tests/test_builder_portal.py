@@ -7,7 +7,7 @@ from django import forms
 from django.contrib import admin
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -72,7 +72,9 @@ def test_builder_login_requires_membership_csrf_and_is_not_django_admin(workspac
     token = client.cookies["csrftoken"].value
     result = client.post(url, credentials, format="json", HTTP_X_CSRFTOKEN=token)
     assert result.status_code == 200 and result.json()["username"] == "builder"
-    assert client.get("/admin/").status_code == 302
+    # Serving the public frontend shell grants no access to administration data.
+    assert client.get("/admin/").status_code in {200, 503}
+    assert client.get("/api/v1/admin/console/session").status_code in {401, 403}
     user.refresh_from_db()
     assert not user.is_staff and not user.is_superuser
     assert client.patch(project_url(project), {}, format="json").status_code == 403
@@ -94,7 +96,7 @@ def test_correct_password_without_membership_reports_access_problem(workspace):
     denied = client.post(url, {"username": user.username, "password": "builder-test-only"}, format="json")
     assert denied.status_code == 403
     assert "credentials are correct" in denied.json()["errors"]["detail"]
-    assert "active owner or editor membership" in denied.json()["errors"]["detail"]
+    assert "active owner, admin, or editor membership" in denied.json()["errors"]["detail"]
     invalid = client.post(url, {"username": user.username, "password": "not-the-password"}, format="json")
     assert invalid.status_code == 403 and invalid.json()["errors"]["detail"] == "Invalid credentials."
     assert client.get("/api/v1/auth/me").status_code == 403
@@ -118,6 +120,7 @@ def test_organization_and_membership_states_are_enum_dropdowns(workspace):
     project._meta.get_field("status").clean(project.status, project)
 
 
+@override_settings(ROOT_URLCONF="platform_api.tests.legacy_admin_urls")
 def test_user_admin_offers_organization_dropdown_for_builder_membership(workspace, admin_client, admin_user):
     _, user, _, _, _ = workspace
     request = RequestFactory().get("/")

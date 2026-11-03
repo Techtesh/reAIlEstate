@@ -4,6 +4,7 @@ about
 absent
 absolute
 abuse
+acb
 accent
 accept
 acceptance
@@ -22,6 +23,7 @@ ack
 acme
 acquire
 across
+act
 action
 actionable
 actions
@@ -80,6 +82,7 @@ aida
 ajan
 ajax
 ajv
+alert
 alerts
 algorithm
 alias
@@ -233,6 +236,7 @@ availability
 available
 avenue
 avoid
+avoids
 awaiting
 aware
 awareness
@@ -323,6 +327,7 @@ boundaries
 boundary
 bounded
 bounds
+box
 boxes
 brace
 brackets
@@ -337,6 +342,7 @@ broaden
 broadens
 brochure
 broken
+broker
 browse
 browser
 browsers
@@ -444,6 +450,7 @@ changes
 changing
 characters
 charging
+chart
 chat
 cheapest
 check
@@ -471,6 +478,7 @@ chunk
 chunking
 chunks
 citations
+cjs
 claimed
 claims
 clam
@@ -551,12 +559,14 @@ compat
 compatibilidad
 compatibility
 compatible
+competitor
 compiled
 compiler
 complete
 completed
 completeness
 completion
+completions
 complex
 complexities
 complexity
@@ -626,6 +636,7 @@ contain
 container
 containers
 contains
+contend
 contender
 content
 contention
@@ -760,6 +771,7 @@ decomposition
 decorated
 decorator
 decorators
+decouple
 dedup
 deduplicate
 deduplicated
@@ -778,7 +790,6 @@ definition
 definitions
 degradation
 degree
-degrees
 deinit
 delays
 delegate
@@ -839,6 +850,7 @@ devtools
 diagnostic
 diagnostics
 diagram
+diagrams
 dict
 dicts
 diff
@@ -923,12 +935,10 @@ downloads
 draft
 drafting
 drafts
-drag
 drain
 draw
 drawer
 drf
-drift
 drill
 driven
 drop
@@ -951,8 +961,11 @@ dwellings
 dynamic
 dynamics
 each
+earlier
 echo
 eco
+ecs
+edd
 edge
 edges
 edgetype
@@ -1039,6 +1052,7 @@ escaping
 eslint
 especially
 essential
+establish
 estate
 estimate
 estimated
@@ -1048,6 +1062,7 @@ etag
 etc
 eval
 evaluate
+evaluates
 evaluation
 evaluations
 evaluator
@@ -1070,6 +1085,7 @@ exclude
 excluded
 excludes
 excluding
+exclusion
 exec
 execute
 executes
@@ -1153,6 +1169,7 @@ fallthrough
 false
 family
 fanout
+fargate
 fast
 fastapi
 fatal
@@ -1190,6 +1207,7 @@ find
 finder
 finding
 findings
+fine
 fingerprint
 fingerprinting
 fingerprints
@@ -1219,6 +1237,7 @@ floor
 floorplan
 floors
 flow
+flowcharts
 flows
 fluid
 flush
@@ -1254,6 +1273,7 @@ forwarded
 forwarding
 found
 foundation
+foundations
 four
 foyer
 foyers
@@ -1279,6 +1299,7 @@ frontmatter
 frozen
 full
 fully
+fun
 func
 function
 functional
@@ -1311,6 +1332,7 @@ generator
 generic
 geometry
 get
+getattr
 getpass
 getting
 gfm
@@ -1320,6 +1342,7 @@ gin
 git
 github
 gitignore
+give
 given
 glass
 global
@@ -1376,6 +1399,7 @@ guides
 gypsum
 hall
 hamburger
+handelled
 handle
 handled
 handler
@@ -1541,6 +1565,7 @@ infrastructure
 ingest
 ingestion
 ingestionrun
+ingress
 inherited
 inicio
 init
@@ -1573,7 +1598,6 @@ installer
 installers
 instance
 instances
-instead
 instream
 instructions
 int
@@ -1601,6 +1625,7 @@ interpretation
 into
 introduce
 invalid
+invalidation
 invariant
 invariants
 invent
@@ -1642,6 +1667,7 @@ jsonp
 jsonschema
 jsx
 junction
+justified
 jwt
 kaputun
 karpathy
@@ -1654,6 +1680,7 @@ keyboard
 keys
 keywords
 kids
+kill
 kimi
 kind
 kinds
@@ -1750,7 +1777,6 @@ listen
 listeners
 listing
 lists
-lite
 literal
 live
 living
@@ -1772,6 +1798,7 @@ located
 locating
 location
 locations
+locator
 lock
 locked
 locks
@@ -1899,6 +1926,7 @@ micro
 middle
 middleware
 migrate
+migrated
 migration
 migrations
 milliseconds
@@ -2059,6 +2087,8 @@ objectives
 objects
 observability
 observer
+ocr
+october
 off
 offer
 offers
@@ -2085,6 +2115,7 @@ openai
 openapi
 opening
 opens
+operate
 operating
 operation
 operational
@@ -2284,6 +2315,7 @@ poll
 polling
 pollution
 pool
+por
 port
 portal
 portals
@@ -2299,6 +2331,7 @@ post
 posted
 postgre
 postgres
+postgresql
 postmsg
 posture
 power
@@ -2311,6 +2344,8 @@ pre
 preamble
 precedence
 precedes
+precheck
+prechecked
 precise
 precision
 preconditions
@@ -2329,7 +2364,6 @@ prepare
 prepared
 preparing
 prepend
-prepends
 preprocessing
 prerequisite
 prerequisites
@@ -2366,9 +2400,11 @@ prism
 privacy
 private
 privilege
+privileges
 probe
 probes
 problem
+procedure
 process
 processes
 processing
@@ -2383,6 +2419,7 @@ progressively
 project
 projectless
 projects
+promised
 promises
 promote
 promoting
@@ -2405,6 +2442,7 @@ protections
 protobuf
 protocol
 prototype
+prove
 proven
 provenance
 provided
@@ -2444,6 +2482,7 @@ queues
 queueworker
 quick
 quickly
+qwen
 race
 races
 radial
@@ -2471,6 +2510,7 @@ reactivating
 reactivation
 read
 readable
+readers
 readiness
 reading
 readings
@@ -2502,6 +2542,7 @@ recommendations
 recommended
 reconcile
 reconciles
+reconciliation
 record
 recorded
 recording
@@ -2523,6 +2564,7 @@ redone
 redress
 reduce
 reduction
+reentrancy
 ref
 reference
 references
@@ -2551,6 +2593,7 @@ regular
 reject
 rejected
 rejecting
+rejection
 rejections
 rejects
 related
@@ -2564,7 +2607,6 @@ release
 released
 releases
 relevant
-reliability
 reload
 reloads
 rely
@@ -2595,7 +2637,9 @@ replaced
 replacement
 replaces
 replay
+replaying
 replays
+replica
 repo
 report
 reporting
@@ -2603,9 +2647,11 @@ reports
 repository
 representation
 reprocess
+reprocesses
 reprocessing
 reproduced
 reproducibility
+reproducible
 reproduction
 req
 request
@@ -2647,6 +2693,7 @@ responsive
 rest
 restart
 restarts
+restoration
 restore
 restrict
 restricted
@@ -2711,13 +2758,13 @@ robustness
 role
 roles
 rollback
+rolling
 rollout
 rolls
 room
 rooms
 root
 roots
-rotate
 rotated
 rotation
 rotations
@@ -2738,6 +2785,7 @@ run
 runbooks
 runner
 running
+runpy
 runs
 runtime
 russian
@@ -2773,6 +2821,8 @@ scan
 scanned
 scanner
 scanning
+scenario
+schedule
 scheduled
 schema
 schemas
@@ -2817,7 +2867,6 @@ segment
 segmentation
 segments
 select
-selectable
 selected
 selection
 selections
@@ -2835,7 +2884,6 @@ sentiment
 separate
 separated
 separation
-sequence
 serialization
 serialize
 serializer
@@ -2853,6 +2901,7 @@ session
 sessions
 set
 settimeout
+setting
 settings
 setup
 severity
@@ -2947,6 +2996,7 @@ spatial
 spawn
 spec
 specific
+specifically
 specification
 specifics
 specifiers
@@ -2962,7 +3012,6 @@ sprint
 sprite
 sqft
 sql
-sqlite
 src
 sri
 ssl
@@ -2987,6 +3036,7 @@ starter
 starting
 startproject
 starts
+startup
 state
 stated
 statement
@@ -3042,6 +3092,7 @@ subdir
 subdomain
 subject
 submission
+submissions
 submit
 submitted
 subpath
@@ -3108,6 +3159,7 @@ take
 tamper
 tampering
 tarball
+tarfile
 target
 targeted
 targeting
@@ -3124,15 +3176,18 @@ tech
 technical
 technology
 tek
+tell
 temp
 tempfile
 template
 templates
 templating
 temporary
+tenant
 tension
 tensor
 terminal
+termination
 terms
 terraform
 test
@@ -3157,6 +3212,7 @@ think
 third
 thirdparty
 this
+thread
 threading
 threat
 threats
@@ -3221,6 +3277,7 @@ transactions
 transfer
 transient
 transit
+transition
 transitions
 translation
 transport
@@ -3239,6 +3296,7 @@ triggers
 trim
 trimming
 trims
+trip
 troubleshooting
 true
 truncate
@@ -3246,6 +3304,7 @@ truncating
 truncation
 trust
 trusted
+truthfully
 try
 tsconfig
 tsconfigs
@@ -3268,7 +3327,6 @@ uncertain
 unchanged
 unchecked
 uncommitted
-unconfigured
 under
 underscore
 undersized
@@ -3374,6 +3432,7 @@ version
 versioned
 versioning
 versions
+versus
 vertical
 vetted
 via
@@ -3431,7 +3490,6 @@ whitespace
 whole
 why
 wide
-widget
 width
 wiki
 wikilink
@@ -3442,6 +3500,7 @@ win
 window
 windows
 wing
+winner
 wins
 wire
 wired
@@ -3459,10 +3518,13 @@ workers
 workflow
 workflows
 working
+workload
 works
 workspace
+workspaces
 worktree
 world
+would
 wrapper
 write
 writeln

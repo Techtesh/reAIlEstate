@@ -6,7 +6,7 @@ from itertools import islice
 from uuid import UUID, uuid4
 
 from django.core.exceptions import PermissionDenied
-from django.db import OperationalError, connection, transaction
+from django.db import OperationalError, transaction
 from django.utils import timezone
 
 from .floor_plan_visibility import HIDDEN_REVIEW_STATES, REMOVED_REVIEW_STATE
@@ -60,9 +60,7 @@ def _pending_batch_jobs(plan_ids):
 
 
 def _row_locks(queryset):
-    # Fail fast on PostgreSQL contention. SQLite uses the document/outbox file
-    # locks plus its write transaction; a concurrent writer may raise busy.
-    return queryset.select_for_update(nowait=connection.features.has_select_for_update_nowait)
+    return queryset.select_for_update(nowait=True)
 
 
 @contextmanager

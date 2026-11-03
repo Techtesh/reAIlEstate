@@ -1,6 +1,19 @@
 # Bulk layout removal and boundary health integration (items 1 / 4)
 
-These additions are opt-in. Existing admin registration, dashboard/card templates,
+## Current integration status
+
+The mixins described below are installed on `ProjectAdmin`; this is no longer a
+pending opt-in integration. Production admin URLs serve the custom React console:
+legacy GET/HEAD links redirect and retired mutation URLs return 405. Use the
+shared project workspace for current removal/restoration actions. Do not restore
+legacy HTML POST routes to follow this historical handoff. The removal/health
+service contracts below remain useful implementation references; their original
+verification notes are historical, not a fresh test result.
+
+See [current workspace behavior](../../../WORKFLOWS.md#shared-project-editor-cleanup)
+and [admin acceptance](../../../docs/admin-ux-migration-plan.md).
+
+At the time of the original handoff these additions were opt-in. Existing admin registration, dashboard/card templates,
 queue implementation, models and migrations were not changed. No existing database
 records were removed, and Python, tests, lint and migrations were not executed.
 
@@ -64,8 +77,7 @@ work locks, then sorted pending-outbox work locks, before the short transaction.
 Inside it they lock documents, plans and pending outbox rows in sorted order. A job
 inserted after work-lock discovery forces retry; plan/document row locks serialize
 against queue writers even when those writers use no document work lock. PostgreSQL
-row contention fails fast with NOWAIT; SQLite still has its database write-lock
-limitations. Queue writers must check hidden state under the same plan row lock.
+row contention fails fast with NOWAIT. Queue writers must check hidden state under the same plan row lock.
 
 Every selected plan gets its own existing `floor_plan.removed_by_user` audit with
 `previousReviewState` and cancelled job/operation IDs. Existing per-record restore

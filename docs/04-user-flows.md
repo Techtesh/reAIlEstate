@@ -1,5 +1,7 @@
 # User Flows
 
+The flows below combine product requirements with implemented behavior. Use [WORKFLOWS.md](../WORKFLOWS.md) for the current route/role catalogue and [current project flowcharts](current-project-flows.md) for processing details. Administration is now a custom React console backed by Django sessions and permissions; legacy admin editor URLs redirect on GET and reject retired mutation requests.
+
 ## 1. Buyer onboarding and recommendations
 
 ```mermaid
@@ -18,7 +20,11 @@ flowchart TD
     K --> L{Valid and signed in?}
     L -->|No, invalid| M[Focus first invalid section]
     M --> E
-    L -->|Guest| N[Sign in and migrate draft]
+    L -->|Guest with unused browser trial and consent| GUEST[POST stateless guest recommendations]
+    GUEST --> COOKIE{Save bounded query and report cookies}
+    COOKIE -->|Success| Q
+    COOKIE -->|Blocked or oversized| RECOVER[Show recovery error; do not consume trial]
+    L -->|Guest trial used or account save requested| N[Sign in and migrate draft]
     N --> L
     L -->|Yes| O[Submit immutable profile version]
     O --> P[Generate ranked recommendations]
@@ -27,6 +33,8 @@ flowchart TD
 ```
 
 ### Alternate and failure paths
+
+- Guest matching uses the published catalogue and returns the shared ranking fields without persisting a profile or outbox job. Query/report cookies last 90 days; a separate usage marker enforces one successfully saved run per browser. Cookie deletion or another browser can reset that limit. Exact destinations remain private inputs, and provider-dependent components can be unavailable.
 
 - Place search unavailable: allow manual locality selection and clearly mark commute as pending.
 - Autosave conflict: fetch latest version, show changed sections, and ask user to merge rather than overwrite.

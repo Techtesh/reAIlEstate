@@ -20,8 +20,10 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from platform_api.views import LiveHealthView, ReadyHealthView
 
+from .admin_frontend_urls import frontend_urls
+
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    *frontend_urls,
     path('api/v1/', include('platform_api.urls')),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),

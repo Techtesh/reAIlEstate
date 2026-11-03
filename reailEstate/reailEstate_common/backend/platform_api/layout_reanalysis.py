@@ -1,10 +1,9 @@
 """Reviewer-defined layout crops and narrow, checksum-bound AI evaluation."""
 
 import hashlib
-import time
 from uuid import uuid4
 
-from django.db import OperationalError, connection, models, transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from .artifact_storage import storage
@@ -35,12 +34,6 @@ def layout_evaluation_error(exc):
 
 
 def _locked_layout(plan_id):
-    # SQLite ignores SELECT FOR UPDATE. Reserve its writer BEFORE the first read,
-    # avoiding read-snapshot upgrades for simultaneous enqueue requests. This is
-    # a no-op: aliases, crop revisions and updated_at are not touched. Nested crop
-    # updates already own the writer; no file/document lock is ever acquired.
-    if connection.vendor == "sqlite":
-        FloorPlan.objects.filter(pk=plan_id).update(id=models.F("id"))
     plan = FloorPlan.objects.select_for_update().get(pk=plan_id)
     if plan.asset_id:
         plan.asset = FloorPlanAsset.objects.select_for_update().get(pk=plan.asset_id)
@@ -83,18 +76,9 @@ def queue_layout_evaluation(plan, actor=None, vision_profile_id=None, vision_sel
     fresh=True creates a new AI attempt using current settings after a terminal
     failure or completion, preserving history. No flag restarts cancelled jobs.
     Safe inside a crop-update transaction.
-    SQLite lock retries restart only our own transaction, never a caller's.
     """
-    nested = connection.in_atomic_block
-    for attempt in range(4):
-        try:
-            with transaction.atomic():
-                return _queue_layout_evaluation(plan.pk, actor, vision_profile_id, vision_selection, retry, force, fresh)
-        except OperationalError as exc:
-            if (nested or connection.vendor != "sqlite" or attempt == 3
-                    or str(exc) not in {"database is locked", "database table is locked"}):
-                raise
-            time.sleep(0.05 * (attempt + 1))
+    with transaction.atomic():
+        return _queue_layout_evaluation(plan.pk, actor, vision_profile_id, vision_selection, retry, force, fresh)
 
 
 def _queue_layout_evaluation(plan_id, actor, vision_profile_id, vision_selection, retry, force, fresh):

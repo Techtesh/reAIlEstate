@@ -5,7 +5,6 @@ param(
     [string]$Container = 'realestate-workspace-publish-postgres',
     [switch]$WritersStopped,
     [switch]$DatabaseOnly,
-    [switch]$IncludeSqlite,
     [switch]$CheckOnly
 )
 
@@ -21,10 +20,6 @@ if ($env:WORKSPACE_DATA_ROOT -and
     [System.IO.Path]::GetFullPath($env:WORKSPACE_DATA_ROOT).TrimEnd('\') -ne $workspace.TrimEnd('\')) {
     throw 'WORKSPACE_DATA_ROOT differs from this checkout. Run from the correct workspace configuration.'
 }
-if ($env:DATABASE_BACKEND -and $env:DATABASE_BACKEND -ne 'postgresql') {
-    throw 'This exporter supports the PostgreSQL database only.'
-}
-
 $config = Get-Content -LiteralPath (Join-Path $PSScriptRoot '.local\postgres.json') -Raw | ConvertFrom-Json
 $database = [string]$config.NAME
 $databaseUser = [string]$config.USER
@@ -107,7 +102,7 @@ if ($drive.DriveFormat -eq 'FAT32' -and
     (($files | Where-Object { $_.Bytes -ge 4GB }) -or $databaseBytes -ge 4GB)) {
     throw 'A file or the estimated database dump exceeds the FAT32 limit. Use an NTFS/exFAT destination.'
 }
-$requiredBytes = $mediaBytes + $databaseBytes * $(if ($IncludeSqlite) { 4 } else { 1 }) + 256MB
+$requiredBytes = $mediaBytes + $databaseBytes + 256MB
 if ($drive.AvailableFreeSpace -lt $requiredBytes) {
     throw "Not enough free space. Allow at least $([math]::Ceiling($requiredBytes / 1GB)) GiB."
 }
@@ -205,27 +200,6 @@ AND NOT EXISTS (SELECT 1 FROM platform_api_idempotencyrecord);
     if ($dumpDigest -ne $sourceDigest) { throw 'Database archive checksum mismatch.' }
     $manifestFiles.Add([ordered]@{ path = 'database.dump'; bytes = $dump.Length; sha256 = $dumpDigest })
 
-    if ($IncludeSqlite) {
-        Write-Host 'Converting the sanitized snapshot to a separate SQLite file and verifying every model...'
-        $previousDatabase = $env:PGDATABASE
-        $previousBackend = $env:DATABASE_BACKEND
-        try {
-            $env:PGDATABASE = $temporaryDatabase
-            $env:DATABASE_BACKEND = 'postgresql'
-            & (Join-Path $PSScriptRoot '.venv\Scripts\python.exe') (Join-Path $PSScriptRoot 'manage.py') `
-                export_demo_sqlite (Join-Path $bundle 'demo.sqlite3')
-            if ($LASTEXITCODE -ne 0) { throw 'SQLite conversion or verification failed.' }
-        } finally {
-            $env:PGDATABASE = $previousDatabase
-            $env:DATABASE_BACKEND = $previousBackend
-        }
-        foreach ($name in @('demo.sqlite3', 'demo.verification.json')) {
-            $item = Get-Item -LiteralPath (Join-Path $bundle $name)
-            $digest = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            $manifestFiles.Add([ordered]@{ path = $name; bytes = $item.Length; sha256 = $digest })
-        }
-    }
-
     $done = 0
     $copiedBytes = [long]0
     foreach ($file in $files) {
@@ -256,7 +230,6 @@ AND NOT EXISTS (SELECT 1 FROM platform_api_idempotencyrecord);
         accountPolicy = 'Original accounts removed; one inactive placeholder with unusable password; no sessions or memberships'
         databaseRestoreVerified = $true
         scope = $(if ($DatabaseOnly) { 'database-only' } else { 'database-and-media' })
-        sqliteIncluded = [bool]$IncludeSqlite
         mediaIncluded = -not [bool]$DatabaseOnly
         startedAtUtc = $started
         completedAtUtc = [DateTime]::UtcNow.ToString('o')
@@ -269,7 +242,7 @@ AND NOT EXISTS (SELECT 1 FROM platform_api_idempotencyrecord);
     } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $bundle 'manifest.json') -Encoding utf8
     @"
 PRIVATE DEMO SNAPSHOT
-Database only: $([bool]$DatabaseOnly). SQLite included: $([bool]$IncludeSqlite).
+Database only: $([bool]$DatabaseOnly). Database engine: PostgreSQL.
 This folder includes private project records. Source free text is NOT anonymized.
 When database-only is true, media files are intentionally omitted; images/PDFs need a separate authorized copy.
 Original users, password hashes, sessions, memberships and personal preferences are excluded.
@@ -291,23 +264,12 @@ RESTORE ON A DIFFERENT MACHINE
    Check exit codes. Do not use --clean or restore over an existing working database.
 5. Copy user\media, output\media, and reailEstate\reailEstate_common\backend\media (when present) into the same
    relative locations in the NEW checkout. Do not copy only the database: images need these files.
-6. Set DATABASE_BACKEND=postgresql and WORKSPACE_DATA_ROOT to the NEW checkout root.
+6. Set WORKSPACE_DATA_ROOT to the NEW checkout root.
 7. Create NEW demo accounts with manage.py createsuperuser and Django admin.
    Assign new builder users to the required organizations. No source account can log in.
    Start the frontend and API; verify a project image, a layout, and its evaluation.
    Configure provider credentials separately if needed.
 8. Leave the extraction dispatcher STOPPED for a browse-only demo. Copied pending jobs can incur costs.
-
-OPTIONAL SQLITE COPY
-If included, demo.sqlite3 is the verified account-free SQLite alternative.
-For a SEPARATE demo checkout, with services stopped, put it at reailEstate\reailEstate_common\backend\db.sqlite3
-(do not overwrite an existing database), and explicitly set DATABASE_BACKEND=sqlite.
-Use the same code commit and create fresh demo accounts. Do not run the PostgreSQL
-startup task, which forces DATABASE_BACKEND=postgresql.
-SQLite is suitable for inspection/single-user demo experiments, not the PostgreSQL
-automatic extraction dispatcher or concurrent processing. Database conversion was
-verified; full application parity has not been certified. Without media, images remain missing.
-Apply any required official classification through your organization's approved tools.
 
 INTEGRITY
 manifest.json records SHA-256 and byte length for database.dump and every media file.

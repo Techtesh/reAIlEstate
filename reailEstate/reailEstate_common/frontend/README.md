@@ -1,4 +1,4 @@
-# MMR Homefinder Buyer Frontend
+# MMR Homefinder Frontend
 
 React 19, TypeScript and Vite buyer experience backed by the existing Django API.
 It provides guided and summary requirements, ranked map/feed results, an explainable
@@ -6,6 +6,11 @@ score sheet, published project details, comparisons and account-owned shortlists
 See the repository [`WORKFLOWS.md`](../../../WORKFLOWS.md) for the canonical
 service lifecycle and complete buyer, builder, reviewer, worker, and deployment
 workflow catalogue.
+
+The same source tree also provides Builder and the custom React Admin console.
+Admin uses the builder-mode bundle on the admin service; there is no separate
+`dev:admin` or `build:admin` script. Build both service bundles with
+`npm --prefix reailEstate/reailEstate_common/frontend run build:services`.
 
 ## Run Locally
 
@@ -37,8 +42,10 @@ It listens on port 5174 and proxies only to the builder service on port 8003.
 Sign in using an existing workspace account. Account creation is administered in
 Django; the buyer UI does not offer public registration. Guest requirements can be
 entered before signing in. Discover and Browse, published listing details, filters,
-and station layers are public. Saved requirements, matches, shortlists and comparisons
-require sign-in. Guest detail responses contain listing fields only, not internal evidence.
+and station layers are public. Account-saved requirements, matches and shortlists
+require sign-in; a consent-backed guest trial stores its report/shortlist in cookies.
+Guest detail responses use restricted fields unless the explicit public-preview
+setting enables eligible unreviewed details/media. Comparisons use published projects.
 
 ## Builder workspace
 
@@ -46,13 +53,14 @@ The homepage **Sign in** dialog asks the user to select **Buyer** or **Builder**
 before entering credentials. Buyer uses the normal account login; Builder uses the
 membership-aware builder login and routes directly to the builder workspace.
 Choosing Builder does not grant access: the backend still requires an active
-owner/editor organization membership. Signed-in users can click their username
+owner/admin/editor organization membership. Signed-in users can click their username
 to choose again; the builder header also offers **Switch workspace**.
 
 Open `/builder/login` (also linked from the public footer) for the dedicated builder
 sign-in experience. `/builder` restores the current session on reload without loading
-the buyer workspace. A platform administrator provisions accounts and owner/editor
-memberships in active organizations; there is no public sign-up or membership management.
+the buyer workspace. A platform administrator provisions accounts and memberships
+in active organizations; there is no public sign-up. Authorized owners and organization
+admins manage existing-account onboarding within their permitted organization scope.
 Buyer or staff status alone does not grant builder access.
 Builder sign-in distinguishes incorrect credentials from a correct password with
 missing organization access. Administrators can add memberships with organization,
@@ -81,7 +89,8 @@ draft at full size without leaving the workspace or discarding edits. The crop
 editor also links to the original source page in a new tab. These links retain
 the existing same-origin, authenticated media access; opening them does not
 save changes or start extraction.
-Carpet area in square feet, configuration and review state remain read-only.
+Builder views show carpet area, configuration and review state from saved evaluation.
+Authorized Admin reviewers can correct layout extraction through a separate review form.
 The **Layouts** tab uses an admin-style searchable, sortable list on the left and
 the selected layout's image, controls, room measurements, name and price on the
 right. On narrow screens the list stacks above the details. Switching layouts
@@ -111,7 +120,7 @@ changes are confirmed, version-checked and require independent review.
 image** preselects the displayed item's source. The crop editor opens directly
 below the image gallery, before layout tables or draft management. Draw a rectangle or enter X/Y/width/
 height percentages and a label. **Save crop draft** sends normalized fractional
-bounds, category, source SHA-256, selected quarter-turn rotation and a UUID request ID; it stages a draft
+bounds, category, source SHA-256, selected five-degree-step rotation and a UUID request ID; it stages a draft
 without running AI. The crop request ID survives explicit retries and media refreshes
 until a crop field changes. Missing/corrupt sources expose the server's error and
 cannot be selected for cropping; a zero page count also disables cropping.
@@ -216,9 +225,9 @@ are not used as a fallback. Each layout in the gallery shows its own total price
 Project names are the card headings; prices are secondary. Browse's compact results
 bar keeps the count, processing toggle and sorting without a large title banner.
 
-Organization owners/editors can enter prices under **Builder workspace -> Project ->
-Layout names and prices**. Platform administrators can also use **Django admin ->
-Project media -> Layouts -> Total price (INR)**.
+Organization owners/admins/editors can enter prices under **Builder workspace -> Project ->
+Layout names and prices**. Authorized platform editors use **Admin project workspace ->
+Layouts -> Total price (INR)**.
 Prices are optional positive amounts with up to two decimal places. The range
 uses eligible active layouts and follows the existing review/public-preview
 policy. Prices may exclude taxes and other charges.
@@ -332,7 +341,7 @@ and offers a status check. See [queue commands](../backend/README.md#ingestion-a
   station references belonging to published projects can add railway/metro markers,
   but do not establish operating status. No unpublished project references are exposed.
 - Stations remain visible when the published project catalogue is empty or unavailable.
-  Complete the [workspace admin publication TODO](../../docs/10-mvp-backlog-and-traceability.md#workspace-admin-todo)
+  Complete the [workspace admin publication TODO](../../../docs/10-mvp-backlog-and-traceability.md#workspace-admin-todo)
   to make reviewed projects available in Browse; opening the map never publishes them.
 - OpenStreetMap tiles require network access and retain attribution. Tile failures
   show a retry state without blocking the feed or project markers. Review the
@@ -384,21 +393,24 @@ queries are restored from the consented cookie.
 ## Roles, themes and public beta
 
 Organization owners open **Roles & member onboarding** in the builder workspace to
-create an owner/editor/viewer template and apply it to up to 100 existing active
-usernames in one batch. Platform admins manage permission groups and organization
-roles in Django admin. Account creation remains an administrator action.
+create owner/admin/editor/viewer packages and apply them to up to 100 existing active
+usernames in one batch. Organization admins manage non-owner packages and memberships.
+Platform admins manage permission groups and organization roles in the custom Admin
+console. Account creation remains an administrator action.
 
 Buyer and builder headers include **System / Light / Dark** controls. The preference
 is saved under the `theme` local-storage key, follows OS changes in System mode,
-and synchronizes between tabs. Django admin uses its native theme control and the
-same preference key when served on the same origin.
+and synchronizes between tabs. The custom Admin console uses the shared theme control.
 
-Unsigned visitors can create one local beta matching run per browser. With explicit
+Unsigned visitors can create one consent-backed beta matching run per browser through
+`POST /api/v1/guest/recommendations`. The stateless endpoint uses the shared published-
+catalogue ranking and returns its score components, confidence and exclusions; exact
+destination input is supported, with provider-dependent components explicitly unavailable
+when they cannot be calculated. It creates no persistent profile, snapshot or worker job.
+With explicit
 cookie consent, `mmr-beta-shortlist` stores the validated query, top ten ranked results
-and saved project IDs as a compressed cookie for 90 days. Budget, space and society
-amenities use the published catalogue; commute, nearby amenities, micro-market and
-evidence confidence are unavailable. This beta preview does not create a server
-profile or a worker job. Signed-in runs continue using the full recommendation pipeline.
+and saved project IDs as a compressed cookie for 90 days. Signed-in runs continue
+using the durable recommendation pipeline.
 Cookies contain IDs and scores; listings are read from the current published catalogue,
 so withdrawn projects disappear. Oversized queries and blocked cookies produce an error
 without consuming the trial.

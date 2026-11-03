@@ -1,7 +1,21 @@
-{$DOMAIN} {
+(reailestate_proxy) {
     encode zstd gzip
     reverse_proxy 127.0.0.1:8080 {
         header_up X-Forwarded-Client-Proto {scheme}
         header_up X-Forwarded-For {remote_host}
     }
+}
+
+{$DOMAIN} {
+    import reailestate_proxy
+}
+
+{$BUILDER_DOMAIN} {
+    redir / /builder/ 302
+    import reailestate_proxy
+}
+
+{$ADMIN_DOMAIN} {
+    redir / /admin/ 302
+    import reailestate_proxy
 }

@@ -36,7 +36,7 @@ class Command(SerialCommand):
         if not 1 <= options["workers"] <= settings.INGESTION_MAX_WORKERS:
             raise CommandError(f"--workers must be between 1 and {settings.INGESTION_MAX_WORKERS}.")
         if connection.vendor != "postgresql":
-            raise CommandError("Concurrent refresh requires PostgreSQL. Use import_sample_corpus for SQLite.")
+            raise CommandError("Concurrent refresh requires PostgreSQL.")
         if not all(options[key] for key in ("import_samples", "process", "reprocess", "username")):
             raise CommandError("Supply --import --process --reprocess --username for a corpus refresh.")
         if options["test_scanner"] and (not settings.DEBUG or settings.ENVIRONMENT not in {"local", "development"}):
