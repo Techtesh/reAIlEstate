@@ -1,5 +1,14 @@
 # Admin UX migration plan
 
+Source alignment: 3 November 2026. This file combines implemented source behavior,
+historical gap analysis and an acceptance checklist. The original gap inventory
+is not a current missing-feature list: the React Admin shell, record console,
+project/plan review adapters, shared upload/crop workspace and queue tabs are
+implemented. Later source fixes include five-degree crop geometry, correction
+validation and whole-floor review history. No fresh build, backend suite or visual
+acceptance run was performed for this documentation update. Keep the dated/deferred
+verification notes below distinct from release approval.
+
 Date: 2026-10-24. Status: the seven follow-up UX changes below are implemented locally in source. Frontend builds and Django startup checks pass; automated tests remain deferred at the user's request, and browser acceptance is pending.
 
 ## Follow-up UX changes — implemented in source

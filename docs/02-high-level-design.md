@@ -1,5 +1,7 @@
 # High-Level Design (HLD)
 
+Current implementation: three Django service entrypoints share one domain and PostgreSQL schema. Buyer, Builder and the custom Admin console use React/TypeScript from one frontend tree. The production-scale topology below remains a target design; the supported release workflow currently targets an existing EC2 host. See [operating workflows](../WORKFLOWS.md) and [EC2 releases](../.deployments/aws/ec2/README.md).
+
 ## 1. Scope
 
 This design covers the buyer web experience, developer ingestion, evidence extraction, MahaRERA verification, project catalog, commute optimization, transaction summaries, ranking, administration, and observability.
@@ -21,7 +23,7 @@ flowchart LR
     B[Buyer Browser] --> FE[React Web Application]
     D[Developer Browser] --> FE
     A[Admin Browser] --> FE
-    FE -->|HTTPS /api| BFF[ASP.NET Core API / BFF]
+    FE -->|Same-origin /api| BFF[Django REST Framework service APIs]
     BFF --> ID[Identity and Authorization]
     BFF --> PREF[Preference Service]
     BFF --> CAT[Project Catalog Service]
@@ -29,35 +31,35 @@ flowchart LR
     BFF --> MEDIA[Document Service]
     BFF --> ADMIN[Admin and Review Service]
 
-    MEDIA --> OBJ[(Private Object Storage)]
-    MEDIA --> QUEUE[(Job Queue)]
+    MEDIA --> OBJ[(Private routed filesystem workspace)]
+    MEDIA --> QUEUE[(PostgreSQL outbox)]
     QUEUE --> WORKER[Extraction and Enrichment Workers]
     WORKER --> OCR[OCR / Document Intelligence Adapter]
     WORKER --> RERA[MahaRERA Adapter]
     WORKER --> TX[Transaction Data Adapter]
     WORKER --> MAP[Maps and Routing Adapter]
 
-    PREF --> DB[(Relational Database)]
+    PREF --> DB[(PostgreSQL)]
     CAT --> DB
     MATCH --> DB
     ADMIN --> DB
-    MATCH --> CACHE[(Distributed Cache)]
+    MATCH --> CACHE[(Configured cache; shared cache is a production target)]
     BFF --> OBS[Logs Metrics Traces]
     WORKER --> OBS
 ```
 
 The boxes are logical boundaries. MVP may deploy the API modules as a modular monolith plus one worker process, preserving interfaces that allow later service extraction.
 
-## 4. Recommended technology baseline
+## 4. Implemented technology baseline
 
-- **Frontend:** React + TypeScript, a mature router, TanStack Query (server state), React Hook Form plus schema validation, Fluent UI or equivalent accessible component library.
-- **Backend:** ASP.NET Core Web API using controllers/minimal APIs, OpenAPI, policy-based authorization, `IHttpClientFactory`, background workers.
-- **Persistence:** PostgreSQL or Azure SQL for transactional data; object storage for evidence; Redis-compatible cache; durable queue for jobs.
+- **Frontend:** React + TypeScript, Vite, React Router, Zod, custom accessible components and a same-origin API wrapper. TanStack Query, React Hook Form and Fluent UI are not installed dependencies.
+- **Backend:** Django REST Framework, Django sessions/CSRF and model permissions, organization-scoped authorization, shared domain services and management-command workers.
+- **Persistence:** PostgreSQL only. Routed private filesystem storage covers source and generated artifacts; local Compose uses volumes and EC2 requires an NFS workspace. Object storage and a shared cache remain migration targets.
 - **Document processing:** pluggable OCR/document extraction provider followed by deterministic normalization and review.
 - **Search:** relational/full-text search for MVP; dedicated search engine when catalog size, facets, or relevance demand it.
 - **Observability:** OpenTelemetry traces, structured logs, metrics, dashboards, and alerts.
 
-Technology choices are recommendations, not requirements; contracts and trust boundaries are the stable design.
+OpenTelemetry and external providers require explicit runtime configuration. Their presence in source does not establish that live integrations or dashboards are enabled.
 
 ## 5. Frontend architecture
 
@@ -120,7 +122,7 @@ flowchart TD
 ### 7.2 Project ingestion
 
 1. Developer creates a project with MahaRERA ID and requests upload intents.
-2. Files upload directly to private storage using narrowly scoped, short-lived credentials.
+2. Files upload through the same-origin content endpoint returned by an upload intent. The current browser flow does not receive cloud storage credentials.
 3. Completion event triggers malware scan, type verification, extraction, normalization, and conflict detection.
 4. Verification and enrichment adapters fetch authoritative/partner data server-side.
 5. Review tasks are created where confidence or consistency rules fail.
@@ -135,6 +137,8 @@ flowchart TD
 - **Admin:** MFA/conditional access, least-privilege roles, step-up confirmation for destructive operations, complete audit trail.
 
 ## 9. Deployment topology
+
+The following diagram is the proposed production topology. The current EC2 workflow packages checked images, transfers them over SSH, and starts Admin, Builder, Buyer, gateway and optional HTTPS on one host. It checks pending migrations without applying them and keeps the worker off. Local Compose has a separate migration container and shared worker. AWS ECS and Azure Container Apps templates are alternative infrastructure references.
 
 ```mermaid
 flowchart TB

@@ -1,5 +1,13 @@
 # Frontend and UX Specification
 
+## Current UI baseline
+
+Buyer, Builder and Admin use the shared React/TypeScript source tree. Admin routes include `/admin/`, `/admin/project-workspace/`, `/admin/records/<resource>/`, `/admin/queue/`, `/admin/flags/`, `/admin/operations/` and `/admin/password/`; Django provides authentication and permission enforcement. Legacy admin bookmarks are compatibility redirects rather than a second production UI. See [admin migration and acceptance](admin-ux-migration-plan.md) for detailed scope.
+
+The shared project editor separates details, source/review, documents and media. Active-first searchable plan directories retain selection during activation changes. Cropping replaces the selected plan's detail view, uses five-degree rotation controls, and stages actor-owned drafts before explicit attach/replace. Floor evaluation corrections use floor-level fields; layout corrections use room/configuration fields. Saving returns data for review and never approves or publishes it. Queue tabs distinguish Running, Dead letter and Completed and label bounded loaded rows separately from totals.
+
+Guest users may consent to one browser trial backed by the stateless matching API and 90-day query/report cookies. Shared System/Light/Dark controls use the same frontend theme preference. The wireframes below remain UX requirements; source implementation and historical screenshots do not establish current desktop/mobile acceptance.
+
 ## 1. Experience goals
 
 - Make a complex home-buying decision feel progressive and reversible.

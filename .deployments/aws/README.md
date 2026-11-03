@@ -1,5 +1,11 @@
 # AWS deployment
 
+Use the [EC2 release guide](ec2/README.md) and [SSH authentication guide](ec2/authentication-guide.md)
+for the current workflow. It builds checked images, transfers a checksummed artifact
+by SSH/SCP, and starts private preview or public HTTPS on an existing host. It uses
+GitHub environment secrets and pinned host keys, not AWS API credentials. The `demo`
+input defaults to true; pending migrations stop deployment and processing stays off.
+
 Use [the GitHub Actions deployment guide](ec2/README.md) for the current EC2 service.
 It uses existing PostgreSQL/NFS storage and server-side runtime credentials. GitHub
 environment secrets supply the target host and pinned SSH credentials. No AWS CLI,

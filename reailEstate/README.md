@@ -10,7 +10,7 @@ role workflows, workers, maintenance, testing, and deployment safety.
 
 | Project | Responsibility |
 |---------|----------------|
-| `adminService` | Administration, review, publishing, operations, and schema migrations |
+| `adminService` | React Admin console, Django authorization, review, publishing, operations, and schema migrations |
 | `builderService` | Builder authentication, project ingestion, layouts, and media editing |
 | `buyerService` | Published catalogue, buyer profiles, recommendations, and the public UI |
 | `reailEstate_common` | Shared Django domain, migrations, processing library, and React source |
@@ -122,9 +122,19 @@ independent of the provider file.
 The Compose layout includes PostgreSQL, migrations, all web services, and the shared
 worker. See [`../WORKFLOWS.md`](../WORKFLOWS.md) before using it.
 
-Azure has validated planning artifacts but no authorized apply. AWS remains
-offline-validated without an approved account deployment. Neither cloud may be
-deployed without new approval.
+## Releases
+
+Application releases use the reviewed [EC2 GitHub Actions workflow](../.deployments/aws/ec2/README.md).
+Select the reviewed ref, GitHub environment, `preview` or `https` mode, and demo
+visibility. Demo visibility defaults to true and can expose eligible unreviewed
+previews to anonymous viewers. The workflow checks pending migrations without
+applying them and keeps processing off. It does not provision infrastructure.
+Configure runner SSH access through the [authentication guide](../.deployments/aws/ec2/authentication-guide.md).
+
+AWS ECS and Azure Container Apps plans are alternative infrastructure references;
+dated validation records do not prove a live deployment. Check Actions history for
+release status. Agent-run AWS/Azure CLI commands require explicit command-specific
+permission; do not substitute local/SSH release orchestration for Actions.
 
 
 ## Production image dependencies

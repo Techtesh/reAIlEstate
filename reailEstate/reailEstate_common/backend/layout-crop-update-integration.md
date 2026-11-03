@@ -1,6 +1,20 @@
 # Items 5/6: edit the existing unit crop
 
-## Main integration (not applied here)
+## Current integration status
+
+`LayoutCropUpdateAdminMixin` is installed on `FloorPlanAdmin`, but production admin
+editor URLs are GET/HEAD redirects to the React project workspace and reject
+retired POSTs. The active shared editor stages actor-owned drafts and commits an
+explicit attach/replace action; it supports current-image or original-page source
+selection and five-degree rotation. Source checksums, geometry, ownership, version
+checks and review invalidation remain mandatory. See [workspace routes](platform_api/urls_project_workspace.py),
+[shared draft service](platform_api/crop_cart.py) and [current workflows](../../../WORKFLOWS.md#shared-project-editor-cleanup).
+
+The direct service and ModelAdmin callback contracts below describe the retained
+legacy adapter. Its quarter-turn restriction is not the current shared editor's
+rotation contract. Original verification notes do not establish current acceptance.
+
+## Historical ModelAdmin integration
 
 1. Import `LayoutCropUpdateAdminMixin` from
    [platform_api/layout_crop_update_admin.py](platform_api/layout_crop_update_admin.py)

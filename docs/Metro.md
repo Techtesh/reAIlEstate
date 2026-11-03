@@ -1,3 +1,9 @@
+# Metro station candidate notes
+
+These CSV-style notes are unverified candidate data, not an authority catalogue, a verified stop order or live service status. Do not enable them as authoritative data or silently correct coordinates from memory. The application reads configured station candidate/catalogue files through its [map-station API](05-api-contracts.md#get-apiv1map-stations); candidate line geometry remains schematic and unverified. The committed authority catalogue is intentionally empty. The [remaining work](../todo.md) tracks manual station review and railway coverage.
+
+Columns in the retained notes: station name, line, latitude, longitude, reference URL. Validate against an approved dated source before importing.
+
 Versova,Line 1,19.1306,72.8192,https://www.google.com/maps?q=19.1306,72.8192
 D.N. Nagar,Line 1,19.1281,72.8303,https://www.google.com/maps?q=19.1281,72.8303
 Azad Nagar,Line 1,19.1267,72.8375,https://www.google.com/maps?q=19.1267,72.8375

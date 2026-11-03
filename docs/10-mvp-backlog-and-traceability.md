@@ -1,5 +1,7 @@
 # MVP Backlog and Requirements Traceability
 
+This backlog preserves product acceptance criteria, not an unimplemented scaffold checklist. Django services, React Buyer/Builder/Admin interfaces, PostgreSQL, shared project editing and durable processing already exist. Use [current workflows](../WORKFLOWS.md) for delivered behavior and [admin UX acceptance](admin-ux-migration-plan.md) for the current UI follow-up. Live licensing, production identity, recovery and capacity checks remain separate delivery work.
+
 ## Workspace Admin TODO
 
 Owner: workspace administrator (user). Added 2026-09-17. Related story: US-016.
@@ -138,10 +140,10 @@ Maps to: FR-12.
 | Supported document types/limits | Security/Product | US-013 |
 | Public vs sign-in-only catalog policy | Product/Security | US-020 |
 
-## 6. Suggested first sprint
+## 6. Historical foundation sprint
 
 1. Confirm decisions and create architecture decision records.
-2. Scaffold React/ASP.NET solution and CI without production deployment.
+2. The original scaffold proposal is superseded by the Django/React service layout and existing CI; do not create a parallel ASP.NET solution.
 3. Implement identity abstraction, local development identity, and authorization policies.
 4. Implement requirement profile schema/database/API.
 5. Build canonical draft provider plus two-mode skeleton for Places and Home sections.

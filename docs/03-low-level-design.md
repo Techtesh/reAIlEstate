@@ -3,32 +3,29 @@
 ## 1. Codebase layout
 
 ```text
-src/
-  Web/                         React TypeScript application
-    app/                       routing, providers, error/auth boundaries
-    features/onboarding/       guided and summary modes
-    features/recommendations/
-    features/projects/
-    features/comparison/
-    features/developer/
-    features/review/
-    shared/api/                generated typed API client
-    shared/components/
-    shared/security/
-  Api/                         ASP.NET Core host
-    Controllers/
-    Middleware/
-    Authorization/
-    Configuration/
-  Application/                 use cases, DTOs, validators, interfaces
-  Domain/                      entities, value objects, scoring rules
-  Infrastructure/              database, storage, queues, external adapters
-  Workers/                     extraction/enrichment consumers
-  Contracts/                   integration events
-  Tests/
+reailEstate/
+  adminService/                admin APIs, review and migration owner (8002)
+  builderService/              organization-scoped builder APIs (8003)
+  buyerService/                public catalogue and private buyer APIs (8004)
+  reailEstate_common/
+    backend/
+      config/                  settings, service routing and React admin routes
+      platform_api/            shared models, use cases, APIs and workers
+        migrations/            shared PostgreSQL schema history
+        feature_flags/         environment-scoped effective feature decisions
+        management/commands/   worker and maintenance commands
+        tests/                 backend regression tests
+      realestate_common/       shared processing and geometry helpers
+    frontend/
+      src/                     Buyer, Builder and Admin React interfaces
+      tests/                   browser regression tests
+.github/workflows/             CI and reviewed EC2 release workflow
+.deployments/                  release helpers and infrastructure references
 ```
 
 ## 2. Domain aggregates
+
+The aggregates, application-service names and TypeScript examples below are design vocabulary. They are not literal Python classes or a generated client schema. Current entrypoints are the [service routes](../reailEstate/MAINTAINERS.md#service-map), shared models, serializers and [workspace routes](../reailEstate/reailEstate_common/backend/platform_api/urls_project_workspace.py). Use PostgreSQL for runtime and tests; no SQLite fallback remains.
 
 ### 2.1 BuyerRequirementProfile
 

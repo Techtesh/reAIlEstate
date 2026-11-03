@@ -39,6 +39,13 @@ the extraction worker. Failed startup can partially replace containers; rerun a
 compatible reviewed prior commit for rollback. Preserve database writes and media.
 See the [complete Actions setup](ec2/README.md) for configuration examples.
 
+For SSH keys, independently verified host keys and temporary runner source rules,
+use the [authentication guide](ec2/authentication-guide.md). The workflow forces
+IPv4 and supports `SSH_PORT` (default 22); allow the configured port from the actual
+runner source. `DOMAIN`, `BUILDER_DOMAIN` and `ADMIN_DOMAIN` select the Buyer,
+Builder and custom Admin HTTPS hostnames in protected host configuration. No
+deployment-specific hostname or address belongs in this plan.
+
 Every agent-run AWS/Azure CLI command requires explicit user permission after an
 explanation of its command, target and effect. Historical commands and approvals
 below are documentation, not authorization.

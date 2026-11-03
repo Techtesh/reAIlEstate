@@ -1,13 +1,13 @@
-# Project setup checklist
+# Project implementation guidance
 
-- [x] Clarify Project Requirements
-- [ ] Scaffold the Project
-- [ ] Customize the Project
-- [ ] Install Required Extensions
-- [ ] Compile the Project
-- [ ] Create and Run Task
-- [ ] Launch the Project
-- [ ] Ensure Documentation is Complete
+The project is implemented; do not scaffold a second application. Use the
+[workflow catalogue](../../WORKFLOWS.md), [service overview](../README.md) and
+[maintainer guide](../MAINTAINERS.md) for current commands and ownership.
+
+Admin (8002), Builder (8003) and Buyer (8004) share Django models/migrations and
+PostgreSQL. Buyer, Builder and the custom Admin console use one React/Vite source
+tree. Use an isolated PostgreSQL database for tests; SQLite fallback is removed.
+Retain existing migrations, evidence and independent review gates.
 
 ## Project instructions
 
@@ -19,3 +19,6 @@
 - Render user and developer content as text; do not use unsafe HTML rendering.
 - Maintain accessible, responsive UI behavior targeting WCAG 2.2 AA.
 - Keep backend and frontend independently runnable and tested.
+- Admin workspace permissions are distinct from Builder organization membership.
+- Release through the reviewed [EC2 Actions workflow](../../.github/workflows/aws-ec2-release.yml); it checks pending migrations, keeps processing off, and defaults demo visibility to true. Do not infer deployment success from local checks.
+- Follow the repository deployment rules: keep real endpoints/IDs/secrets out of tracked files and obtain explicit command-specific permission before any agent-run AWS/Azure CLI command.

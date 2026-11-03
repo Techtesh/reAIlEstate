@@ -1,5 +1,9 @@
 # Current project flowcharts
 
+Source alignment: 3 November 2026. Admin is the custom React console using `/api/v1/admin/console/` and the separate `/api/v1/admin/project-workspace/` API prefix. Django sessions and permissions remain authoritative. Legacy editor bookmarks redirect on GET/HEAD; retired POST paths return 405. These diagrams describe source behavior, not live deployment or a fresh test run.
+
+Recent shared-editor changes include active controls in plan directories, dedicated crop-editing views, five-degree rotations with original-page geometry, floor-specific correction/approval, and Running/Dead letter/Completed queue tabs. Saving a correction invalidates prior approval and preserves provenance; it does not publish. Local runtime starts the persistent worker, whereas [EC2 releases](../.deployments/aws/ec2/README.md) keep processing off.
+
 Checked against the working tree on 22 October 2026. These diagrams replace the earlier chat diagrams. They describe application paths, not proof that external providers or cloud infrastructure are enabled. Small conversion/validation helpers are grouped where noted.
 
 ## 1. Login and workspace authorization — current
@@ -15,7 +19,7 @@ flowchart TD
     DP --> DA[authenticate and builder_memberships]
     DA --> DR[Active user, membership and organization; eligible effective role]
     DR --> SESSION
-    A[Admin] --> AL[Django admin login: active staff]
+    A[Admin] --> AL[React Admin login: active staff and Django permissions]
     AL --> AS[Admin session]
     AS --> AW[admin_project_workspace]
     AW --> PERM[platform_project_editor: change_project permission]
@@ -35,7 +39,7 @@ References: [login handlers](../reailEstate/reailEstate_common/backend/platform_
 ```mermaid
 flowchart TD
     B[Builder project editor] --> BR[Builder routes: organization membership scope]
-    A[Django admin Projects Add / shared workspace] --> AR[Admin routes: platform permissions]
+    A[React Admin Projects Add / shared workspace] --> AR[Admin routes: platform permissions]
     BR --> CREATE[BuilderProjectsView.post]
     AR --> CREATE
     CREATE --> INPUT[CreateProjectInput.is_valid]
@@ -85,7 +89,7 @@ approved draft facts; verification attempt]
 
 Search/lookup results do not become accepted locations automatically. Content mutations have request IDs and fingerprint checks; this is distinct from upload-completion idempotency. Builder location proposals always require a different approver. Other location references follow the configured policy. Registry evidence alone does not establish project-location identity.
 
-References: [builder locations](../reailEstate/reailEstate_common/backend/platform_api/builder_locations.py), [content actions](../reailEstate/reailEstate_common/backend/platform_api/project_workspace_content.py), [external-source review](../reailEstate/reailEstate_common/backend/platform_api/external_sources_admin.py), [publication](../reailEstate/reailEstate_common/backend/platform_api/views.py).
+References: [project locations](../reailEstate/reailEstate_common/backend/platform_api/project_locations.py), [content actions](../reailEstate/reailEstate_common/backend/platform_api/project_workspace_content.py), [external-source review](../reailEstate/reailEstate_common/backend/platform_api/external_sources_admin.py), [publication](../reailEstate/reailEstate_common/backend/platform_api/views.py).
 
 ## 4. Document upload — current, shared by builder and admin
 

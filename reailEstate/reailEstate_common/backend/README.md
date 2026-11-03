@@ -6,6 +6,29 @@ Use the repository [`WORKFLOWS.md`](../../../WORKFLOWS.md) as the source of trut
 for service lifecycle, role workflows, workers, maintenance, testing, and deployment
 safety. This file remains the detailed backend command and subsystem reference.
 
+## Current service and administration boundaries
+
+Admin (8002), Builder (8003) and Buyer (8004) share Django models/migrations and
+PostgreSQL. Runtime, workers, tests and database snapshots require PostgreSQL.
+The Admin UI is a custom React console; Django still owns sessions, CSRF and model
+permissions. References below to old Django admin tools describe retained domain
+adapters or historical UI labels. Production legacy editor URLs redirect on GET
+and reject retired POST actions.
+
+Admin console routes use `/api/v1/admin/console/`. Shared project editing uses
+`/api/v1/admin/project-workspace/`, independently of Builder organization membership.
+Project/plan review uses `/api/v1/admin/projects/{id}/review` and
+`/api/v1/admin/plans/{id}/review`. Authorized staff must hold the relevant model
+permissions; staff status alone does not grant project editing or role management.
+Whole-floor corrections preserve floor observations separately from layout room
+measurements and return corrected records for review, without publication.
+
+The normal local executor is the persistent worker. [EC2 releases](../../../.deployments/aws/ec2/README.md)
+keep processing off and only check pending migrations. New uploads remain queued
+until processing/scanning is configured. Demo visibility defaults to true in the
+workflow, independently of HTTPS/preview transport. See the [current API reference](../../../docs/05-api-contracts.md)
+and [admin acceptance plan](../../../docs/admin-ux-migration-plan.md).
+
 The optional [buyer frontend](../frontend/README.md) development server runs on
 port 5173 and proxies the buyer service on port 8004. The built buyer application
 is served directly by the buyer service at port 8004.
@@ -14,25 +37,26 @@ is served directly by the buyer service at port 8004.
 
 Builders sign in at the frontend **`/builder/login`**, not Django `/admin`.
 The portal lists only projects belonging to their active organizations. Active
-`owner` and `editor` memberships grant project management; `viewer`, revoked or
+`owner`, `admin` and `editor` memberships grant project management; `viewer`, revoked or
 suspended memberships do not. Membership and organization status are checked on
 every request, including uploads and document access.
 
-A **platform administrator** provisions accounts using Django admin:
+A **platform administrator** provisions accounts using the custom Admin console:
 
 1. Create an active organization (or select the existing one).
-2. Create an active user with a securely supplied password. Leave **Staff status**
+2. Create an active user and set its password through the authorized password action
+   (new console-created users initially have an unusable password). Leave **Staff status**
    and **Superuser status** unchecked, and do not grant reviewer/admin groups.
-3. Reopen the saved user's edit page. Under **Builder organization access**, select
-   the organization from the dropdown, choose `owner` or `editor`, and set status
-   to `active`. Save the user. The separate Organization memberships screen is
-   also available. A user may manage multiple assigned organizations.
-4. Direct the builder to `http://127.0.0.1:5173/builder/login` locally, or the
+3. Open **Memberships** or the organization's role-member controls, select the
+   organization and existing active user, assign the intended role/package, and set
+   membership status to active. A user may manage multiple assigned organizations.
+4. Direct the builder to `http://127.0.0.1:8003/builder/login` locally (or port 5174
+   for Builder hot reload), or the
    deployment's frontend `/builder/login` URL. Do not share administrator credentials.
 
 Organization status (`active`, `inactive`, `suspended`) and verification state
 (`pending`, `verified`, `rejected`) use model enums and admin dropdowns. Membership
-roles and statuses also use enums; only active owner/editor memberships grant access.
+roles and statuses also use enums; only active owner/admin/editor memberships grant management access.
 Organization verification is separate from membership eligibility.
 
 Users can also sign in on the homepage and choose **Buyer** or **Builder**.
@@ -45,15 +69,15 @@ staff permissions or publish projects. Active organization owners can create nam
 roles and bulk onboard existing accounts within their own organization. The legacy developer-organization API also restricts organization
 creation/update/deletion to platform staff.
 
-Apply migration `0020_reusable_organization_roles` before deploying the new role
+Apply migrations `0020_reusable_organization_roles` and `0021_organization_admin_role` before deploying the role
 controls. Existing memberships retain their access. A named role bundles one base
-access level (`owner`, `editor`, `viewer`) and overrides the legacy membership role.
+access level (`owner`, `admin`, `editor`, `viewer`) and overrides the legacy membership role.
 Roles are scoped to an organization, names are case-insensitively unique, and assigned
 roles cannot be deleted or have their organization/base access changed in admin.
 Create a replacement role to change access. Bulk assignment preserves the last active
 owner and rejects the whole batch if any account is unknown or inactive.
 
-Django admin's **Roles & onboarding** links expose organization roles and platform
+The custom Admin console's access destinations expose organization roles and platform
 permission groups. A platform group bundles permissions and accepts multiple member
 accounts at once; the explicit **Grant admin login** checkbox also sets staff status.
 Delegated admins can only select permissions they hold, and changing members requires
@@ -65,7 +89,7 @@ The builder API uses existing session cookies and CSRF protection:
 | --- | --- | --- |
 | `/api/v1/auth/builder-login` | GET, POST | Initialize CSRF, then authenticate an assigned builder |
 | `/api/v1/builder/organizations` | GET | Assigned active management organizations |
-| `/api/v1/builder/organizations/{id}/roles` | GET, POST | Owner-only reusable roles and current members |
+| `/api/v1/builder/organizations/{id}/roles` | GET, POST | Owner role management; organization admins manage non-owner packages |
 | `/api/v1/builder/organizations/{id}/roles/{roleId}/members` | POST | Atomically assign a role to 1–100 existing active usernames |
 | `/api/v1/builder/projects` | GET, POST | List own projects or create in an assigned organization |
 | `/api/v1/builder/projects/{id}` | GET, PATCH | Read/edit own project metadata |
@@ -1102,7 +1126,7 @@ not assert exhaustive visual coverage or human verification of every page.
 
 ### Expanded project reports and local folders
 
-The batch pipeline now writes per-document project reports and layout-metrics JSON/CSV, including parcel fields, RERA evidence, amenities, prices/offers, categorized image URIs, developer and station enrichment status. Full field definitions, format matrix, formulas, and limitations are in [the ingestion/output specification](../../docs/11-document-ingestion-and-project-outputs.md).
+The batch pipeline now writes per-document project reports and layout-metrics JSON/CSV, including parcel fields, RERA evidence, amenities, prices/offers, categorized image URIs, developer and station enrichment status. Full field definitions, format matrix, formulas, and limitations are in [the ingestion/output specification](../../../docs/11-document-ingestion-and-project-outputs.md).
 
 New uploads are physically stored in `user/media/todo` under `WORKSPACE_DATA_ROOT` (default workspace root). Successfully processed originals move to `user/media/completed`; parser failures and incomplete visual analysis remain in todo. Human review can remain outstanding after a processing-success move. Existing legacy media stays readable. Directory placement alone does not enqueue files: use the existing upload/complete API.
 
@@ -1193,7 +1217,7 @@ All routes below are under `/api/v1/developer-projects/{projectId}` and require 
 5. `POST /ingestion-queue` with `{ "limit": 1 }` runs a bounded project-only batch. Default limit is 10, maximum 20. **This manual endpoint is synchronous** and may take minutes for PDFs; use small batches or the timer/CLI for long jobs. It does not change the profiles already saved on the requests.
 6. `POST /documents/{documentId}:reprocess` with `{ "visionProfileId": "foundry-cloud", "reasonCode": "TRY_CLOUD_VISION" }` and a new `Idempotency-Key` queues another extraction and returns a new operation. It rejects an already-active request. The admin reprocess route also requires an idempotency key now. Reprocessing updates logical plans; it is not an immutable comparison of model outputs, and requires renewed review.
 
-Queue payloads pin the profile ID, provider, model, and nonsecret configuration hash. Changing the default does not change already-queued choices. Editing/removing/disabling a selected profile blocks the old request instead of silently rerouting it; keep old profiles unchanged and add a new ID for a different configuration. Secret rotation and label changes are allowed. Pre-existing messages without a selection retain their legacy worker-default behavior.
+Queue payloads record a nonsecret selection snapshot. AI work resolves the current configured fallback chain at execution: automatic requests use file order and a manual selection is tried first. Safe attempt metadata and the winning provider are recorded. Script/rules selections remain distinct from AI execution. There is no profile `enabled` field; edit the profile file and restart services/workers to reload it. Restarting does not itself requeue dead letters.
 
 ### Ad hoc flat separation
 

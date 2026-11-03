@@ -4,6 +4,14 @@ Deploy the current service through [GitHub Actions](aws/ec2/README.md).
 The workflow builds and checks a release, transfers its checked artifact over SSH,
 and starts the services in private-preview or public-HTTPS mode.
 
+Start with [SSH authentication and runner reachability](aws/ec2/authentication-guide.md).
+Dispatch selects an environment, transport mode and `demo` visibility (default true).
+Demo visibility can expose eligible unreviewed media/details to anonymous viewers;
+it does not approve records. Releases check pending migrations without applying
+them and keep the worker off. Local development startup has different migration
+and worker behavior. See [release status](aws/ec2/launch-status.md) for the evidence
+required before calling a release successful.
+
 Deployment-specific hosts, keys, IDs and account details belong in GitHub environment
 secrets/variables or ignored server configuration. Agents must explain each AWS/Azure
 CLI command and obtain explicit user permission before running it.

@@ -1,6 +1,19 @@
 # Bulk layout removal and boundary health integration (items 1 / 4)
 
-These additions are opt-in. Existing admin registration, dashboard/card templates,
+## Current integration status
+
+The mixins described below are installed on `ProjectAdmin`; this is no longer a
+pending opt-in integration. Production admin URLs serve the custom React console:
+legacy GET/HEAD links redirect and retired mutation URLs return 405. Use the
+shared project workspace for current removal/restoration actions. Do not restore
+legacy HTML POST routes to follow this historical handoff. The removal/health
+service contracts below remain useful implementation references; their original
+verification notes are historical, not a fresh test result.
+
+See [current workspace behavior](../../../WORKFLOWS.md#shared-project-editor-cleanup)
+and [admin acceptance](../../../docs/admin-ux-migration-plan.md).
+
+At the time of the original handoff these additions were opt-in. Existing admin registration, dashboard/card templates,
 queue implementation, models and migrations were not changed. No existing database
 records were removed, and Python, tests, lint and migrations were not executed.
 

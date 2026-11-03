@@ -12,6 +12,13 @@ implemented by this plan. The active service deploys to EC2 through GitHub
 Actions; the [AWS plan](../aws/deployment-plan.md) contains its inline release
 steps, including public demo media visibility.
 
+The current application uses PostgreSQL only and serves Buyer, Builder and custom
+Admin React interfaces over shared Django services. Local startup runs migrations
+and the persistent worker; the EC2 release workflow checks pending migrations and
+keeps processing off. Do not copy historical co-located-worker or migration behavior
+from the Azure proposal into the active release path. An Azure release mechanism
+would require its own reviewed GitHub Actions workflow.
+
 Keep architecture, sizing, deployment stages and validation steps in this file.
 Actual resource names, tenant/subscription IDs, account details and endpoints
 use placeholders; supply real values through ignored runtime configuration or

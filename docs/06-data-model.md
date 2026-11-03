@@ -1,5 +1,11 @@
 # Data Model and Data Governance
 
+## Implementation mapping
+
+The ER diagram and lower-case table sketches below describe the conceptual model, not literal SQL DDL. Current tables are defined by the shared [Django models](../reailEstate/reailEstate_common/backend/platform_api/models.py) and [migration history](../reailEstate/reailEstate_common/backend/platform_api/migrations/). All three services and workers use PostgreSQL; retain migrations for existing databases.
+
+Organization role packages extend memberships; Django groups/model permissions govern platform administration. `LayoutCropDraft` records bind staged crops to their actor and source checksums. `FloorPlan`, `FloorPlanAsset`, review tasks, outbox/operation records and audit history preserve evaluation and correction provenance. Whole-floor corrections remain separate from individual-layout room fields. Guest matching creates no persistent requirement profile, snapshot or worker job; its consented report is browser-cookie data. Exact destinations in saved profile payloads require privacy review; the conceptual encrypted-coordinate column below is not evidence of implemented field encryption.
+
 ## Expanded ingestion artifacts (Django implementation)
 
 See [the output contract](11-document-ingestion-and-project-outputs.md) for the latest document report schema. No additional relational tables are required for this increment:

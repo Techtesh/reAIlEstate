@@ -1,4 +1,10 @@
 # Remaining work
+
+This is a working backlog, not a verified defect report. Current delivered behavior
+is in [WORKFLOWS.md](WORKFLOWS.md); proposed production changes are in the
+[cloud-native review](docs/cloud-native-review.md). Reproduce older observations
+before implementing them. The 3 November documentation sweep does not establish
+test success, provider readiness or live deployment.
 ## manual
 1) manual TODOs fix stations on M1 and m3 lines something seems wrong
 2) add local train stations
@@ -20,17 +26,14 @@
   c) ideally we should remove it al together 
 
 ## Code Standards
-1) Merge Builder and Admin New Project paths as much as possible
-    a) On document Upload -> Current admin limitation: the separate admin service does not expose these three upload endpoints, and EvidenceDocumentAdmin is not a file-upload form. Admins have review, retry, source-page and media tools, but the complete document-upload UI lives in the builder portal. A staff account using that portal still needs builder membership.
-    b) same for cropping of layouts
-    c) same for builder and admin location, ammenities,crop_car,external_sources, layout, layout_floor_plan
+1) Complete runtime acceptance of the shared Builder/Admin project workspace. Creation, document uploads, location/source/amenity entry, cropping, layouts and the personal draft cart already share components/services. Admin uses platform permissions without Builder membership; Builder remains organization-scoped. Verify the outstanding cases in the [Admin UX acceptance plan](docs/admin-ux-migration-plan.md).
 2) lets create a directory to keep all floor_plan and layout related tasks in it 
-3) are reailEstate/reailEstate_common/backend/platform_api/migrations/*.py needed? cant we assume a new (empty db) for future clients
+3) Preserve Django migration history for existing PostgreSQL installations. Evaluate any future squash separately, with clean-install and existing-database upgrade tests; do not assume every client database is empty.
 4) Decouple artifact storage from filesystem paths
 5) add licence
 6) all git tasks should be yaml
 7) remove unnecessary scripts, also add new ones for linux
-8) update readme.md
+8) Keep project documentation aligned when routes, roles, settings or release behavior change; the repository-wide documentation alignment was performed on 3 November 2026.
 9) for each feature add feature.md/flow.feature.md
 10) reailestate_common acts as an active service for all 3 portals, instead it should only contain function calls, it is supposed to be a python package(library) in future 
 
@@ -57,6 +60,6 @@
 
 ## AuthN/Z
 1) currenty all users are written to the same table, should we update our AuthN/Z protocols areound this
-2) Currently we are leaky on the passwords, we are using username/pwd we should move onto OpenID/HeaderAuth
+2) Evaluate production OIDC/MFA and session policy. Current authentication uses Django password verification and session/CSRF controls; a password-leak claim requires a concrete reproduction. Do not introduce trusted-header authentication without an explicit proxy/trust-boundary design.
 3) Remove extraction from HTTP handlers -> One builder endpoint executes queued processing inside the request. Return an operation immediately and let workers execute it.
 4) Separate identities and privileges\

@@ -1,11 +1,20 @@
 # Deploy the service with GitHub Actions
 
+For initial SSH key setup, GitHub environment secrets, and connection timeouts,
+follow the [GitHub Actions to EC2 authentication guide](authentication-guide.md).
+
 The supported application release path is **Actions -> Deploy EC2 service**
 (`.github/workflows/aws-ec2-release.yml`). It builds Linux images from the selected
 Git commit, checks all three services against disposable PostgreSQL, validates the
 gateway, packages a checksummed artifact, and deploys that artifact over SSH.
 It runs no AWS/Azure CLI commands and never provisions infrastructure or applies
 migrations. The same workflow supports private preview and public HTTPS.
+
+Buyer, Builder and the custom React Admin console are served by their respective
+Django entrypoints. Django sessions/model permissions remain the application
+authentication boundary; the deployment SSH key is a separate host credential.
+Legacy admin editor bookmarks redirect to the custom workspace and do not restore
+retired mutation endpoints.
 
 ## 1. Prepare the host once
 

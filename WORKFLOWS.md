@@ -10,7 +10,7 @@ MMR Homefinder application. Detailed subsystem references remain in
 
 | Component | Port | Owns |
 | --- | ---: | --- |
-| Admin service | 8002 | Django admin, independent review, publication, operational APIs, migrations |
+| Admin service | 8002 | Custom React Admin console, Django permissions, independent review, publication, operational APIs, migrations |
 | Builder service | 8003 | Builder authentication, organizations, project editing, uploads, media and layouts |
 | Buyer service | 8004 | Public catalogue, buyer accounts, requirements, matches, comparisons, shortlists |
 | Shared worker | None | Durable document, media-evaluation, and recommendation events |
@@ -206,7 +206,14 @@ configured.
 
 ### Shared admin project creation, uploads, and layout cropping
 
-Django admin **Projects -> Add** opens the shared project workspace at
+The production Admin UI is a React console backed by Django sessions/model
+permissions. `/admin/records/<resource>/` manages supported records;
+`/admin/queue/`, `/admin/flags/`, `/admin/operations/` and `/admin/password/`
+provide processing, flags, operations and password controls. Console APIs live
+under `/api/v1/admin/console/`. Legacy Django admin bookmarks are GET/HEAD
+compatibility redirects; retired editor POSTs return 405.
+
+Admin **Projects -> Add** opens the shared project workspace at
 `/admin/project-workspace/?new=1`. Existing project change pages and media
 dashboards link to **Upload documents and edit layouts** / **Upload documents
 and crop layouts**. Select an active organization, create or open a project,
@@ -225,7 +232,10 @@ The shared routes and React components preserve upload checksums, scan
 quarantine, idempotency, crop ownership, optimistic versions, feature flags,
 review invalidation, and explicit confirmation before queued evaluation.
 Creating or editing through this workspace cannot set publication or
-verification status directly. Existing reviewer-only admin tools remain available.
+verification status directly. Independent review uses the admin project/plan
+review APIs. Whole-floor corrections use floor counts, lifts, staircases, refuge
+and common-area observations; individual layouts use room/configuration fields.
+Saving a correction returns it for review and invalidates prior approval.
 
 ## 7. Worker workflows
 
@@ -320,6 +330,14 @@ Use [the Actions deployment guide](.deployments/aws/ec2/README.md). The workflow
 builds and verifies the selected Git commit, then deploys its checked artifact to
 an existing host in private-preview or public-HTTPS mode. All target-specific
 values live in GitHub environment secrets/variables or ignored server files.
+
+The dispatch input `demo` defaults to true and enables eligible unreviewed media
+and draft details for all viewers, including anonymous visitors. Set it false for
+approved-media-only visibility. The workflow checks pending migrations without
+applying them and keeps processing off. Health checks establish readiness and
+login-page availability, not a successful user sign-in or automatic rollback.
+Use the [SSH setup guide](.deployments/aws/ec2/authentication-guide.md) for runner
+reachability, deployment keys and host-key verification.
 
 Do not deploy application releases with ad hoc local/SSH commands. The retained
 build and target-side Bash helpers are invoked by Actions. Alternative AWS/Azure

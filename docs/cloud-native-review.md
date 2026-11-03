@@ -2,6 +2,15 @@
 
 Reviewed: 22 October 2026.
 
+Documentation alignment: 3 November 2026. This remains a dated architecture review
+and proposed production target. Current application releases use the reviewed
+[EC2 Actions workflow](../.deployments/aws/ec2/README.md), not the ECS target below.
+The custom React Admin console and shared project workspace are implemented;
+PostgreSQL and private routed workspace storage remain the runtime foundation.
+The release workflow keeps processing off and does not apply migrations. Check
+each finding against current source before planning changes; this update did not
+rerun load/recovery tests, query a cloud account or establish replica safety.
+
 What this repo does: MMR Homefinder ingests builder documents, extracts project and floor-plan evidence, supports review/publication, and serves buyer browsing and recommendations. Its Django/React modular monolith has three web entrypoints, shared PostgreSQL, a private media store, and durable background work.
 
 Load assumed: the documented target of a brief peak of roughly 1,000 concurrent browsing users, with builder/admin activity and background ingestion. This is not measured capacity or 1,000 requests/second. The SLOs in the delivery specification remain proposals.
@@ -110,7 +119,7 @@ Evidence: [upload handler, lines 834–858](../reailEstate/reailEstate_common/ba
 - **Fix:** Run workers continuously for enabled workflows. Deploy/monitor the scanner and signature freshness, securely deliver approved vision profiles/credentials, and validate conversion dependencies for enabled formats. Show workflow availability and queue delay; gate unavailable capabilities explicitly.
 - **If skipped:** The application appears healthy while core asynchronous actions never complete or exhaust retries.
 
-Evidence: [startup](../.deployments/aws/ec2/start.sh), [processing profile](../.deployments/aws/ec2/compose.yml), [defaults](../.deployments/aws/ec2/app.env.example), [rejecting scanner](../reailEstate/reailEstate_common/backend/platform_api/integrations.py).
+Evidence: [current release helper](../.deployments/aws/ec2/deploy-release.sh), [processing profile](../.deployments/aws/ec2/compose.yml), [defaults](../.deployments/aws/ec2/app.env.example), [rejecting scanner](../reailEstate/reailEstate_common/backend/platform_api/integrations.py).
 
 ### 8. Establish database HA and verified recovery
 

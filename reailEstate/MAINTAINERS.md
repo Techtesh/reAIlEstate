@@ -2,9 +2,9 @@
 
 This is the current-state onboarding guide for the MMR real-estate service. The
 implementation is a Django modular monolith with durable background work and a
-React/Vite buyer application. The documents under [`../docs`](../docs/README.md)
-remain the product and design baseline, but some still describe an earlier
-ASP.NET proposal. For runtime behavior, prefer this guide, the service READMEs,
+React/Vite Buyer, Builder and custom Admin interfaces. The documents under
+[`../docs`](../docs/README.md) distinguish the implemented stack from product
+requirements and proposed production architecture. For runtime behavior, prefer this guide, the service READMEs,
 the URL configuration, and the tests.
 
 Use [`../WORKFLOWS.md`](../WORKFLOWS.md) as the canonical workflow and runtime
@@ -15,7 +15,7 @@ duplicating lifecycle commands.
 
 | Area | Runtime owner | Primary source |
 | --- | --- | --- |
-| Buyer UI | React 19 and Vite | [`reailEstate_common/frontend/src`](reailEstate_common/frontend/src) |
+| Buyer, Builder and Admin UI | React 19 and Vite | [`reailEstate_common/frontend/src`](reailEstate_common/frontend/src) |
 | HTTP API and admin | Django and Django REST Framework | [`reailEstate_common/backend/platform_api/views.py`](reailEstate_common/backend/platform_api/views.py), [`reailEstate_common/backend/platform_api/admin.py`](reailEstate_common/backend/platform_api/admin.py) |
 | API routing | Django URL configuration | [`reailEstate_common/backend/platform_api/urls.py`](reailEstate_common/backend/platform_api/urls.py) |
 | Domain state | Django models and migrations | [`reailEstate_common/backend/platform_api/models.py`](reailEstate_common/backend/platform_api/models.py), [`reailEstate_common/backend/platform_api/migrations`](reailEstate_common/backend/platform_api/migrations) |
@@ -27,6 +27,30 @@ duplicating lifecycle commands.
 | Browser/API client | Same-origin fetch wrapper and route components | [`reailEstate_common/frontend/src/api.ts`](reailEstate_common/frontend/src/api.ts), [`reailEstate_common/frontend/src/App.tsx`](reailEstate_common/frontend/src/App.tsx) |
 
 ## Architecture at a glance
+
+### Current admin and release behavior
+
+The production Admin shell is React, served by the admin Django entrypoint using
+the builder-mode bundle. Console APIs live under `/api/v1/admin/console/`;
+shared editing retains `/api/v1/admin/project-workspace/`. Django sessions and
+model permissions remain authoritative. Legacy editor GET/HEAD routes redirect
+to React and retired POSTs return 405; retained ModelAdmin adapters are not an
+alternative production UI.
+
+Project/plan review uses the separate Admin review APIs. Whole-floor corrections
+preserve flat/lift/staircase counts, refuge/common-area data and before/after
+history; layout corrections preserve room/configuration fields. Correction and
+approval are separate operations, with source integrity, busy-work, version and
+independent-review checks. Shared crop tools support five-degree rotation and
+retain original-page bounds. Queue tabs show Running, Dead letter and Completed
+with bounded-row counts distinguished from totals.
+
+Releases use [EC2 Actions](../.deployments/aws/ec2/README.md), with independently
+verified SSH host keys and environment secrets. `demo` defaults to true and
+enables eligible unreviewed previews for all viewers. The workflow checks pending
+migrations without applying them and keeps processing off. Local lifecycle startup
+still applies migrations and starts the worker. Do not infer live release success
+or fresh test results from source changes or the dated records below.
 
 ```mermaid
 flowchart LR
@@ -692,16 +716,22 @@ Useful references are [`reailEstate_common/backend/README.md`](reailEstate_commo
 [`../docs/05-api-contracts.md`](../docs/05-api-contracts.md), and
 [`../docs/06-data-model.md`](../docs/06-data-model.md).
 
-## Known documentation drift
+## Reading current and historical documentation
 
-- [`../docs/README.md`](../docs/README.md) and parts of the backlog still call
-  ASP.NET Core the proposed backend. The running backend is Django/Python.
+- [`../docs/README.md`](../docs/README.md) links current runtime references and
+  requirements. The earlier ASP.NET scaffold proposal is superseded by Django/Python.
 - Product, HLD, LLD, API, UX, security, and rollout documents are requirements and
   design baselines; wording about future work does not prove a feature is absent.
 - Implementation truth is concentrated in Django settings, URLs, views, services,
   workers, migrations, tests, the backend README, and the frontend README.
 - Keep this file current when adding a new queue event, trust boundary, public
   serializer, external provider, storage lifecycle, or publication gate.
+
+The verification snapshots above and below describe their recorded revisions.
+In particular, the 5 October browser-only guest scoring and native Django admin
+theme descriptions are historical: current guest scoring calls the stateless
+shared ranking API, and Admin uses the React theme controls. No test suite was
+rerun for the 3 November documentation alignment.
 
 
 ### PostgreSQL-only verification: 2026-10-22
