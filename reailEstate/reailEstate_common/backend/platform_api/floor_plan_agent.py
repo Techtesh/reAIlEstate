@@ -50,7 +50,7 @@ class FloorPlanCandidate:
 class FloorPlanAgent:
     """Bounded workflow: detect, extract, validate, reconcile, and request review."""
 
-    version = "floor-plan-agent-1.7"
+    version = "floor-plan-agent-1.8"
 
     def __init__(self, vision_provider=None):
         self._owns_vision_provider = vision_provider is None
@@ -502,6 +502,15 @@ class FloorPlanAgent:
 
     @staticmethod
     def _vision_schema():
+        image_box = {
+            "type": ["object", "null"],
+            "additionalProperties": False,
+            "required": ["left", "top", "right", "bottom"],
+            "properties": {
+                edge: {"type": "integer", "minimum": 0, "maximum": 1000}
+                for edge in ("left", "top", "right", "bottom")
+            },
+        }
         return {
             "type": "object",
             "additionalProperties": False,
@@ -528,13 +537,21 @@ class FloorPlanAgent:
                                 "items": {
                                     "type": "object",
                                     "additionalProperties": False,
-                                    "required": ["room", "measurements"],
+                                    "required": ["room", "printedLabel", "roomBox", "dimensionStatus", "measurements"],
                                     "properties": {
                                         "room": {"type": "string", "maxLength": 64},
+                                        "printedLabel": {"type": ["string", "null"], "maxLength": 80},
+                                        "roomBox": image_box,
+                                        "dimensionStatus": {"type": "string", "enum": ["printed", "missing", "needs_review"]},
                                         "measurements": {"type": "array", "maxItems": 4, "items": {
                                             "type": "object", "additionalProperties": False,
-                                            "required": ["length", "width", "unit", "unitSource", "unitEvidence", "lengthEstimated", "widthEstimated"],
+                                            "required": [
+                                                "length", "width", "unit", "unitSource", "unitEvidence",
+                                                "lengthEstimated", "widthEstimated", "rawText", "textBox",
+                                            ],
                                             "properties": {
+                                                "rawText": {"type": ["string", "null"], "maxLength": 160},
+                                                "textBox": image_box,
                                                 "length": {"type": ["string", "null"], "maxLength": 80},
                                                 "width": {"type": ["string", "null"], "maxLength": 80},
                                                 "unit": {"type": "string", "enum": ["ft", "m", "unknown"]},
@@ -573,7 +590,7 @@ class FloorPlanAgent:
         for item in result.get("floorPlans", [])[:20]:
             if not isinstance(item, dict):
                 continue
-            dimensions, dimension_metadata = normalize_room_measurements(item.get("dimensions", []))
+            dimensions, dimension_metadata = normalize_room_measurements(item.get("dimensions", []), printed_only=True)
             dimension_metadata = {**self._provider_metadata(), **dimension_metadata}
             raw_features = item.get("features", [])
             features = {

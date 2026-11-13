@@ -119,7 +119,9 @@ def test_guessed_measurements_warn_without_boundary_failure_and_fresh_readings_c
     client.force_login(actor)
     page = client.get(reverse("admin:platform_api_project_media_dashboard", args=[plan.project_id]), {"section": "layouts"})
     assert b"Room size review required:" in page.content
-    assert b"Living: AI-inferred unit" in page.content and b"22.97 ft" in page.content
+    assert b"Living: AI-inferred unit" in page.content
+    assert b"22.97 ft" not in page.content
+    assert plan.dimensions[0]["lengthFt"] is None and plan.dimensions[0]["areaSqFt"] is None
     assert b"Boundary review required:" not in page.content
     result["floorPlans"][0]["dimensions"] = [native_room("Living", 7, 3.87, "m")]
     message, _ = layouts.queue_layout_evaluation(plan, actor, vision_selection=selection, force=True)
