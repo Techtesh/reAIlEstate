@@ -68,12 +68,14 @@ def test_native_measurement_schema_requires_unit_evidence_and_rejects_feet_only_
     from .test_room_dimensions import native_room
     schema = FloorPlanAgent._vision_schema()
     result = layout_result()
-    result["floorPlans"][0]["dimensions"] = [native_room("Living", 7, 3.87, "m")]
+    box = {"left": 100, "top": 100, "right": 500, "bottom": 600}
+    room = native_room("Living", 7, 3.87, "m", rawText="7 x 3.87 m", textBox=box)
+    room.update(printedLabel="LIVING", roomBox=box, dimensionStatus="printed")
+    result["floorPlans"][0]["dimensions"] = [room]
     validate({"floorPlans": result["floorPlans"]}, schema)
     result["floorPlans"][0]["dimensions"] = [{"room": "Living", "lengthFt": 7, "widthFt": 3.87}]
     with pytest.raises(ValidationError):
         validate({"floorPlans": result["floorPlans"]}, schema)
-    room = native_room("Living", 7, 3.87, "m")
     del room["measurements"][0]["unitSource"]
     result["floorPlans"][0]["dimensions"] = [room]
     with pytest.raises(ValidationError):
@@ -93,8 +95,9 @@ def test_all_layout_prompts_include_unlabeled_foyers_passages_and_feet_inches(me
     assert "Prefer printed feet/inches" in prompt
     assert "Capture BOTH metric and imperial pairs" in prompt
     assert "never assume decimals mean feet" in prompt
-    assert "lengthEstimated/widthEstimated true" in prompt
-    assert "Never disguise estimates as printed measurements" in prompt
+    assert "Keep lengthEstimated and widthEstimated false" in prompt
+    assert "Never estimate from layout or pixels" in prompt
+    assert "Copy the complete dimension pair into rawText verbatim" in prompt
 
 
 @pytest.mark.parametrize("kind", ["full_floor", "multiple_layouts", "non_plan", "uncertain"])

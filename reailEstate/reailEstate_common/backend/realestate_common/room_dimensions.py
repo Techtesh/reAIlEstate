@@ -37,7 +37,17 @@ def dimension_warning(evidence):
     return "; ".join(messages)
 
 
-def normalize_room_measurements(raw_dimensions):
+def _image_box(value):
+    if not isinstance(value, dict):
+        return None
+    edges = [value.get(edge) for edge in ("left", "top", "right", "bottom")]
+    if any(type(edge) is not int or not 0 <= edge <= 1000 for edge in edges):
+        return None
+    left, top, right, bottom = edges
+    return edges if left < right and top < bottom else None
+
+
+def normalize_room_measurements(raw_dimensions, *, printed_only=False):
     """Normalize native readings, never assume a bare number is already feet."""
     dimensions, evidence = [], []
     for room in raw_dimensions[:50] if isinstance(raw_dimensions, list) else []:
@@ -61,11 +71,18 @@ def normalize_room_measurements(raw_dimensions):
             if not contradictory and unit == "unknown" and len(units) == 1:
                 unit = next(iter(units))
             inferred = reading["unitSource"] not in {"printed", "legend"} or unit not in units
-            length, width = (None, None) if contradictory else (
-                _length_in_feet(reading["length"], unit), _length_in_feet(reading["width"], unit))
+            if "rawText" in raw:
+                reading["rawText"] = raw["rawText"][:160] if isinstance(raw["rawText"], str) else None
+            if "textBox" in raw:
+                reading["textBox"] = _image_box(raw["textBox"])
+            length, width = (
+                None if contradictory or (printed_only and (inferred or reading[key + "Estimated"]))
+                else _length_in_feet(reading[key], unit)
+                for key in ("length", "width")
+            )
             guessed = inferred or reading["lengthEstimated"] or reading["widthEstimated"]
             complete = length is not None and width is not None
-            rank = (0 if unit == "ft" else 1) if complete and not guessed else 2 if complete else 3
+            rank = (0 if unit == "ft" else 1) if complete and (printed_only or not guessed) else 2 if complete else 3
             options.append(((rank, -(int(length is not None) + int(width is not None))), len(readings),
                             length, width, inferred, contradictory))
             readings.append(reading)
@@ -82,11 +99,29 @@ def normalize_room_measurements(raw_dimensions):
                 if reading[axis + "Estimated"]:
                     warnings.append(f"AI-estimated {axis}")
         for axis, value in (("length", length), ("width", width)):
-            if value is None:
+            if value is None and (readings or room.get("dimensionStatus") != "missing"):
                 warnings.append(f"unknown or unusable {axis}/unit")
+        room_evidence = {"room": name, "roomIndex": len(dimensions), "measurements": readings,
+                         "selectedIndex": selected[1] if selected else None, "warnings": warnings}
+        if "printedLabel" in room:
+            label = room["printedLabel"]
+            room_evidence["printedLabel"] = label[:80] if isinstance(label, str) else None
+        if "roomBox" in room:
+            room_evidence["roomBox"] = _image_box(room["roomBox"])
+        status = room.get("dimensionStatus")
+        if status == "needs_review" or ("roomBox" in room and room_evidence["roomBox"] is None) or any(
+            ("textBox" in reading and reading["textBox"] is None)
+            or ("rawText" in reading and not reading["rawText"])
+            for reading in readings
+        ):
+            warnings.append("room or dimension evidence needs review")
+            status = "needs_review"
+        if status == "printed" and warnings:
+            status = "needs_review"
+        if status in ("printed", "missing", "needs_review"):
+            room_evidence["dimensionStatus"] = status
         dimensions.append({"room": name, "lengthFt": length, "widthFt": width})
-        evidence.append({"room": name, "roomIndex": len(dimensions) - 1, "measurements": readings,
-                         "selectedIndex": selected[1] if selected else None, "warnings": warnings})
+        evidence.append(room_evidence)
     return dimensions, {"dimensionEvidence": evidence, "dimensionWarning": dimension_warning(evidence)}
 
 

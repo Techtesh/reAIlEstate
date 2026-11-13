@@ -201,7 +201,11 @@ def test_single_apartment_pages_use_layout_evaluator_without_segmentation(source
     project, document, actor, _ = source
     provider = Mock(code="test", model="test-model", profile_id="test")
     result = layout_result()
-    result["floorPlans"][0]["dimensions"] = [native_room("Living", 7, 3.87, "m"),
+    room_box = {"left": 50, "top": 70, "right": 550, "bottom": 600}
+    text_box = {"left": 80, "top": 100, "right": 130, "bottom": 120}
+    living = native_room("Living", 7, 3.87, "m", rawText="7 × 3.87 m", textBox=text_box)
+    living.update(printedLabel="LIVING", roomBox=room_box, dimensionStatus="printed")
+    result["floorPlans"][0]["dimensions"] = [living,
         native_room("Kitchen", 9, 6, unitSource="inferred", widthEstimated=True)]
     provider.analyze_layout.return_value = result
     provider.analyze_classified_plan.return_value = layout_result()
@@ -216,7 +220,12 @@ def test_single_apartment_pages_use_layout_evaluator_without_segmentation(source
     assert plans.get().configuration_type == "1BHK"
     assert plans.get().dimensions[0]["lengthFt"] == pytest.approx(7 / 0.3048)
     assert "Kitchen: AI-inferred unit, AI-estimated width" in plans.get().raw_extraction["dimensionWarning"]
-    assert plans.get().raw_extraction["dimensionEvidence"][0]["measurements"][0]["length"] == "7"
+    evidence = plans.get().raw_extraction["dimensionEvidence"][0]
+    assert evidence["printedLabel"] == "LIVING"
+    assert evidence["roomBox"] == [50, 70, 550, 600]
+    assert evidence["measurements"][0]["rawText"] == "7 × 3.87 m"
+    assert evidence["measurements"][0]["textBox"] == [80, 100, 130, 120]
+    assert plans.get().dimensions[1]["widthFt"] is None
     assert plans.get().review_state == "gen_with_ai_needs_review"
     provider.analyze_layout.assert_called_once()
     assert provider.analyze_classified_plan.call_count == (category == "floor-plans")
